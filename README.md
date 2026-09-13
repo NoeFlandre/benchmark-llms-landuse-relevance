@@ -32,11 +32,19 @@ when a model is actually loaded.
 Positive class is `yes`. Each run reports accuracy, precision, recall, F1, balanced
 accuracy, Matthews correlation, and `unparsed_rate`.
 
-Decoding is greedy with `max_new_tokens=8`, so a run replays exactly. A generation that
-contains no standalone `yes`/`no` token is counted as an error rather than dropped or
-coerced, and the raw text is kept, so any other convention can be recomputed from the
-published results without re-running the models. See
-[ADR-0002](docs/adr/0002-unparsed-as-error.md).
+Decoding is greedy, so a run replays exactly. The verdict is the last standalone
+`yes`/`no` in the generation — two of these models open with an analysis preamble that
+restates the prompt's own rubric, and reading from the front scores that restatement as
+the answer. A generation that exhausted its token budget without stopping carries no
+verdict at all, whatever words appear in it. Either failure is counted as an error
+rather than dropped or coerced, and the raw text is kept, so another convention can be
+recomputed from the published results without re-running the models. See
+[ADR-0002](docs/adr/0002-unparsed-as-error.md) and
+[ADR-0005](docs/adr/0005-generation-budget.md).
+
+Two configurations are published: the headline run at a 1024-token budget, which asks
+whether the model knows the answer, and a strict eight-token run under
+`strict-8-tokens/`, which asks whether it obeys "output only the token".
 
 Every result file pins the model revision, the prompt sha256, the benchmark sha256, the
 decoding settings, the seed, and the source commit.

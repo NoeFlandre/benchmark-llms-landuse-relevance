@@ -16,6 +16,20 @@ the column is carried through.
 a private Transformers attribute. If that disappears, runs record an empty revision
 rather than failing. Pass `--revision` to pin it explicitly and remove the ambiguity.
 
+**Verdict extraction is a heuristic.** The verdict is the last standalone `yes`/`no` in
+an untruncated generation. A model that concludes and then adds a caveat naming the other
+verdict would be misread. Raw generations are stored so any such case is visible, and the
+strict eight-token run is published alongside as a check. Constrained decoding would
+remove the heuristic entirely, at the cost of no longer measuring instruction-following
+— see [ADR-0001](adr/0001-greedy-generation.md).
+
 **Mutation testing covers the domain only.** Adapters are covered by tests but not
 mutated; their logic is thin, and mutating filesystem code mostly produces equivalent
 mutants. Revisit if an adapter grows real branching.
+
+**Three mutants survive by construction.** `zip(..., strict=True)` in `predict_all` is
+unreachable defence — the explicit length check above it already guarantees equal
+lengths — so mutating `strict` changes nothing. The check is kept for its error message
+and `strict=True` for the lint rule that requires it. One further mutant rewrites
+`"utf-8"` as `"UTF-8"`, which Python treats as the same encoding. The mutation gate
+allows exactly these four.

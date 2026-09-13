@@ -73,6 +73,9 @@ seed {reference.seed}
 - `leaderboard.csv` — the table above, with columns {", ".join(LEADERBOARD_COLUMNS)}.
 
 Generations the model did not express as `yes`/`no` are counted as errors, never dropped.
+The verdict is the last standalone `yes`/`no` in a generation that stopped on its own; a
+generation that exhausted its token budget carries no verdict at all, and `truncated`
+counts those.
 """
 
 

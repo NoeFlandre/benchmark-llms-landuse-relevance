@@ -18,6 +18,7 @@ LEADERBOARD_COLUMNS = (
     "recall",
     "matthews_corrcoef",
     "unparsed_rate",
+    "truncated",
     "duration_seconds",
     "model_revision",
 )
@@ -69,6 +70,7 @@ def leaderboard_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
             "recall": round(r.metrics.recall, 4),
             "matthews_corrcoef": round(r.metrics.matthews_corrcoef, 4),
             "unparsed_rate": round(r.metrics.unparsed_rate, 4),
+            "truncated": sum(p.truncated for p in r.predictions),
             "duration_seconds": round(r.metadata.duration_seconds, 2),
             "model_revision": r.metadata.model_revision,
         }

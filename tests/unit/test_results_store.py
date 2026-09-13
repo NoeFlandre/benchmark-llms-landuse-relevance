@@ -83,3 +83,32 @@ def test_reading_a_corrupt_run_file_fails_loudly(tmp_path: Path) -> None:
     path.write_text("{not json", encoding="utf-8")
     with pytest.raises(ValueError):
         read_run(path)
+
+
+def test_the_leaderboard_separates_truncated_generations_from_other_failures() -> None:
+    """Unparsed covers both; only the truncation count says the model was cut off."""
+    metadata = _result().metadata
+    predictions = (
+        Prediction(
+            item_id="a" * 16,
+            expected=Label.YES,
+            predicted=None,
+            raw_output="1. Analyze",
+            truncated=True,
+        ),
+        Prediction(
+            item_id="b" * 16,
+            expected=Label.YES,
+            predicted=None,
+            raw_output="I cannot say",
+            truncated=False,
+        ),
+    )
+    result = RunResult(
+        metadata=metadata,
+        predictions=predictions,
+        metrics=evaluate([(Label.YES, None), (Label.YES, None)]),
+    )
+    (row,) = leaderboard_rows([result])
+    assert row["unparsed_rate"] == 1.0
+    assert row["truncated"] == 1
