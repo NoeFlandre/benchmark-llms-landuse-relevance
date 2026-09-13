@@ -1,0 +1,26 @@
+site_name: Land-use relevance LLM benchmark
+site_description: Benchmarking small open-weight LLMs on land-use relevance classification.
+repo_url: https://github.com/NoeFlandre/benchmark-llms-landuse-relevance
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+    - scheme: slate
+      primary: teal
+nav:
+  - Home: index.md
+  - Benchmark: benchmark.md
+  - Running on Grid'5000: grid5000.md
+  - Results: results.md
+  - Architecture: architecture.md
+  - Decisions:
+      - ADR-0001 Greedy generation over logit scoring: adr/0001-greedy-generation.md
+      - ADR-0002 Unparsed outputs are errors: adr/0002-unparsed-as-error.md
+      - ADR-0003 Transformers rather than vLLM: adr/0003-transformers-runtime.md
+      - ADR-0004 Content-addressed item ids: adr/0004-content-addressed-ids.md
+  - Technical debt: debt.md
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.superfences

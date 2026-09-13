@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  gauntlet:
+    name: Deterministic quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+
+      - name: Baseline
+        run: uv run --no-sync pytest
+
+      - name: Lint and format
+        run: |
+          uv run --no-sync ruff format --check .
+          uv run --no-sync ruff check .
+
+      - name: Types
+        run: uv run --no-sync ty check
+
+      - name: Unit tests with coverage
+        run: uv run --no-sync pytest tests/unit --cov --cov-report=term-missing --cov-report=json
+
+      - name: Property tests
+        run: uv run --no-sync pytest tests/property
+
+      - name: Acceptance scenarios
+        run: uv run --no-sync pytest tests/acceptance
+
+      - name: Architecture boundaries
+        run: uv run --no-sync pytest tests/architecture
+
+      - name: CRAP score
+        run: |
+          uv run --no-sync pytest tests/unit tests/property --cov --cov-report=json -q
+          uv run --no-sync python scripts/crap.py --max 6
+
+      - name: Mutation testing
+        run: |
+          uv run --no-sync mutmut run --max-children 4 || true
+          uv run --no-sync python scripts/check_mutants.py --max-survivors 0
+
+      - name: CLI smoke test
+        run: uv run --no-sync lrb models
+
+  docs:
+    name: Documentation builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --with mkdocs-material mkdocs build --strict
+
+  image:
+    name: Container builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false

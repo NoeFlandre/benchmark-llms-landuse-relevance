@@ -1,0 +1,108 @@
+[project]
+name = "landuse-relevance-bench"
+version = "0.1.0"
+description = "End-to-end benchmark of small LLMs on land-use relevance sentence classification."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Noe Flandre", email = "noe.flandre@inria.fr" }]
+dependencies = [
+    "typer>=0.15",
+]
+
+[project.optional-dependencies]
+inference = [
+    "torch>=2.6",
+    "transformers>=4.57",
+    "accelerate>=1.0",
+]
+publish = [
+    "huggingface-hub>=0.35",
+]
+
+[project.scripts]
+lrb = "landuse_relevance_bench.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-bdd>=8.1",
+    "hypothesis>=6.120",
+    "ruff>=0.9",
+    "ty>=0.0.1a1",
+    "import-linter>=2.1",
+    "radon>=6.0",
+    "mutmut>=3.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/landuse_relevance_bench"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", "PL", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "ARG001", "PLC0415"]
+# Optional runtimes (torch, transformers, huggingface_hub) are imported inside the
+# functions that need them, so the CLI and the domain stay usable without them.
+# A command's parameters are its user interface; typer needs them in the signature.
+"src/landuse_relevance_bench/cli.py" = ["PLC0415", "PLR0913", "PLR0917"]
+"src/landuse_relevance_bench/adapters/hf_generator.py" = ["PLC0415"]
+"src/landuse_relevance_bench/adapters/hf_publish.py" = ["PLC0415", "PLR0913"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers -m 'not integration'"
+markers = [
+    "integration: exercises a real model runtime and downloads weights (deselected by default)",
+]
+
+[tool.coverage.run]
+source = ["src/landuse_relevance_bench"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.importlinter]
+root_packages = ["landuse_relevance_bench"]
+
+[[tool.importlinter.contracts]]
+name = "Domain is pure (no adapters, no I/O libraries)"
+type = "forbidden"
+source_modules = ["landuse_relevance_bench.domain"]
+forbidden_modules = [
+    "landuse_relevance_bench.adapters",
+    "landuse_relevance_bench.cli",
+    "csv",
+    "pathlib",
+    "typer",
+    "torch",
+    "transformers",
+    "huggingface_hub",
+]
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+    "landuse_relevance_bench.cli",
+    "landuse_relevance_bench.adapters",
+    "landuse_relevance_bench.domain",
+]
+
+[tool.mutmut]
+paths_to_mutate = ["src/landuse_relevance_bench/domain/"]
+tests_dir = ["tests/unit/", "tests/property/"]

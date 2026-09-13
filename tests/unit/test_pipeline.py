@@ -1,0 +1,83 @@
+from collections.abc import Sequence
+from pathlib import Path
+
+import pytest
+
+from landuse_relevance_bench.adapters.hashing import sha256_of_file
+from landuse_relevance_bench.adapters.pipeline import RunRequest, execute
+from landuse_relevance_bench.adapters.results_store import read_run, run_filename
+from landuse_relevance_bench.domain.labels import Label
+
+
+class StubGenerator:
+    def __init__(self, outputs: Sequence[str]) -> None:
+        self._outputs = list(outputs)
+        self.prompts: list[str] = []
+
+    def generate(self, prompts: Sequence[str]) -> Sequence[str]:
+        self.prompts.extend(prompts)
+        taken, self._outputs = self._outputs[: len(prompts)], self._outputs[len(prompts) :]
+        return taken
+
+
+@pytest.fixture
+def request_for(tmp_path: Path, benchmark_path: Path, prompt_path: Path):
+    def build(**overrides) -> RunRequest:
+        defaults = {
+            "model_id": "LiquidAI/LFM2.5-350M",
+            "benchmark_path": benchmark_path,
+            "prompt_path": prompt_path,
+            "output_dir": tmp_path / "results",
+        }
+        return RunRequest(**{**defaults, **overrides})
+
+    return build
+
+
+def _provider(outputs: Sequence[str], revision: str = "rev0"):
+    generator = StubGenerator(outputs)
+
+    def provide(_: RunRequest):
+        return generator, revision
+
+    provide.generator = generator  # type: ignore[attr-defined]
+    return provide
+
+
+def test_scores_the_whole_benchmark_and_returns_the_result(request_for) -> None:
+    result = execute(request_for(), _provider(["yes", "no"]))
+    assert result.metrics.n_items == 2
+    assert result.metrics.accuracy == 1.0
+    assert [p.predicted for p in result.predictions] == [Label.YES, Label.NO]
+
+
+def test_writes_one_result_file_named_after_the_model(request_for, tmp_path: Path) -> None:
+    result = execute(request_for(), _provider(["yes", "no"]))
+    path = tmp_path / "results" / run_filename("LiquidAI/LFM2.5-350M")
+    assert read_run(path) == result
+
+
+def test_records_the_inputs_it_actually_used(request_for, benchmark_path: Path) -> None:
+    result = execute(request_for(batch_size=1, max_new_tokens=4, seed=7), _provider(["yes", "no"]))
+    metadata = result.metadata
+    assert metadata.benchmark_sha256 == sha256_of_file(benchmark_path)
+    assert metadata.model_revision == "rev0"
+    assert metadata.batch_size == 1
+    assert metadata.max_new_tokens == 4
+    assert metadata.seed == 7
+    assert metadata.decoding == "greedy"
+    assert metadata.duration_seconds >= 0.0
+
+
+def test_feeds_the_file_prompt_to_the_generator(request_for) -> None:
+    provider = _provider(["yes", "no"])
+    execute(request_for(), provider)
+    assert provider.generator.prompts[0].startswith("Classify.")
+    assert provider.generator.prompts[0].endswith("Dense mangrove forest lines the lagoon.")
+
+
+def test_unparsable_generations_survive_into_the_stored_result(request_for) -> None:
+    result = execute(request_for(), _provider(["I cannot tell", "no"]))
+    assert result.predictions[0].predicted is None
+    assert result.predictions[0].raw_output == "I cannot tell"
+    assert result.metrics.unparsed_rate == 0.5

@@ -1,0 +1,85 @@
+import json
+from pathlib import Path
+
+import pytest
+
+from landuse_relevance_bench.adapters.results_store import (
+    leaderboard_rows,
+    read_run,
+    run_filename,
+    write_leaderboard_csv,
+    write_run,
+)
+from landuse_relevance_bench.domain.labels import Label
+from landuse_relevance_bench.domain.metrics import evaluate
+from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
+
+
+def _result(model_id: str = "LiquidAI/LFM2.5-350M", accuracy_pair: tuple = (Label.YES, Label.YES)):
+    metadata = RunMetadata(
+        model_id=model_id,
+        model_revision="abc123",
+        prompt_sha256="p" * 64,
+        benchmark_sha256="b" * 64,
+        max_new_tokens=8,
+        batch_size=16,
+        seed=0,
+        decoding="greedy",
+        dtype="bfloat16",
+        started_at="2026-09-13T10:00:00Z",
+        duration_seconds=1.0,
+    )
+    prediction = Prediction(
+        item_id="0" * 16, expected=accuracy_pair[0], predicted=accuracy_pair[1], raw_output="yes"
+    )
+    return RunResult(
+        metadata=metadata, predictions=(prediction,), metrics=evaluate([accuracy_pair])
+    )
+
+
+def test_a_written_run_reads_back_identically(tmp_path: Path) -> None:
+    path = write_run(_result(), tmp_path)
+    assert read_run(path) == _result()
+
+
+def test_the_filename_is_derived_from_the_model_id(tmp_path: Path) -> None:
+    path = write_run(_result(), tmp_path)
+    assert path.name == "LiquidAI__LFM2.5-350M.json"
+    assert path.parent == tmp_path
+
+
+def test_run_filename_flattens_the_namespace_separator() -> None:
+    assert run_filename("a/b") == "a__b.json"
+
+
+def test_the_file_is_pretty_printed_json_with_a_trailing_newline(tmp_path: Path) -> None:
+    text = write_run(_result(), tmp_path).read_text(encoding="utf-8")
+    assert text.endswith("\n")
+    assert json.loads(text)["metadata"]["model_id"] == "LiquidAI/LFM2.5-350M"
+
+
+def test_writing_the_same_run_twice_is_idempotent(tmp_path: Path) -> None:
+    first = write_run(_result(), tmp_path).read_text(encoding="utf-8")
+    second = write_run(_result(), tmp_path).read_text(encoding="utf-8")
+    assert first == second
+
+
+def test_the_leaderboard_ranks_models_by_descending_f1(tmp_path: Path) -> None:
+    weak = _result("weak/model", (Label.YES, Label.NO))
+    strong = _result("strong/model", (Label.YES, Label.YES))
+    rows = leaderboard_rows([weak, strong])
+    assert [r["model_id"] for r in rows] == ["strong/model", "weak/model"]
+
+
+def test_the_leaderboard_csv_has_a_header_and_one_row_per_model(tmp_path: Path) -> None:
+    path = write_leaderboard_csv([_result("a/b"), _result("c/d")], tmp_path / "leaderboard.csv")
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    assert lines[0].startswith("model_id,")
+    assert len(lines) == 3
+
+
+def test_reading_a_corrupt_run_file_fails_loudly(tmp_path: Path) -> None:
+    path = tmp_path / "broken.json"
+    path.write_text("{not json", encoding="utf-8")
+    with pytest.raises(ValueError):
+        read_run(path)
