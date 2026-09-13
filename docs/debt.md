@@ -27,7 +27,7 @@ remove the heuristic entirely, at the cost of no longer measuring instruction-fo
 mutated; their logic is thin, and mutating filesystem code mostly produces equivalent
 mutants. Revisit if an adapter grows real branching.
 
-**Three mutants survive by construction.** `zip(..., strict=True)` in `predict_all` is
+**Four mutants survive by construction.** `zip(..., strict=True)` in `predict_all` is
 unreachable defence — the explicit length check above it already guarantees equal
 lengths — so mutating `strict` changes nothing. The check is kept for its error message
 and `strict=True` for the lint rule that requires it. One further mutant rewrites
