@@ -16,6 +16,7 @@ CARD_COLUMNS = (
     "recall",
     "matthews_corrcoef",
     "unparsed_rate",
+    "truncated",
 )
 
 
@@ -26,7 +27,20 @@ class DatasetHub(Protocol):
     def upload_folder(self, **kwargs: Any) -> Any: ...
 
 
-def dataset_card(results: Sequence[RunResult], *, benchmark_name: str) -> str:
+def companion_configurations(results_dir: Path) -> tuple[str, ...]:
+    """Subfolders holding runs of the same benchmark under different settings."""
+    return tuple(
+        sorted(
+            child.name
+            for child in results_dir.iterdir()
+            if child.is_dir() and any(child.glob("*.json"))
+        )
+    )
+
+
+def dataset_card(
+    results: Sequence[RunResult], *, benchmark_name: str, companions: Sequence[str] = ()
+) -> str:
     """A dataset card whose leaderboard is generated from the results themselves."""
     rows = leaderboard_rows(results)
     reference = results[0].metadata
@@ -66,7 +80,7 @@ seed {reference.seed}
 {divider}
 {body}
 
-## Files
+{_companion_section(companions)}## Files
 
 - `<namespace>__<model>.json` — one file per model: run metadata, every raw generation,
   the parsed verdict, and the scores computed from exactly those predictions.
@@ -77,6 +91,17 @@ The verdict is the last standalone `yes`/`no` in a generation that stopped on it
 generation that exhausted its token budget carries no verdict at all, and `truncated`
 counts those.
 """
+
+
+def _companion_section(companions: Sequence[str]) -> str:
+    if not companions:
+        return ""
+    listed = "\n".join(f"- `{name}/`" for name in companions)
+    return (
+        "## Companion configurations\n\n"
+        "The same benchmark and prompt, run under different settings:\n\n"
+        f"{listed}\n\n"
+    )
 
 
 def publish_results(
@@ -95,7 +120,12 @@ def publish_results(
     hub = api if api is not None else _default_api()
     results_dir.mkdir(parents=True, exist_ok=True)
     (results_dir / "README.md").write_text(
-        dataset_card(results, benchmark_name=benchmark_name), encoding="utf-8"
+        dataset_card(
+            results,
+            benchmark_name=benchmark_name,
+            companions=companion_configurations(results_dir),
+        ),
+        encoding="utf-8",
     )
     hub.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
     hub.upload_folder(

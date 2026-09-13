@@ -76,3 +76,29 @@ def test_publishing_writes_the_card_into_the_uploaded_folder(tmp_path: Path) -> 
 def test_publishing_nothing_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         publish_results("me/bench", tmp_path, [], api=FakeApi())
+
+
+def test_the_card_leaderboard_shows_the_truncation_count() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv")
+    assert "truncated" in card.split("## Leaderboard")[1].split("\n")[2]
+
+
+def test_the_card_points_at_companion_configurations_when_there_are_any() -> None:
+    card = dataset_card(
+        [_result()], benchmark_name="benchmark.csv", companions=("strict-8-tokens",)
+    )
+    assert "`strict-8-tokens/`" in card
+
+
+def test_the_card_says_nothing_about_companions_when_there_are_none() -> None:
+    assert "companion" not in dataset_card([_result()], benchmark_name="benchmark.csv").lower()
+
+
+def test_publishing_lists_the_companion_folders_it_finds(tmp_path: Path) -> None:
+    (tmp_path / "strict-8-tokens").mkdir()
+    (tmp_path / "strict-8-tokens" / "a__b.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "empty-folder").mkdir()
+    publish_results("me/bench", tmp_path, [_result()], api=FakeApi())
+    card = (tmp_path / "README.md").read_text(encoding="utf-8")
+    assert "`strict-8-tokens/`" in card
+    assert "empty-folder" not in card
