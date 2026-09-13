@@ -8,7 +8,7 @@ Two configurations are published, because they answer different questions.
 
 | folder | budget | question it answers |
 |---|---|---|
-| (root) | 1024 tokens | Does the model know the answer? |
+| (root) | 4096 tokens | Does the model know the answer? |
 | `strict-8-tokens/` | 8 tokens | Does the model obey "output only the token"? |
 
 The two compliant models score identically under both. The two that open with an

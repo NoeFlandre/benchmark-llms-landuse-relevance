@@ -42,7 +42,7 @@ recomputed from the published results without re-running the models. See
 [ADR-0002](docs/adr/0002-unparsed-as-error.md) and
 [ADR-0005](docs/adr/0005-generation-budget.md).
 
-Two configurations are published: the headline run at a 1024-token budget, which asks
+Two configurations are published: the headline run at a 4096-token budget, which asks
 whether the model knows the answer, and a strict eight-token run under
 `strict-8-tokens/`, which asks whether it obeys "output only the token".
 
