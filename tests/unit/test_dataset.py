@@ -36,17 +36,19 @@ def test_item_id_is_a_short_hex_digest() -> None:
 @pytest.mark.parametrize("field", ["sentence", "label"])
 def test_rejects_a_row_missing_a_required_field(field: str) -> None:
     row = {k: v for k, v in ROW.items() if k != field}
-    with pytest.raises(InvalidRowError, match=f"missing the required field '{field}'"):
+    with pytest.raises(
+        InvalidRowError, match=rf"^benchmark row is missing the required field '{field}'$"
+    ):
         build_item(row)
 
 
 def test_rejects_a_blank_sentence() -> None:
-    with pytest.raises(InvalidRowError, match="blank sentence"):
+    with pytest.raises(InvalidRowError, match=r"^benchmark row has a blank sentence$"):
         build_item({**ROW, "sentence": "   "})
 
 
 def test_rejects_an_unknown_label() -> None:
-    with pytest.raises(InvalidRowError, match="unknown label 'maybe'"):
+    with pytest.raises(InvalidRowError, match=r"^unknown label 'maybe'; expected 'yes' or 'no'$"):
         build_item({**ROW, "label": "maybe"})
 
 

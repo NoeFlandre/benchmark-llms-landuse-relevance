@@ -52,5 +52,5 @@ def test_degenerate_denominators_yield_zero_rather_than_nan() -> None:
 
 
 def test_rejects_an_empty_evaluation() -> None:
-    with pytest.raises(ValueError, match="empty set of outcomes"):
+    with pytest.raises(ValueError, match=r"^cannot evaluate an empty set of outcomes$"):
         evaluate([])

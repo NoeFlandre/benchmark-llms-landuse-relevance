@@ -59,12 +59,12 @@ def test_batches_items_at_the_requested_size() -> None:
 
 
 def test_rejects_a_non_positive_batch_size() -> None:
-    with pytest.raises(ValueError, match="batch_size must be at least 1, got 0"):
+    with pytest.raises(ValueError, match=r"^batch_size must be at least 1, got 0$"):
         predict_all(ITEMS, TEMPLATE, ScriptedGenerator([]), batch_size=0)
 
 
 def test_rejects_a_generator_that_returns_the_wrong_number_of_outputs() -> None:
-    with pytest.raises(ValueError, match="returned 1 outputs for 2 prompts"):
+    with pytest.raises(ValueError, match=r"^generator returned 1 outputs for 2 prompts$"):
         predict_all(ITEMS, TEMPLATE, ScriptedGenerator(["yes"]))
 
 

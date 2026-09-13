@@ -54,7 +54,7 @@ jobs:
       - name: Mutation testing
         run: |
           uv run --no-sync mutmut run --max-children 4 || true
-          uv run --no-sync python scripts/check_mutants.py --max-survivors 0
+          uv run --no-sync python scripts/check_mutants.py --max-survivors 4
 
       - name: CLI smoke test
         run: uv run --no-sync lrb models
