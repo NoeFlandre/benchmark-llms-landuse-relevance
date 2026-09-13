@@ -28,7 +28,9 @@ Three changes, together:
 2. **A generation that used its whole budget without stopping carries no verdict.** The
    runtime reports truncation, and a truncated generation is scored unparsed however
    many verdict words appear in it.
-3. **The default budget is 1024 tokens**, enough for these models to finish. The strict
+3. **The budget is large enough for these models to finish** — 1024 by default, 4096 for
+   the published run. At 1024 the 2.6B still truncated on a third of the benchmark; at
+   4096 it truncates on none of it, and its accuracy settles at 0.857. The strict
    eight-token run is kept and published under `strict-8-tokens/`.
 
 ## Consequences
