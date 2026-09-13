@@ -51,11 +51,13 @@ class TransformersGenerator:
         from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
         set_seed(settings.seed)
-        tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+        # The Transformers stubs model a tokenizer as a union that includes None, so the
+        # attributes below are all "unresolved" to a type checker. It is a tokenizer.
+        tokenizer: Any = AutoTokenizer.from_pretrained(model_id, revision=revision)
         tokenizer.padding_side = "left"
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(
+        model: Any = AutoModelForCausalLM.from_pretrained(
             model_id,
             revision=revision,
             dtype=getattr(torch, settings.dtype),

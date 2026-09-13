@@ -4,9 +4,10 @@ The positive class is ``yes`` (the sentence carries land-use signal). Outputs th
 model failed to express as a verdict are counted as errors, never dropped.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from math import sqrt
+from typing import Any
 
 from landuse_relevance_bench.domain.labels import Label
 
@@ -33,7 +34,7 @@ class ConfusionMatrix:
             + self.unparsed
         )
 
-    def to_dict(self) -> dict[str, int]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "true_positive": self.true_positive,
             "false_negative": self.false_negative,
@@ -43,8 +44,14 @@ class ConfusionMatrix:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, int]) -> "ConfusionMatrix":
-        return cls(**payload)
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ConfusionMatrix":
+        return cls(
+            true_positive=payload["true_positive"],
+            false_negative=payload["false_negative"],
+            true_negative=payload["true_negative"],
+            false_positive=payload["false_positive"],
+            unparsed=payload["unparsed"],
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +68,7 @@ class ClassificationMetrics:
     matthews_corrcoef: float
     unparsed_rate: float
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "confusion": self.confusion.to_dict(),
             "n_items": self.n_items,
@@ -75,10 +82,18 @@ class ClassificationMetrics:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, object]) -> "ClassificationMetrics":
-        fields = dict(payload)
-        confusion = ConfusionMatrix.from_dict(fields.pop("confusion"))  # type: ignore[arg-type]
-        return cls(confusion=confusion, **fields)  # type: ignore[arg-type]
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ClassificationMetrics":
+        return cls(
+            confusion=ConfusionMatrix.from_dict(payload["confusion"]),
+            n_items=payload["n_items"],
+            accuracy=payload["accuracy"],
+            precision=payload["precision"],
+            recall=payload["recall"],
+            f1=payload["f1"],
+            balanced_accuracy=payload["balanced_accuracy"],
+            matthews_corrcoef=payload["matthews_corrcoef"],
+            unparsed_rate=payload["unparsed_rate"],
+        )
 
 
 def confusion_of(outcomes: Sequence[Outcome]) -> ConfusionMatrix:

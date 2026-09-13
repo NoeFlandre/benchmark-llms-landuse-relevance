@@ -1,6 +1,6 @@
 """Serialisable records describing one model's run over the benchmark."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -32,7 +32,7 @@ class Prediction:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "Prediction":
+    def from_dict(cls, payload: Mapping[str, Any]) -> "Prediction":
         predicted = payload["predicted"]
         return cls(
             item_id=payload["item_id"],
@@ -64,8 +64,8 @@ class RunMetadata:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "RunMetadata":
-        return cls(**payload)
+    def from_dict(cls, payload: Mapping[str, Any]) -> "RunMetadata":
+        return cls(**dict(payload))
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +91,7 @@ class RunResult:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "RunResult":
+    def from_dict(cls, payload: Mapping[str, Any]) -> "RunResult":
         return cls(
             metadata=RunMetadata.from_dict(payload["metadata"]),
             predictions=tuple(Prediction.from_dict(p) for p in payload["predictions"]),

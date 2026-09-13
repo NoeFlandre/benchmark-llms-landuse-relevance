@@ -1,5 +1,7 @@
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -22,26 +24,33 @@ class StubGenerator:
 
 @pytest.fixture
 def request_for(tmp_path: Path, benchmark_path: Path, prompt_path: Path):
-    def build(**overrides) -> RunRequest:
-        defaults = {
-            "model_id": "LiquidAI/LFM2.5-350M",
-            "benchmark_path": benchmark_path,
-            "prompt_path": prompt_path,
-            "output_dir": tmp_path / "results",
-        }
-        return RunRequest(**{**defaults, **overrides})
+    def build(**overrides: Any) -> RunRequest:
+        return replace(
+            RunRequest(
+                model_id="LiquidAI/LFM2.5-350M",
+                benchmark_path=benchmark_path,
+                prompt_path=prompt_path,
+                output_dir=tmp_path / "results",
+            ),
+            **overrides,
+        )
 
     return build
 
 
-def _provider(outputs: Sequence[str], revision: str = "rev0"):
-    generator = StubGenerator(outputs)
+class StubProvider:
+    """A generator provider that keeps the generator reachable for assertions."""
 
-    def provide(_: RunRequest):
-        return generator, revision
+    def __init__(self, outputs: Sequence[str], revision: str = "rev0") -> None:
+        self.generator = StubGenerator(outputs)
+        self._revision = revision
 
-    provide.generator = generator  # type: ignore[attr-defined]
-    return provide
+    def __call__(self, _: RunRequest) -> tuple[StubGenerator, str]:
+        return self.generator, self._revision
+
+
+def _provider(outputs: Sequence[str], revision: str = "rev0") -> StubProvider:
+    return StubProvider(outputs, revision)
 
 
 def test_scores_the_whole_benchmark_and_returns_the_result(request_for) -> None:

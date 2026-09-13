@@ -1,6 +1,7 @@
 """Loading the labelled benchmark from its CSV file."""
 
 import csv
+from collections.abc import Sequence
 from pathlib import Path
 
 from landuse_relevance_bench.domain.dataset import BenchmarkItem, InvalidRowError, build_item
@@ -25,7 +26,7 @@ def load_benchmark(path: Path) -> tuple[BenchmarkItem, ...]:
     return items
 
 
-def _check_columns(path: Path, fieldnames: list[str] | None) -> None:
+def _check_columns(path: Path, fieldnames: Sequence[str] | None) -> None:
     missing = [c for c in REQUIRED_COLUMNS if c not in (fieldnames or ())]
     if missing:
         raise BenchmarkFileError(f"benchmark {path} is missing the column(s) {missing}")
