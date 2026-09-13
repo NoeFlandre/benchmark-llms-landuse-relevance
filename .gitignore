@@ -5,6 +5,9 @@ __pycache__/
 .ruff_cache/
 .hypothesis/
 .coverage
+coverage.json
+oar.*.out
+oar.*.err
 htmlcov/
 coverage.xml
 dist/

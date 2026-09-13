@@ -9,6 +9,7 @@
 #   HF_HOME         Hugging Face cache                  (default: node-local /tmp scratch)
 set -euo pipefail
 
+export PATH="$HOME/.local/bin:$PATH"   # oarsub runs a non-login shell
 LRB_ROOT="${LRB_ROOT:-$HOME/benchmark-llms-landuse-relevance}"
 LRB_RESULTS="${LRB_RESULTS:-$LRB_ROOT/results}"
 LRB_BATCH_SIZE="${LRB_BATCH_SIZE:-16}"
@@ -22,7 +23,7 @@ mkdir -p "$LRB_RESULTS" "$HF_HOME"
 echo "== node: $(hostname)  job: ${OAR_JOB_ID:-none}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 
-uv sync --extra inference --frozen
+uv sync --extra inference --frozen --no-dev
 
 for model in $(uv run --no-sync lrb models | cut -f1); do
   target="$LRB_RESULTS/${model//\//__}.json"
