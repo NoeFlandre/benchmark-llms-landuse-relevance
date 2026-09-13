@@ -104,5 +104,16 @@ layers = [
 ]
 
 [tool.mutmut]
+# Mutate the domain; the adapters are thin I/O wrappers where most mutants are
+# equivalent (see docs/debt.md). The rest of the package is copied so the tests
+# that exercise the domain can still import it.
 paths_to_mutate = ["src/landuse_relevance_bench/domain/"]
 tests_dir = ["tests/unit/", "tests/property/"]
+also_copy = [
+    "src/landuse_relevance_bench/__init__.py",
+    "src/landuse_relevance_bench/cli.py",
+    "src/landuse_relevance_bench/adapters/",
+    "tests/",
+    "data/",
+    "pyproject.toml",
+]
