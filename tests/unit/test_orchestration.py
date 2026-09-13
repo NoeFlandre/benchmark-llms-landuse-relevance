@@ -3,6 +3,7 @@ from collections.abc import Sequence
 import pytest
 
 from landuse_relevance_bench.domain.dataset import build_item
+from landuse_relevance_bench.domain.engine import Generation
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.orchestration import predict_all
 
@@ -58,14 +59,34 @@ def test_batches_items_at_the_requested_size() -> None:
 
 
 def test_rejects_a_non_positive_batch_size() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="batch_size must be at least 1, got 0"):
         predict_all(ITEMS, TEMPLATE, ScriptedGenerator([]), batch_size=0)
 
 
 def test_rejects_a_generator_that_returns_the_wrong_number_of_outputs() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="returned 1 outputs for 2 prompts"):
         predict_all(ITEMS, TEMPLATE, ScriptedGenerator(["yes"]))
 
 
 def test_an_empty_benchmark_produces_no_predictions() -> None:
     assert predict_all((), TEMPLATE, ScriptedGenerator([])) == ()
+
+
+def test_a_truncated_generation_is_never_credited_with_a_verdict() -> None:
+    """Hitting the token budget mid-sentence means the model never answered."""
+    generator = ScriptedGenerator([Generation('Criteria for "yes": terrain', truncated=True)])
+    (prediction,) = predict_all(ITEMS[:1], TEMPLATE, generator)
+    assert prediction.predicted is None
+    assert prediction.truncated is True
+
+
+def test_a_finished_generation_is_parsed_normally() -> None:
+    (prediction,) = predict_all(ITEMS[:1], TEMPLATE, ScriptedGenerator([Generation("yes")]))
+    assert prediction.predicted is Label.YES
+    assert prediction.truncated is False
+
+
+def test_a_plain_string_from_a_generator_is_treated_as_finished() -> None:
+    (prediction,) = predict_all(ITEMS[:1], TEMPLATE, ScriptedGenerator(["no"]))
+    assert prediction.predicted is Label.NO
+    assert prediction.truncated is False

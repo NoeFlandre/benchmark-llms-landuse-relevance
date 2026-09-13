@@ -16,6 +16,7 @@ class Prediction:
     expected: Label
     predicted: Label | None
     raw_output: str
+    truncated: bool = False
 
     @property
     def outcome(self) -> Outcome:
@@ -27,6 +28,7 @@ class Prediction:
             "expected": self.expected.value,
             "predicted": None if self.predicted is None else self.predicted.value,
             "raw_output": self.raw_output,
+            "truncated": self.truncated,
         }
 
     @classmethod
@@ -37,6 +39,7 @@ class Prediction:
             expected=Label(payload["expected"]),
             predicted=None if predicted is None else Label(predicted),
             raw_output=payload["raw_output"],
+            truncated=payload.get("truncated", False),
         )
 
 

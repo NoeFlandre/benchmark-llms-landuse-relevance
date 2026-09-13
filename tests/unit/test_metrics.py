@@ -38,6 +38,8 @@ def test_metrics_of_a_typical_mixed_run() -> None:
     assert metrics.recall == pytest.approx(2 / 3)
     assert metrics.f1 == pytest.approx(2 / 3)
     assert metrics.balanced_accuracy == pytest.approx((2 / 3 + 1 / 2) / 2)
+    # (tp*tn - fp*fn) / sqrt(...) = (2*1 - 1*1) / sqrt(3*3*2*2)
+    assert metrics.matthews_corrcoef == pytest.approx(1 / 6)
 
 
 def test_degenerate_denominators_yield_zero_rather_than_nan() -> None:
@@ -50,5 +52,5 @@ def test_degenerate_denominators_yield_zero_rather_than_nan() -> None:
 
 
 def test_rejects_an_empty_evaluation() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="empty set of outcomes"):
         evaluate([])

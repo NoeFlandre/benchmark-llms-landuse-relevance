@@ -11,6 +11,7 @@ from landuse_relevance_bench.adapters.pipeline import RunRequest, execute
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
 from landuse_relevance_bench.adapters.results_store import leaderboard_rows, read_run, run_filename
 from landuse_relevance_bench.domain.dataset import item_id_for
+from landuse_relevance_bench.domain.engine import Generation
 
 scenarios("features/benchmark.feature")
 
@@ -40,6 +41,16 @@ class ConstantGenerator:
         return [self._answer] * len(prompts)
 
 
+class TruncatedGenerator:
+    """Always runs out of budget mid-thought, mentioning both verdicts on the way."""
+
+    def __init__(self, partial: str) -> None:
+        self._partial = partial
+
+    def generate(self, prompts: Sequence[str]) -> list[Generation]:
+        return [Generation(self._partial, truncated=True)] * len(prompts)
+
+
 @given("the project benchmark of labelled sentences", target_fixture="benchmark")
 def _benchmark(real_benchmark_path: Path) -> Path:
     return real_benchmark_path
@@ -59,6 +70,11 @@ def _oracle(benchmark: Path) -> dict[str, object]:
 @given(parsers.parse('a model that always answers "{answer}"'), target_fixture="models")
 def _constant(answer: str) -> dict[str, object]:
     return {GOLD_MODEL: ConstantGenerator(answer)}
+
+
+@given("a model whose answer is cut off by the token budget", target_fixture="models")
+def _truncated() -> dict[str, object]:
+    return {GOLD_MODEL: TruncatedGenerator('Criteria for "yes": vegetation, terrain')}
 
 
 @given(parsers.parse('a second model that always answers "{answer}"'), target_fixture="models")
@@ -123,6 +139,13 @@ def _no_misses(runs) -> None:
 def _raw_kept(runs) -> None:
     stored = read_run(runs["dir"] / run_filename(GOLD_MODEL))
     assert {p.raw_output for p in stored.predictions} == {"I cannot decide"}
+
+
+@then("the stored result marks every generation as truncated")
+def _truncation_recorded(runs) -> None:
+    stored = read_run(runs["dir"] / run_filename(GOLD_MODEL))
+    assert all(p.truncated for p in stored.predictions)
+    assert all(p.predicted is None for p in stored.predictions)
 
 
 @then("the leaderboard ranks the accurate model first")

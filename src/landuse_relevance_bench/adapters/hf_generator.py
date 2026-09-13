@@ -4,11 +4,25 @@ Kept behind :class:`~landuse_relevance_bench.domain.engine.TextGenerator` so the
 benchmark itself never imports a model runtime.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from landuse_relevance_bench.adapters.pipeline import RunRequest
+from landuse_relevance_bench.domain.engine import Generation
+
+
+def is_truncated(
+    token_ids: Sequence[int], max_new_tokens: int, stop_token_ids: Collection[int]
+) -> bool:
+    """Whether a completion used its whole budget without ever stopping on its own.
+
+    A stop token anywhere in the row means the model finished: rows shorter than the
+    batch's longest are padded past it, so the final id is padding, not the answer.
+    """
+    if not token_ids:
+        return False
+    return len(token_ids) >= max_new_tokens and not any(t in stop_token_ids for t in token_ids)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,11 +65,18 @@ class TransformersGenerator:
         return cls(tokenizer, model, settings)
 
     @property
+    def _stop_token_ids(self) -> frozenset[int]:
+        config = self._model.generation_config
+        raw = config.eos_token_id if config is not None else self._tokenizer.eos_token_id
+        ids = raw if isinstance(raw, list) else [raw]
+        return frozenset(i for i in ids if i is not None)
+
+    @property
     def revision(self) -> str:
         """The resolved weights commit, so a result names the exact artefact used."""
         return str(getattr(self._model.config, "_commit_hash", "") or "")
 
-    def generate(self, prompts: Sequence[str]) -> list[str]:
+    def generate(self, prompts: Sequence[str]) -> list[Generation]:
         import torch
 
         if not prompts:
@@ -74,9 +95,15 @@ class TransformersGenerator:
                 pad_token_id=self._tokenizer.pad_token_id,
             )
         completions = generated[:, batch["input_ids"].shape[1] :]
-        return [
-            self._tokenizer.decode(row, skip_special_tokens=True).strip() for row in completions
-        ]
+        return [self._as_generation(row) for row in completions]
+
+    def _as_generation(self, completion: Any) -> Generation:
+        return Generation(
+            text=self._tokenizer.decode(completion, skip_special_tokens=True).strip(),
+            truncated=is_truncated(
+                completion.tolist(), self._settings.max_new_tokens, self._stop_token_ids
+            ),
+        )
 
     def _as_chat(self, prompt: str) -> str:
         return self._tokenizer.apply_chat_template(

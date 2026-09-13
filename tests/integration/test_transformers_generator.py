@@ -61,3 +61,22 @@ def test_a_whole_run_completes_end_to_end(
     )
     assert result.metrics.n_items == 2
     assert (tmp_path / "HuggingFaceTB__SmolLM2-135M-Instruct.json").exists()
+
+
+def test_a_completion_that_exhausts_the_budget_reports_itself_truncated() -> None:
+    """One token is never enough to finish a sentence, let alone an answer."""
+    tight = TransformersGenerator.load(
+        TINY_MODEL, GeneratorSettings(max_new_tokens=1, dtype="float32", seed=0, device_map="cpu")
+    )
+    (generation,) = tight.generate(["Write a long essay about soil erosion."])
+    assert generation.truncated is True
+
+
+def test_a_short_answer_within_budget_is_not_truncated(
+    generator: TransformersGenerator,
+) -> None:
+    roomy = TransformersGenerator.load(
+        TINY_MODEL, GeneratorSettings(max_new_tokens=200, dtype="float32", seed=0, device_map="cpu")
+    )
+    (generation,) = roomy.generate(["Reply with exactly one word: yes"])
+    assert generation.truncated is False

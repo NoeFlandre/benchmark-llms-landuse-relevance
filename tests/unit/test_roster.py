@@ -24,5 +24,5 @@ def test_lookup_returns_the_matching_spec() -> None:
 
 
 def test_lookup_of_an_unknown_model_fails() -> None:
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError, match="not in the benchmark roster"):
         spec_for("nobody/nothing")

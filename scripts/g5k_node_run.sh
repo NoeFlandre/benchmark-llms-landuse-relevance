@@ -6,7 +6,7 @@
 #   LRB_ROOT        project checkout on the node        (default: $HOME/benchmark-llms-landuse-relevance)
 #   LRB_RESULTS     directory for run results           (default: $LRB_ROOT/results)
 #   LRB_BATCH_SIZE  prompts per forward pass            (default: 16)
-#   LRB_MAX_NEW_TOKENS  generation budget per prompt     (default: 64)
+#   LRB_MAX_NEW_TOKENS  generation budget per prompt     (default: 1024)
 #   HF_HOME         Hugging Face cache                  (default: node-local /tmp scratch)
 set -euo pipefail
 
@@ -14,7 +14,7 @@ export PATH="$HOME/.local/bin:$PATH"   # oarsub runs a non-login shell
 LRB_ROOT="${LRB_ROOT:-$HOME/benchmark-llms-landuse-relevance}"
 LRB_RESULTS="${LRB_RESULTS:-$LRB_ROOT/results}"
 LRB_BATCH_SIZE="${LRB_BATCH_SIZE:-16}"
-LRB_MAX_NEW_TOKENS="${LRB_MAX_NEW_TOKENS:-64}"
+LRB_MAX_NEW_TOKENS="${LRB_MAX_NEW_TOKENS:-1024}"
 export HF_HOME="${HF_HOME:-/tmp/$USER/hf-cache}"
 export HF_HUB_DISABLE_TELEMETRY=1
 export TOKENIZERS_PARALLELISM=false

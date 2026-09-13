@@ -3,7 +3,7 @@
 from collections.abc import Iterator, Sequence
 
 from landuse_relevance_bench.domain.dataset import BenchmarkItem
-from landuse_relevance_bench.domain.engine import TextGenerator
+from landuse_relevance_bench.domain.engine import Generation, TextGenerator
 from landuse_relevance_bench.domain.parsing import parse_label
 from landuse_relevance_bench.domain.prompting import render_prompt
 from landuse_relevance_bench.domain.records import Prediction
@@ -27,15 +27,20 @@ def predict_all(
         if len(outputs) != len(batch):
             raise ValueError(f"generator returned {len(outputs)} outputs for {len(batch)} prompts")
         predictions.extend(
-            Prediction(
-                item_id=item.item_id,
-                expected=item.label,
-                predicted=parse_label(output),
-                raw_output=output,
-            )
-            for item, output in zip(batch, outputs, strict=True)
+            _predict(item, Generation.of(output))
+            for item, output in zip(batch, outputs, strict=True)  # length checked above
         )
     return tuple(predictions)
+
+
+def _predict(item: BenchmarkItem, generation: Generation) -> Prediction:
+    return Prediction(
+        item_id=item.item_id,
+        expected=item.label,
+        predicted=None if generation.truncated else parse_label(generation.text),
+        raw_output=generation.text,
+        truncated=generation.truncated,
+    )
 
 
 def _batched(items: Sequence[BenchmarkItem], size: int) -> Iterator[Sequence[BenchmarkItem]]:

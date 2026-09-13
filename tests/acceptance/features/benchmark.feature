@@ -27,6 +27,13 @@ Feature: Benchmarking small LLMs on land-use relevance
     And the run scores an accuracy of 0.00
     And the raw generations are kept in the stored result
 
+  Scenario: A model cut off before it reaches a verdict
+    Given a model whose answer is cut off by the token budget
+    When I benchmark that model
+    Then every generation is left unparsed
+    And the stored result marks every generation as truncated
+    And the run scores an accuracy of 0.00
+
   Scenario: Comparing models on a leaderboard
     Given a model that answers every sentence with its gold label
     And a second model that always answers "no"

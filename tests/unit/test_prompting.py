@@ -12,7 +12,7 @@ def test_substitutes_the_sentence_for_the_placeholder() -> None:
 
 
 def test_rejects_a_template_without_a_placeholder() -> None:
-    with pytest.raises(MissingPlaceholderError):
+    with pytest.raises(MissingPlaceholderError, match=r"no '\{\}' placeholder"):
         render_prompt("No placeholder here", "sentence")
 
 
