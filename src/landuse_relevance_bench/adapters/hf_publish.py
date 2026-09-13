@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from landuse_relevance_bench.adapters.results_store import LEADERBOARD_COLUMNS, leaderboard_rows
 from landuse_relevance_bench.domain.records import RunResult
@@ -110,4 +110,6 @@ def publish_results(
 def _default_api() -> DatasetHub:
     from huggingface_hub import HfApi
 
-    return HfApi()
+    # HfApi satisfies DatasetHub in practice; its **kwargs signatures are wider than
+    # the protocol can express.
+    return cast(DatasetHub, HfApi())

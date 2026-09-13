@@ -17,12 +17,12 @@ ITEMS = (
 class ScriptedGenerator:
     """Returns queued outputs and records the prompts and batch shapes it saw."""
 
-    def __init__(self, outputs: Sequence[str]) -> None:
-        self._outputs = list(outputs)
+    def __init__(self, outputs: Sequence[str | Generation]) -> None:
+        self._outputs: list[str | Generation] = list(outputs)
         self.seen_prompts: list[str] = []
         self.batch_sizes: list[int] = []
 
-    def generate(self, prompts: Sequence[str]) -> Sequence[str]:
+    def generate(self, prompts: Sequence[str]) -> Sequence[str | Generation]:
         self.seen_prompts.extend(prompts)
         self.batch_sizes.append(len(prompts))
         taken, self._outputs = self._outputs[: len(prompts)], self._outputs[len(prompts) :]
