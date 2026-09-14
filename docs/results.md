@@ -2,13 +2,15 @@
 
 Published to
 [NoeFlandre/benchmark-llms-landuse-relevance](https://huggingface.co/datasets/NoeFlandre/benchmark-llms-landuse-relevance)
-as a Hugging Face dataset: one JSON per model plus `leaderboard.csv`.
+and its [Hugging Face bucket](https://huggingface.co/buckets/NoeFlandre/benchmark-llms-landuse-relevance).
+Every full-budget model is in `standard/models/`; the alternate budget is in
+`strict-8-tokens/models/`. Each configuration has its own `leaderboard.csv`.
 
 Two configurations are published, because they answer different questions.
 
-| folder | budget | question it answers |
+| configuration | budget | question it answers |
 |---|---|---|
-| (root) | 4096 tokens | Does the model know the answer? |
+| `standard/` | 4096 tokens | Does the model know the answer? |
 | `strict-8-tokens/` | 8 tokens | Does the model obey "output only the token"? |
 
 The two compliant models score identically under both. The two that open with an
@@ -37,5 +39,5 @@ uv run lrb report
 Decoding is greedy and every input is pinned by digest, so the same revision reproduces
 the same generations.
 
-The live leaderboard is the dataset card; it is regenerated from the run files by
-`lrb publish`, so it cannot drift from the predictions it summarises.
+The dataset card is a deterministic table of every published run. `lrb publish`
+discovers result JSONs recursively and recomputes each row from its predictions.

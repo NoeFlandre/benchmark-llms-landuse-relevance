@@ -1,14 +1,18 @@
 """Publishing run results to a Hugging Face dataset repository."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from landuse_relevance_bench.adapters.results_store import LEADERBOARD_COLUMNS, leaderboard_rows
-from landuse_relevance_bench.domain.records import RunResult
+from landuse_relevance_bench.adapters.results_store import read_run
+from landuse_relevance_bench.domain.metrics import evaluate
+from landuse_relevance_bench.domain.records import RunResult, outcomes_of
 
 CARD_COLUMNS = (
+    "configuration",
     "model_id",
+    "n_items",
     "accuracy",
     "balanced_accuracy",
     "f1",
@@ -27,22 +31,39 @@ class DatasetHub(Protocol):
     def upload_folder(self, **kwargs: Any) -> Any: ...
 
 
-def companion_configurations(results_dir: Path) -> tuple[str, ...]:
-    """Subfolders holding runs of the same benchmark under different settings."""
+@dataclass(frozen=True, slots=True)
+class PublishedRun:
+    """A result together with the configuration used to produce it."""
+
+    configuration: str
+    result: RunResult
+
+
+def read_published_runs(results_dir: Path) -> tuple[PublishedRun, ...]:
+    """Read every result below ``results_dir`` with a stable configuration label."""
+    published = []
+    for path in sorted(results_dir.rglob("*.json")):
+        relative = path.relative_to(results_dir)
+        configuration = "strict-8-tokens" if "strict-8-tokens" in relative.parts else "standard"
+        published.append(PublishedRun(configuration=configuration, result=read_run(path)))
     return tuple(
-        sorted(
-            child.name
-            for child in results_dir.iterdir()
-            if child.is_dir() and any(child.glob("*.json"))
-        )
+        sorted(published, key=lambda item: (item.configuration, item.result.metadata.model_id))
     )
 
 
 def dataset_card(
-    results: Sequence[RunResult], *, benchmark_name: str, companions: Sequence[str] = ()
+    results: Sequence[RunResult],
+    *,
+    benchmark_name: str,
+    configurations: Sequence[str] = (),
 ) -> str:
-    """A dataset card whose leaderboard is generated from the results themselves."""
-    rows = leaderboard_rows(results)
+    """Build a terse card whose scores are recomputed from every prediction."""
+    if not results:
+        raise ValueError("cannot build a card from an empty set of results")
+    labels = tuple(configurations) or ("standard",) * len(results)
+    if len(labels) != len(results):
+        raise ValueError("one configuration label is required for each result")
+    rows = _card_rows(results, labels)
     reference = results[0].metadata
     n_items = results[0].metrics.n_items
     header = "| " + " | ".join(CARD_COLUMNS) + " |"
@@ -61,47 +82,47 @@ tags:
 - llm-benchmark
 ---
 
-# Land-use relevance: small-LLM benchmark results
+# Land-use relevance benchmark
 
-Predictions and scores for small open-weight LLMs asked to judge whether a sentence
-about a place carries land-use, land-cover, or geographic-environment signal that
-could be observed by remote sensing.
+`{benchmark_name}`; {n_items} labelled sentences; greedy decoding;
+`max_new_tokens={reference.max_new_tokens}`; seed {reference.seed}.
+Scores are recomputed from the published predictions.
 
-- Benchmark: `{benchmark_name}` ({n_items} labelled sentences)
-- Benchmark sha256: `{reference.benchmark_sha256}`
-- Prompt sha256: `{reference.prompt_sha256}`
-- Decoding: {reference.decoding}, `max_new_tokens={reference.max_new_tokens}`, \
-seed {reference.seed}
+- Benchmark sha256: `{reference.benchmark_sha256}`; prompt sha256: `{reference.prompt_sha256}`
 - Code: https://github.com/NoeFlandre/benchmark-llms-landuse-relevance
 
-## Leaderboard
+## Scores
 
 {header}
 {divider}
 {body}
-
-{_companion_section(companions)}## Files
-
-- `<namespace>__<model>.json` — one file per model: run metadata, every raw generation,
-  the parsed verdict, and the scores computed from exactly those predictions.
-- `leaderboard.csv` — the table above, with columns {", ".join(LEADERBOARD_COLUMNS)}.
-
-Generations the model did not express as `yes`/`no` are counted as errors, never dropped.
-The verdict is the last standalone `yes`/`no` in a generation that stopped on its own; a
-generation that exhausted its token budget carries no verdict at all, and `truncated`
-counts those.
 """
 
 
-def _companion_section(companions: Sequence[str]) -> str:
-    if not companions:
-        return ""
-    listed = "\n".join(f"- `{name}/`" for name in companions)
-    return (
-        "## Companion configurations\n\n"
-        "The same benchmark and prompt, run under different settings:\n\n"
-        f"{listed}\n\n"
-    )
+def _card_rows(results: Sequence[RunResult], configurations: Sequence[str]) -> list[dict[str, Any]]:
+    rows = []
+    for result, configuration in zip(results, configurations, strict=True):
+        derived = evaluate(outcomes_of(result.predictions))
+        if derived != result.metrics:
+            raise ValueError(
+                f"{result.metadata.model_id} metrics do not match predictions"
+            )
+        rows.append(
+            {
+                "configuration": configuration,
+                "model_id": result.metadata.model_id,
+                "n_items": derived.n_items,
+                "accuracy": round(derived.accuracy, 4),
+                "balanced_accuracy": round(derived.balanced_accuracy, 4),
+                "f1": round(derived.f1, 4),
+                "precision": round(derived.precision, 4),
+                "recall": round(derived.recall, 4),
+                "matthews_corrcoef": round(derived.matthews_corrcoef, 4),
+                "unparsed_rate": round(derived.unparsed_rate, 4),
+                "truncated": sum(prediction.truncated for prediction in result.predictions),
+            }
+        )
+    return sorted(rows, key=lambda row: (-row["f1"], row["configuration"], row["model_id"]))
 
 
 def publish_results(
@@ -111,6 +132,7 @@ def publish_results(
     *,
     api: DatasetHub | None = None,
     private: bool = False,
+    configurations: Sequence[str] = (),
     commit_message: str = "Publish small-LLM land-use relevance benchmark results",
     benchmark_name: str = "benchmark.csv",
 ) -> str:
@@ -123,7 +145,7 @@ def publish_results(
         dataset_card(
             results,
             benchmark_name=benchmark_name,
-            companions=companion_configurations(results_dir),
+            configurations=configurations,
         ),
         encoding="utf-8",
     )

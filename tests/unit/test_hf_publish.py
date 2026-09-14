@@ -1,8 +1,14 @@
+import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from landuse_relevance_bench.adapters.hf_publish import dataset_card, publish_results
+from landuse_relevance_bench.adapters.hf_publish import (
+    dataset_card,
+    publish_results,
+    read_published_runs,
+)
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
@@ -44,9 +50,13 @@ class FakeApi:
 
 
 def test_the_card_is_a_markdown_leaderboard_naming_every_model() -> None:
-    card = dataset_card([_result("a/one"), _result("b/two")], benchmark_name="benchmark.csv")
+    card = dataset_card(
+        [_result("a/one"), _result("b/two")],
+        benchmark_name="benchmark.csv",
+        configurations=("standard", "strict-8-tokens"),
+    )
     assert card.startswith("---")
-    assert "| a/one |" in card and "| b/two |" in card
+    assert "| standard | a/one |" in card and "| strict-8-tokens | b/two |" in card
     assert "benchmark.csv" in card
 
 
@@ -54,6 +64,40 @@ def test_the_card_declares_the_prompt_and_benchmark_digests() -> None:
     card = dataset_card([_result()], benchmark_name="benchmark.csv")
     assert "b" * 64 in card
     assert "p" * 64 in card
+
+
+def test_published_runs_flattens_full_budget_folders_but_keeps_strict_configuration(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "root__one.json").write_text(
+        json.dumps(_result("a/one").to_dict()), encoding="utf-8"
+    )
+    extra = tmp_path / "recent-models-20260913"
+    extra.mkdir()
+    (extra / "nested__two.json").write_text(
+        json.dumps(_result("b/two").to_dict()), encoding="utf-8"
+    )
+    strict = tmp_path / "strict-8-tokens"
+    strict.mkdir()
+    (strict / "strict__one.json").write_text(
+        json.dumps(_result("a/one").to_dict()), encoding="utf-8"
+    )
+
+    published = read_published_runs(tmp_path)
+
+    assert [(item.configuration, item.result.metadata.model_id) for item in published] == [
+        ("standard", "a/one"),
+        ("standard", "b/two"),
+        ("strict-8-tokens", "a/one"),
+    ]
+
+
+def test_card_rejects_metrics_that_are_not_derived_from_predictions() -> None:
+    result = _result()
+    tampered = replace(result, metrics=replace(result.metrics, accuracy=0.0))
+
+    with pytest.raises(ValueError, match="metrics do not match predictions"):
+        dataset_card([tampered], benchmark_name="benchmark.csv")
 
 
 def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(
@@ -80,25 +124,11 @@ def test_publishing_nothing_is_refused(tmp_path: Path) -> None:
 
 def test_the_card_leaderboard_shows_the_truncation_count() -> None:
     card = dataset_card([_result()], benchmark_name="benchmark.csv")
-    assert "truncated" in card.split("## Leaderboard")[1].split("\n")[2]
+    assert "truncated" in card.split("## Scores")[1].split("\n")[2]
 
 
-def test_the_card_points_at_companion_configurations_when_there_are_any() -> None:
-    card = dataset_card(
-        [_result()], benchmark_name="benchmark.csv", companions=("strict-8-tokens",)
-    )
-    assert "`strict-8-tokens/`" in card
+def test_card_is_terse_and_has_no_companion_prose() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv")
 
-
-def test_the_card_says_nothing_about_companions_when_there_are_none() -> None:
-    assert "companion" not in dataset_card([_result()], benchmark_name="benchmark.csv").lower()
-
-
-def test_publishing_lists_the_companion_folders_it_finds(tmp_path: Path) -> None:
-    (tmp_path / "strict-8-tokens").mkdir()
-    (tmp_path / "strict-8-tokens" / "a__b.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "empty-folder").mkdir()
-    publish_results("me/bench", tmp_path, [_result()], api=FakeApi())
-    card = (tmp_path / "README.md").read_text(encoding="utf-8")
-    assert "`strict-8-tokens/`" in card
-    assert "empty-folder" not in card
+    assert "companion" not in card.lower()
+    assert "Predictions and scores" not in card

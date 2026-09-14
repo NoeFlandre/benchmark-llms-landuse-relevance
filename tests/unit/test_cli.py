@@ -121,6 +121,19 @@ def test_publish_pushes_the_stored_runs(
             str(results_dir),
         ],
     )
+    runner.invoke(
+        cli.app,
+        [
+            "run",
+            "other/model",
+            "--benchmark",
+            str(benchmark_path),
+            "--prompt",
+            str(prompt_path),
+            "--out",
+            str(results_dir / "recent-models-20260913"),
+        ],
+    )
     calls: list[dict] = []
 
     class FakeApi:
@@ -146,6 +159,8 @@ def test_publish_pushes_the_stored_runs(
     assert calls[0]["create"]["repo_id"] == "me/bench"
     assert (results_dir / "README.md").exists()
     assert (results_dir / "leaderboard.csv").exists()
+    card = (results_dir / "README.md").read_text(encoding="utf-8")
+    assert "some/model" in card and "other/model" in card
 
 
 def test_publish_refuses_an_empty_results_directory(tmp_path: Path) -> None:

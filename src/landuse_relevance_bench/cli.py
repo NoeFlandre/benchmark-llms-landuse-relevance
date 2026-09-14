@@ -155,15 +155,22 @@ def publish(
     private: Annotated[bool, typer.Option(help="Create the dataset repository private.")] = False,
 ) -> None:
     """Push the stored runs, leaderboard and a generated card to the Hub."""
-    from landuse_relevance_bench.adapters.hf_publish import publish_results
+    from landuse_relevance_bench.adapters.hf_publish import publish_results, read_published_runs
 
     if not results_dir.is_dir():
         raise typer.BadParameter(f"no run results directory at {results_dir}")
-    runs = read_runs(results_dir)
+    published = read_published_runs(results_dir)
+    runs = [item.result for item in published]
     if not runs:
         raise typer.BadParameter(f"no run results found in {results_dir}")
-    write_leaderboard_csv(runs, results_dir / "leaderboard.csv")
+    standard_runs = [item.result for item in published if item.configuration == "standard"]
+    write_leaderboard_csv(standard_runs or runs, results_dir / "leaderboard.csv")
     url = publish_results(
-        repo_id, results_dir, runs, private=private, benchmark_name=benchmark.name
+        repo_id,
+        results_dir,
+        runs,
+        configurations=[item.configuration for item in published],
+        private=private,
+        benchmark_name=benchmark.name,
     )
     typer.echo(f"published {len(runs)} run(s) to {url}")
