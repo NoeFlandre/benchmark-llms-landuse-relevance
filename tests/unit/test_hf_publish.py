@@ -53,6 +53,7 @@ def test_the_card_is_a_markdown_leaderboard_naming_every_model() -> None:
     card = dataset_card([_result("a/one"), _result("b/two")], benchmark_name="benchmark.csv")
     assert card.startswith("---")
     assert "| a/one |" in card and "| b/two |" in card
+    assert "n_items" not in card
     assert "benchmark.csv" in card
 
 

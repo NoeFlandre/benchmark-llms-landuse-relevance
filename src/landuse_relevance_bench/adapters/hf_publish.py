@@ -10,7 +10,6 @@ from landuse_relevance_bench.domain.records import RunResult, outcomes_of
 
 CARD_COLUMNS = (
     "model_id",
-    "n_items",
     "accuracy",
     "balanced_accuracy",
     "f1",
@@ -90,7 +89,6 @@ def _card_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
         rows.append(
             {
                 "model_id": result.metadata.model_id,
-                "n_items": derived.n_items,
                 "accuracy": round(derived.accuracy, 4),
                 "balanced_accuracy": round(derived.balanced_accuracy, 4),
                 "f1": round(derived.f1, 4),
