@@ -1,0 +1,5 @@
+model_id,n_items,accuracy,balanced_accuracy,f1,precision,recall,matthews_corrcoef,unparsed_rate,truncated,duration_seconds,model_revision
+LiquidAI/LFM2.5-2.6B,154,0.8571,0.8574,0.8608,0.8718,0.85,0.7144,0.0,0,507.49,654f9463ce32b05d0429d76fe1f580b27d4c1ac0
+LiquidAI/LFM2.5-8B-A1B,154,0.7727,0.7757,0.7619,0.8358,0.7,0.5556,0.0,0,853.21,5dd22602c2e9f6a097b1de4c4efe0658b605015c
+LiquidAI/LFM2.5-350M,154,0.5195,0.5,0.6838,0.5195,1.0,0.0,0.0,0,1.58,9e6c6ccf47cd318696e137d381a7ded8fe4df09f
+LiquidAI/LFM2.5-1.2B-Instruct,154,0.7208,0.7267,0.6815,0.8364,0.575,0.4727,0.0,0,2.21,0f604ada3f766f9f257460c4c9f0b5d6f69d431b

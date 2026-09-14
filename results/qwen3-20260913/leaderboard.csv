@@ -1,0 +1,5 @@
+model_id,n_items,accuracy,balanced_accuracy,f1,precision,recall,matthews_corrcoef,unparsed_rate,truncated,duration_seconds,model_revision
+Qwen/Qwen3-8B,154,0.8506,0.8537,0.8435,0.9254,0.775,0.7129,0.0,0,7.82,b968826d9c46dd6066d109eabc6255188de91218
+Qwen/Qwen3-4B,154,0.7727,0.7762,0.7586,0.8462,0.6875,0.5588,0.0,0,5.47,1cfa9a7208912126459214e8b04321603b3df60c
+Qwen/Qwen3-0.6B,154,0.5195,0.5,0.6838,0.5195,1.0,0.0,0.0,0,2.91,c1899de289a04d12100db370d81485cdf75e47ca
+Qwen/Qwen3-1.7B,154,0.4935,0.5125,0.0488,1.0,0.025,0.1103,0.0,0,3.12,70d244cc86ccca08cf5af4e1e306ecf908b1ad5e

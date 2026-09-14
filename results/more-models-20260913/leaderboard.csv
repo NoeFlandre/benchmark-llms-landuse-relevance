@@ -1,0 +1,7 @@
+model_id,n_items,accuracy,balanced_accuracy,f1,precision,recall,matthews_corrcoef,unparsed_rate,truncated,duration_seconds,model_revision
+ibm-granite/granite-3.3-2b-instruct,154,0.6364,0.6449,0.5484,0.7727,0.425,0.3206,0.0,0,4.97,707f574c62054322f6b5b04b6d075f0a8f05e0f0
+tiiuae/Falcon3-3B-Instruct,154,0.6558,0.6687,0.5047,1.0,0.3375,0.4435,0.0,0,3.64,411bb94318f94f7a5735b77109f456b1e74b42a1
+HuggingFaceTB/SmolLM3-3B,154,0.6494,0.6625,0.4906,1.0,0.325,0.4335,0.0,0,19.39,a07cc9a04f16550a088caea529712d1d335b0ac1
+tiiuae/Falcon3-7B-Instruct,154,0.5974,0.6125,0.3673,1.0,0.225,0.3499,0.0,0,7.0,1e57a0ecd176c7c139f289c60a74e57f887c3dfb
+tiiuae/Falcon3-1B-Instruct,154,0.513,0.5307,0.1379,0.8571,0.075,0.1475,0.0,0,3.69,28ba2251970a01dd1edc7ba7dad2eb71216ccfdf
+allenai/OLMo-2-1124-7B-Instruct,154,0.5,0.5188,0.0723,1.0,0.0375,0.1356,0.0,0,7.73,470b1fba1ae01581f270116362ee4aa1b97f4c84

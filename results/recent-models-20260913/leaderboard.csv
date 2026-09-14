@@ -1,0 +1,5 @@
+model_id,n_items,accuracy,balanced_accuracy,f1,precision,recall,matthews_corrcoef,unparsed_rate,truncated,duration_seconds,model_revision
+Qwen/Qwen3-4B-Instruct-2507,154,0.8506,0.8492,0.8606,0.8353,0.8875,0.7016,0.0,0,5.91,cdbee75f17c01a7cc42f958dc650907174af0554
+google/gemma-4-E4B-it,154,0.8182,0.8189,0.8205,0.8421,0.8,0.6374,0.0,0,5.98,ee0ef6023621cff504d758262d4e04895a5af4a2
+google/gemma-4-E2B-it,154,0.7013,0.71,0.629,0.8864,0.4875,0.4644,0.0,0,8.78,3e22461f65e89153144f8adb70e3b8c2cc9845a7
+allenai/Olmo-3-7B-Instruct,154,0.6299,0.6432,0.4571,0.96,0.3,0.3882,0.0,0,8.6,6e5971d9eba42665f5bd5a0fcf047f299ce1dccc

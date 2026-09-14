@@ -1,0 +1,1113 @@
+{
+  "metadata": {
+    "batch_size": 16,
+    "benchmark_sha256": "ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd",
+    "decoding": "greedy",
+    "dtype": "bfloat16",
+    "duration_seconds": 5.911,
+    "max_new_tokens": 4096,
+    "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+    "model_revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+    "prompt_sha256": "2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097",
+    "seed": 0,
+    "source_commit": "2a6b33770a970b29ab8776d892666d41f103524e",
+    "started_at": "2026-09-13T19:56:14Z"
+  },
+  "metrics": {
+    "accuracy": 0.8506493506493507,
+    "balanced_accuracy": 0.8491554054054054,
+    "confusion": {
+      "false_negative": 9,
+      "false_positive": 14,
+      "true_negative": 60,
+      "true_positive": 71,
+      "unparsed": 0
+    },
+    "f1": 0.8606060606060607,
+    "matthews_corrcoef": 0.7015774324749966,
+    "n_items": 154,
+    "precision": 0.8352941176470589,
+    "recall": 0.8875,
+    "unparsed_rate": 0.0
+  },
+  "predictions": [
+    {
+      "expected": "no",
+      "item_id": "8c65a027f0fe1ce2",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "afde25c519ea0bc0",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "18f7deac8b09e9a5",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "ecc3fada4a30a1f1",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "18374916f642113c",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "0ce0e9e37955a8d1",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "87bd542416c0fc9b",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "dfb1f80f2aef0255",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "e032dc488c7af8dd",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "491fddd4d35133bf",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "5dae7626344fb0ae",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "c3cde4c96f7c34b0",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "5e72a28e2c3aa325",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "38a64c8d251aaf1d",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "f6ef76a041284969",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "ff8d513c7814e4bc",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "0d932ea561f6755e",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "289d8016fa538c0f",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "1958881b1e16881b",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "3bd1e35a90a3f71d",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "4d8b8f027721233e",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "cb3f05b7a8b3fe93",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "ed3f64634f841509",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "c0e6ccdec2ae93bc",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "571afe7fc95f11cc",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "73d0eb9523e9db9e",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "edadd162d8349565",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "086e0bc13000e098",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "f1b41e5fe648b683",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "3f0224ceb080dae4",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "aaeb3f1b0f0e4680",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "f4ad662b4c795522",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "9b7ec5e9ef31978f",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "a4611f5ef185e0d4",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "3520d1380784ee3e",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "f381aa4fadff1842",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "136d861888522426",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "6fd8d328a5099fe5",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "b2b8a642b9a1f2e1",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "2457cbd04957d609",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "82f9b6e411b629b8",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "4936b15aa83f1d71",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "d25cb9246bb9f563",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "be27c2a3f6fb62ca",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "bc99b8da42828aed",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "578e12ae439afdbc",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "e68e0fbbd3b8bd6c",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "b1fb999179215c79",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "1397ac12199c0a55",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "316baaf298e9a540",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "832a9b22fb37d200",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "d57fa6ac17fc3e0c",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "4661be54d31d0b8a",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "0ad27faa29b88119",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "1f8bbee01e5ff085",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "ce1733aba7f8eeb4",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "835de1c909614372",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "7eb47a04f80bb0a6",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "d56871472d03d1e1",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "4326f90a3f4c21ed",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "3bae6f9a5be18e0d",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "eb1c56fb24ff6459",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "bda553b9333375df",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "af210a056949cf3a",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "8f96860c244fd0a5",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "aff7daf6d8f92b21",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "c9d6e81c98463e4b",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "dc0d47a7e9ea36a1",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "44ce3431c43a6d26",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "aa0071ad4a5cd8c4",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "6612e57dc9e5ff60",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "866344230d58f6ee",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "179e54cb5829996e",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "f925e50b175ec110",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "2cfd3670db72a344",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "411d9a024db87dca",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "b26d09a73dd945da",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "c824799b3dbe50db",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "e48692f35eaa7ee6",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "a7d14c71d1b65b1b",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "95d0463c74a58081",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "0bc3a8a4ec2cd408",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "d381124c03e9a77c",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "72fcf58a7662942b",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "875fe76adbabd6f4",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "121ccb55ba441036",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "2bef74df5cdf5912",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "ebfbf30c54df2d05",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "585052975a1cd9f9",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "423fbc28a483a4be",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "3f1f35dff95fb2a2",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "d68ad2ad0c74e73a",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "ef8abb0534608527",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "674a37f222f02711",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "0cbf18782d529cf3",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "27016de01bcf0e66",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "701eef6e4bf5552a",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "d1c7419e79dd0f18",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "d7623b92a711d564",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "9ec45f60ec0f03ad",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "c700cb79fc44805c",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "552065f49f1df8d0",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "15478c5634502877",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "503de2c31d100031",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "df10fcaf57c532bd",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "0bd42a09433100aa",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "aa7cfda7b6170549",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "a709dad7a866fa83",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "ff7cf6587ae70a9d",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "07208784d2f6b01f",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "a74172562078863c",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "cd6b513157445daf",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "0e547c552373136e",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "9521117b4f18df35",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "05297f07e15a2364",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "dccd9e94e746a45c",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "2c79927f7399a191",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "78ba52e246249e99",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "e57a7d1e70a6e826",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "34d7f59ce1c5e4ea",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "16a848b0ba3c470e",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "b80b67f2bd2a0c1d",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "2482739a82d2416e",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "bd51254c710de558",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "62c7164341df1167",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "e11bb09b0074f34c",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "5b6acdbbd1c4e672",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "589c127efc76483c",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "f79a9d731752472d",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "9b1e0d6a335d2828",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "49c266baaaa70981",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "fe375e94a8d2f7e8",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "ebcbd0c44bdcf898",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "4f63fef64df80d2c",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "087c7331cdce44ff",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "e6732aeed7463a6a",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "ee93bb5baca3caf0",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "46f500a05916c7ed",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "6a3d98d8f1375249",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "2a849d9eda65440c",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "8b7c7830137168a7",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "e4ec7b66b2bc3f71",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "5cb0e199bfd3700f",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "9c81e7f9871fc9fb",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "7946b6aaea64eb7d",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "666990d08842cf09",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "b28061792e6113e0",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "523109dd42699224",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "acf6f7354fac0bef",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "c0eda61506fc32b6",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "4cfe1cdb558e7228",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "691c321c26801540",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    },
+    {
+      "expected": "no",
+      "item_id": "806f79d4cd695e18",
+      "predicted": "no",
+      "raw_output": "no",
+      "truncated": false
+    },
+    {
+      "expected": "yes",
+      "item_id": "98b174aa38302fc8",
+      "predicted": "yes",
+      "raw_output": "yes",
+      "truncated": false
+    }
+  ]
+}

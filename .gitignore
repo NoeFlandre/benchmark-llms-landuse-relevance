@@ -14,5 +14,4 @@ dist/
 site/
 .mutmut-cache
 mutants/
-results/
 .DS_Store
