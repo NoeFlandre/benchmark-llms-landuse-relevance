@@ -3,19 +3,9 @@
 Published to
 [NoeFlandre/benchmark-llms-landuse-relevance](https://huggingface.co/datasets/NoeFlandre/benchmark-llms-landuse-relevance)
 and its [Hugging Face bucket](https://huggingface.co/buckets/NoeFlandre/benchmark-llms-landuse-relevance).
-Every full-budget model is in `standard/models/`; the alternate budget is in
-`strict-8-tokens/models/`. Each configuration has its own `leaderboard.csv`.
-
-Two configurations are published, because they answer different questions.
-
-| configuration | budget | question it answers |
-|---|---|---|
-| `standard/` | 4096 tokens | Does the model know the answer? |
-| `strict-8-tokens/` | 8 tokens | Does the model obey "output only the token"? |
-
-The two compliant models score identically under both. The two that open with an
-analysis preamble score zero under the strict budget — see
-[ADR-0005](adr/0005-generation-budget.md) for why both numbers are kept.
+All published models are in `standard/models/`, with their aggregate scores in
+`standard/leaderboard.csv`. The public release uses a 4096-token generation budget so
+the benchmark measures classification rather than output-length compliance.
 
 ## Reading a run file
 

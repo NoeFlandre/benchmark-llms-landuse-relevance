@@ -18,8 +18,8 @@ rather than failing. Pass `--revision` to pin it explicitly and remove the ambig
 
 **Verdict extraction is a heuristic.** The verdict is the last standalone `yes`/`no` in
 an untruncated generation. A model that concludes and then adds a caveat naming the other
-verdict would be misread. Raw generations are stored so any such case is visible, and the
-strict eight-token run is published alongside as a check. Constrained decoding would
+verdict would be misread. Raw generations are stored so any such case is visible.
+Constrained decoding would
 remove the heuristic entirely, at the cost of no longer measuring instruction-following
 — see [ADR-0001](adr/0001-greedy-generation.md).
 

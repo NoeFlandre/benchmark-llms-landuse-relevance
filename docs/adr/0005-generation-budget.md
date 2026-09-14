@@ -1,7 +1,11 @@
 # ADR-0005 — Reading the verdict from a model that reasons first
 
-**Status:** accepted · 2026-09-13
+**Status:** superseded for publication · 2026-09-14
 **Refines:** [ADR-0001](0001-greedy-generation.md), [ADR-0002](0002-unparsed-as-error.md)
+
+The strict eight-token diagnostic described here was removed from the public release on
+2026-09-14 because it measured output-budget compliance rather than land-use relevance.
+The 4096-token configuration is the sole published benchmark.
 
 ## Context
 
@@ -30,8 +34,8 @@ Three changes, together:
    many verdict words appear in it.
 3. **The budget is large enough for these models to finish** — 1024 by default, 4096 for
    the published run. At 1024 the 2.6B still truncated on a third of the benchmark; at
-   4096 it truncates on none of it, and its accuracy settles at 0.857. The strict
-   eight-token run is kept and published under `strict-8-tokens/`.
+   4096 it truncates on none of it, and its accuracy settles at 0.857. The eight-token
+   run was retained only as an exploratory diagnostic.
 
 ## Consequences
 
@@ -41,7 +45,7 @@ Three changes, together:
 - `unparsed_rate` now separates two failures that were previously conflated: a model
   that never commits, and one that was cut off. The stored `truncated` flag says which.
 - Reading from the end still has a failure mode: a conclusion followed by a caveat that
-  names the other verdict would be misread. Raw generations are stored so this is
-  auditable, and it is why the strict run is published rather than discarded.
-- The strict run remains the honest answer to "does this model obey the output
-  contract?" — a different and also useful question from "does it know the answer?".
+  names the other verdict would be misread. Raw generations are stored so this remains
+  auditable.
+- The exploratory strict run remains in Git history for provenance but is not part of the
+  public benchmark or leaderboard.

@@ -1,7 +1,6 @@
 """Publishing run results to a Hugging Face dataset repository."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -10,7 +9,6 @@ from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
 
 CARD_COLUMNS = (
-    "configuration",
     "model_id",
     "n_items",
     "accuracy",
@@ -31,39 +29,21 @@ class DatasetHub(Protocol):
     def upload_folder(self, **kwargs: Any) -> Any: ...
 
 
-@dataclass(frozen=True, slots=True)
-class PublishedRun:
-    """A result together with the configuration used to produce it."""
-
-    configuration: str
-    result: RunResult
-
-
-def read_published_runs(results_dir: Path) -> tuple[PublishedRun, ...]:
-    """Read every result below ``results_dir`` with a stable configuration label."""
-    published = []
-    for path in sorted(results_dir.rglob("*.json")):
-        relative = path.relative_to(results_dir)
-        configuration = "strict-8-tokens" if "strict-8-tokens" in relative.parts else "standard"
-        published.append(PublishedRun(configuration=configuration, result=read_run(path)))
-    return tuple(
-        sorted(published, key=lambda item: (item.configuration, item.result.metadata.model_id))
-    )
+def read_published_runs(results_dir: Path) -> tuple[RunResult, ...]:
+    """Read every result below ``results_dir`` in stable model-id order."""
+    runs = [read_run(path) for path in sorted(results_dir.rglob("*.json"))]
+    return tuple(sorted(runs, key=lambda result: result.metadata.model_id))
 
 
 def dataset_card(
     results: Sequence[RunResult],
     *,
     benchmark_name: str,
-    configurations: Sequence[str] = (),
 ) -> str:
     """Build a terse card whose scores are recomputed from every prediction."""
     if not results:
         raise ValueError("cannot build a card from an empty set of results")
-    labels = tuple(configurations) or ("standard",) * len(results)
-    if len(labels) != len(results):
-        raise ValueError("one configuration label is required for each result")
-    rows = _card_rows(results, labels)
+    rows = _card_rows(results)
     reference = results[0].metadata
     n_items = results[0].metrics.n_items
     header = "| " + " | ".join(CARD_COLUMNS) + " |"
@@ -99,9 +79,9 @@ Scores are recomputed from the published predictions.
 """
 
 
-def _card_rows(results: Sequence[RunResult], configurations: Sequence[str]) -> list[dict[str, Any]]:
+def _card_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     rows = []
-    for result, configuration in zip(results, configurations, strict=True):
+    for result in results:
         derived = evaluate(outcomes_of(result.predictions))
         if derived != result.metrics:
             raise ValueError(
@@ -109,7 +89,6 @@ def _card_rows(results: Sequence[RunResult], configurations: Sequence[str]) -> l
             )
         rows.append(
             {
-                "configuration": configuration,
                 "model_id": result.metadata.model_id,
                 "n_items": derived.n_items,
                 "accuracy": round(derived.accuracy, 4),
@@ -122,7 +101,7 @@ def _card_rows(results: Sequence[RunResult], configurations: Sequence[str]) -> l
                 "truncated": sum(prediction.truncated for prediction in result.predictions),
             }
         )
-    return sorted(rows, key=lambda row: (-row["f1"], row["configuration"], row["model_id"]))
+    return sorted(rows, key=lambda row: (-row["f1"], row["model_id"]))
 
 
 def publish_results(
@@ -132,7 +111,6 @@ def publish_results(
     *,
     api: DatasetHub | None = None,
     private: bool = False,
-    configurations: Sequence[str] = (),
     commit_message: str = "Publish small-LLM land-use relevance benchmark results",
     benchmark_name: str = "benchmark.csv",
 ) -> str:
@@ -145,7 +123,6 @@ def publish_results(
         dataset_card(
             results,
             benchmark_name=benchmark_name,
-            configurations=configurations,
         ),
         encoding="utf-8",
     )
