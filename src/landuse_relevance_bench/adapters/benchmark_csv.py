@@ -75,11 +75,17 @@ def _check_source_item_ids(
     items: tuple[BenchmarkItem, ...],
     expected_source_item_ids: Sequence[str],
 ) -> None:
-    expected = set(expected_source_item_ids)
-    actual = {item.source_item_id for item in items}
-    if actual != expected:
-        missing = sorted(expected - actual)
-        extra = sorted(actual - expected)
+    expected = tuple(expected_source_item_ids)
+    actual = tuple(item.source_item_id for item in items)
+    expected_set = set(expected)
+    actual_set = set(actual)
+    if actual != expected and actual_set != expected_set:
+        missing = sorted(expected_set - actual_set)
+        extra = sorted(actual_set - expected_set)
         raise BenchmarkFileError(
             f"benchmark {path}: source item set mismatch; missing={missing}, extra={extra}"
+        )
+    if actual != expected:
+        raise BenchmarkFileError(
+            f"benchmark {path}: source item sequence mismatch; expected={expected}, actual={actual}"
         )

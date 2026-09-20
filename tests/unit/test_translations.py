@@ -150,3 +150,24 @@ def test_rejects_a_language_file_with_a_mismatched_source_set(tmp_path: Path) ->
 
     with pytest.raises(TranslationDataError, match="source item set"):
         load_language_benchmark(tmp_path, "fr")
+
+
+def test_rejects_a_language_file_with_reordered_source_ids(tmp_path: Path) -> None:
+    _write_manifest(tmp_path)
+    path = tmp_path / "fr" / "v3-final-fr.csv"
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[1], lines[2] = lines[2], lines[1]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["files"]["fr"]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest["whole_set_sha256"] = hashlib.sha256(
+        "\n".join(
+            f"{language}:{manifest['files'][language]['sha256']}"
+            for language in sorted(manifest["files"])
+        ).encode()
+    ).hexdigest()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(TranslationDataError, match="source item sequence"):
+        load_language_benchmark(tmp_path, "fr")
