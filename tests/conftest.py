@@ -35,5 +35,10 @@ def real_benchmark_path() -> Path:
 
 
 @pytest.fixture
+def legacy_benchmark_path() -> Path:
+    return PROJECT_ROOT / "data" / "archive" / "single-language-benchmark" / "benchmark.csv"
+
+
+@pytest.fixture
 def real_prompt_path() -> Path:
     return PROJECT_ROOT / "data" / "prompt.txt"

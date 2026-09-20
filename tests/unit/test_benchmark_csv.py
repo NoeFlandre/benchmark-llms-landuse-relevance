@@ -55,6 +55,6 @@ def test_rejects_duplicate_sentences_so_item_ids_stay_unique(tmp_path: Path) -> 
         load_benchmark(path)
 
 
-def test_rejects_the_legacy_single_file_benchmark(real_benchmark_path: Path) -> None:
+def test_rejects_the_archived_single_file_benchmark(legacy_benchmark_path: Path) -> None:
     with pytest.raises(BenchmarkFileError, match="column"):
-        load_benchmark(real_benchmark_path)
+        load_benchmark(legacy_benchmark_path)

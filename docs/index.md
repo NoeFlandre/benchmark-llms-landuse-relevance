@@ -21,3 +21,6 @@ uv run lrb report
 - [Running it on Grid'5000](grid5000.md)
 - [Results](results.md)
 - [How the code is arranged](architecture.md)
+
+The active benchmark is defined by the translation manifest; archived files are kept
+outside active discovery and publication.

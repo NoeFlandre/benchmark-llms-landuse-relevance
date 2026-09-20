@@ -4,7 +4,7 @@
 
 ## Context
 
-The benchmark is 154 prompts producing 8 tokens each, per model. vLLM is the faster
+The complete benchmark is 85 aligned language splits of 300 rows. vLLM is the faster
 serving runtime; Transformers is the reference implementation that new architectures
 land in first.
 

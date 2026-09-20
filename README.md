@@ -51,6 +51,10 @@ to reach their yes/no verdict without turning the score into a test of output le
 Every result file pins the model revision, the prompt sha256, the benchmark sha256, the
 decoding settings, the seed, and the source commit.
 
+The active data inventory is `data/translations/manifest.json`. Reports read only
+language-nested checkpoints and produce both detailed per-language rows and model-level
+macro aggregates.
+
 ## Models
 
 | model | parameters |

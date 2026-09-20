@@ -1,18 +1,17 @@
 # Results
 
-Published to
-[NoeFlandre/benchmark-llms-landuse-relevance](https://huggingface.co/datasets/NoeFlandre/benchmark-llms-landuse-relevance)
-and its [Hugging Face bucket](https://huggingface.co/buckets/NoeFlandre/benchmark-llms-landuse-relevance).
-All published models are in `standard/models/`, with their aggregate scores in
-`standard/leaderboard.csv`. The public release uses a 4096-token generation budget so
-the benchmark measures classification rather than output-length compliance.
+Published runs belong to the `v3-multilingual` benchmark set in
+[NoeFlandre/benchmark-llms-landuse-relevance](https://huggingface.co/datasets/NoeFlandre/benchmark-llms-landuse-relevance).
+Each model-language checkpoint is explicit, and the public release uses a 4096-token
+generation budget so the benchmark measures classification rather than output-length
+compliance.
 
 ## Reading a run file
 
-Each run file holds the metadata needed to audit it — model revision, prompt and
-benchmark sha256, decoding settings, seed, host duration, and the source commit — then
-every prediction with its raw generation, and finally the metrics computed from exactly
-those predictions.
+Each run file holds the metadata needed to audit it — language, model revision, prompt
+and benchmark sha256, decoding settings, seed, host duration, and the source commit —
+then every prediction with its raw generation, and finally the metrics computed from
+exactly those predictions.
 
 Each prediction carries `truncated`. A truncated generation is scored unparsed however
 many verdict words appear in it: the model ran out of budget mid-thought and never

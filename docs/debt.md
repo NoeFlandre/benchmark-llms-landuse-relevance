@@ -1,8 +1,9 @@
 # Known weaknesses
 
-**The benchmark is small.** 154 items means roughly ±8 points of 95% confidence on an
-accuracy near 0.8. Treat gaps smaller than that between two models as noise. Adding
-items is the fix; the content-addressed ids make old results joinable to a larger set.
+**Per-language samples are small.** Each language has 300 items, so a single-language
+accuracy near 0.8 still has wide uncertainty. Treat small gaps between models within
+one language as noise. The 85 aligned splits provide a better overall estimate through
+macro aggregation; the language-aware ids keep those joins explicit.
 
 **One prompt, no variants.** Scores conflate a model's judgement with its sensitivity
 to this specific wording. A prompt-variant sweep is the natural next step; the run
