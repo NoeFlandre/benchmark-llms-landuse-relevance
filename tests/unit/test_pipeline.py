@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from landuse_relevance_bench.adapters.hashing import sha256_of_file
-from landuse_relevance_bench.adapters.pipeline import RunRequest, execute
+from landuse_relevance_bench.adapters.pipeline import DEFAULT_MAX_NEW_TOKENS, RunRequest, execute
 from landuse_relevance_bench.adapters.results_store import read_run, run_filename
 from landuse_relevance_bench.domain.labels import Label
 
@@ -78,6 +78,13 @@ def test_records_the_inputs_it_actually_used(request_for, benchmark_path: Path) 
     assert metadata.seed == 7
     assert metadata.decoding == "greedy"
     assert metadata.duration_seconds >= 0.0
+
+
+def test_active_default_generation_budget_is_4096(request_for) -> None:
+    result = execute(request_for(), _provider(["yes", "no"]))
+
+    assert DEFAULT_MAX_NEW_TOKENS == 4096
+    assert result.metadata.max_new_tokens == 4096
 
 
 def test_feeds_the_file_prompt_to_the_generator(request_for) -> None:

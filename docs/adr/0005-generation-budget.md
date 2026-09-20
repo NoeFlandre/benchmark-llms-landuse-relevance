@@ -5,7 +5,7 @@
 
 The strict eight-token diagnostic described here was removed from the public release on
 2026-09-14 because it measured output-budget compliance rather than land-use relevance.
-The 4096-token configuration is the sole published benchmark.
+The 4096-token configuration is the sole active benchmark budget.
 
 ## Context
 
@@ -32,10 +32,9 @@ Three changes, together:
 2. **A generation that used its whole budget without stopping carries no verdict.** The
    runtime reports truncation, and a truncated generation is scored unparsed however
    many verdict words appear in it.
-3. **The budget is large enough for these models to finish** — 1024 by default, 4096 for
-   the published run. At 1024 the 2.6B still truncated on a third of the benchmark; at
-   4096 it truncates on none of it, and its accuracy settles at 0.857. The eight-token
-   run was retained only as an exploratory diagnostic.
+3. **The budget is large enough for these models to finish** — the active default is
+   4096 tokens. The runtime records truncation explicitly, and the raw generation is
+   retained for audit.
 
 ## Consequences
 

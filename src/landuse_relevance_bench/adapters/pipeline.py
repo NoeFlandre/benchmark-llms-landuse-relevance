@@ -15,7 +15,7 @@ from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE, predict_all
 from landuse_relevance_bench.domain.records import RunMetadata, RunResult, outcomes_of
 
-DEFAULT_MAX_NEW_TOKENS = 1024
+DEFAULT_MAX_NEW_TOKENS = 4096
 DEFAULT_DTYPE = "bfloat16"
 
 
