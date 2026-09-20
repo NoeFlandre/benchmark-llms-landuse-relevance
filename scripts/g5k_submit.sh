@@ -28,6 +28,6 @@ usagepolicycheck -t
 oarsub -l "host=1/gpu=1,walltime=$WALLTIME" \
   -O "$LRB_ROOT/oar.%jobid%.out" \
   -E "$LRB_ROOT/oar.%jobid%.err" \
-  "LRB_SHARD_INDEX=$LRB_SHARD_INDEX LRB_SHARD_COUNT=$LRB_SHARD_COUNT LRB_RESULTS='$LRB_RESULTS' $LRB_ROOT/scripts/g5k_node_run.sh"
+  "LRB_ROOT='$LRB_ROOT' LRB_SHARD_INDEX=$LRB_SHARD_INDEX LRB_SHARD_COUNT=$LRB_SHARD_COUNT LRB_RESULTS='$LRB_RESULTS' $LRB_ROOT/scripts/g5k_node_run.sh"
 
 oarstat -u
