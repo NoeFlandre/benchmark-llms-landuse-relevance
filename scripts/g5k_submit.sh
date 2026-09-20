@@ -1,16 +1,32 @@
 #!/usr/bin/env bash
-# Submits the benchmark to one GPU on a Grid'5000 site frontend.
-# Usage: scripts/g5k_submit.sh [walltime]   e.g. scripts/g5k_submit.sh 1:30
+# Submits one deterministic shard to one GPU on a Grid'5000 site frontend.
+# Usage: scripts/g5k_submit.sh [walltime] [--dry-run]
 set -euo pipefail
 
-WALLTIME="${1:-1:00}"
+WALLTIME="1:00"
+DRY_RUN=0
+for argument in "$@"; do
+  case "$argument" in
+    --dry-run) DRY_RUN=1 ;;
+    *) WALLTIME="$argument" ;;
+  esac
+done
 LRB_ROOT="${LRB_ROOT:-$HOME/benchmark-llms-landuse-relevance}"
+LRB_SHARD_INDEX="${LRB_SHARD_INDEX:-0}"
+LRB_SHARD_COUNT="${LRB_SHARD_COUNT:-1}"
+
+echo "usagepolicycheck -t"
+echo "oarsub host=1/gpu=1 walltime=$WALLTIME shard=$LRB_SHARD_INDEX/$LRB_SHARD_COUNT"
+
+if (( DRY_RUN == 1 )); then
+  exit 0
+fi
 
 usagepolicycheck -t
 
 oarsub -l "host=1/gpu=1,walltime=$WALLTIME" \
   -O "$LRB_ROOT/oar.%jobid%.out" \
   -E "$LRB_ROOT/oar.%jobid%.err" \
-  "$LRB_ROOT/scripts/g5k_node_run.sh"
+  "LRB_SHARD_INDEX=$LRB_SHARD_INDEX LRB_SHARD_COUNT=$LRB_SHARD_COUNT $LRB_ROOT/scripts/g5k_node_run.sh"
 
 oarstat -u
