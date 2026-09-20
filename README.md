@@ -3,11 +3,12 @@
 Do small open-weight LLMs know when a sentence about a place says something a
 satellite could see?
 
-154 adjudicated sentences from Wikipedia articles and institutional websites, each
-labelled `yes` if it carries land-use, land-cover, or geographic-environment signal —
-vegetation, water, terrain, buildings, roads, mining, managed land — and `no` if it
-only concerns history, administration, people, or events. One prompt, one token of
-expected output, four Liquid AI LFM2.5 models, scored end to end on a Grid'5000 GPU.
+The active benchmark is an 85-language golden human set with 300 aligned adjudicated
+items per language. Each item is labelled `yes` if it carries land-use, land-cover, or
+geographic-environment signal — vegetation, water, terrain, buildings, roads, mining,
+managed land — and `no` if it only concerns history, administration, people, or events.
+One English prompt, one token of expected output, four Liquid AI LFM2.5 models, scored
+end to end on a Grid'5000 GPU.
 
 - **Code:** this repository
 - **Results:** [NoeFlandre/benchmark-llms-landuse-relevance](https://huggingface.co/datasets/NoeFlandre/benchmark-llms-landuse-relevance)
@@ -18,9 +19,11 @@ expected output, four Liquid AI LFM2.5 models, scored end to end on a Grid'5000 
 ```bash
 uv sync --all-extras
 uv run lrb models                      # the roster
-uv run lrb run LiquidAI/LFM2.5-350M    # one model
+uv run lrb languages                   # active language inventory
+uv run lrb run LiquidAI/LFM2.5-350M    # one model, all languages
+uv run lrb run LiquidAI/LFM2.5-350M --language en,fr
 uv run lrb run-all                     # every model
-uv run lrb report                      # leaderboard from stored runs
+uv run lrb report                      # detailed and aggregate leaderboards
 uv run lrb publish NoeFlandre/benchmark-llms-landuse-relevance
 ```
 
