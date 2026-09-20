@@ -14,11 +14,12 @@ done
 LRB_ROOT="${LRB_ROOT:-$HOME/benchmark-llms-landuse-relevance}"
 LRB_RESULTS="${LRB_RESULTS:-$LRB_ROOT/results-live}"
 LRB_GPU_FILTER="${LRB_GPU_FILTER:-gpu_compute_capability_major>=7 AND gpu_mem>=23040}"
+LRB_JOB_TYPE="${LRB_JOB_TYPE:-night}"
 LRB_SHARD_INDEX="${LRB_SHARD_INDEX:-0}"
 LRB_SHARD_COUNT="${LRB_SHARD_COUNT:-1}"
 
 echo "usagepolicycheck -t"
-echo "oarsub host=1/gpu=1 walltime=$WALLTIME shard=$LRB_SHARD_INDEX/$LRB_SHARD_COUNT"
+echo "oarsub type=$LRB_JOB_TYPE host=1/gpu=1 walltime=$WALLTIME shard=$LRB_SHARD_INDEX/$LRB_SHARD_COUNT"
 
 if (( DRY_RUN == 1 )); then
   exit 0
@@ -26,7 +27,7 @@ fi
 
 usagepolicycheck -t
 
-oarsub -p "$LRB_GPU_FILTER" -l "host=1/gpu=1,walltime=$WALLTIME" \
+oarsub -t "$LRB_JOB_TYPE" -p "$LRB_GPU_FILTER" -l "host=1/gpu=1,walltime=$WALLTIME" \
   -O "$LRB_ROOT/oar.%jobid%.out" \
   -E "$LRB_ROOT/oar.%jobid%.err" \
   "LRB_ROOT='$LRB_ROOT' LRB_SHARD_INDEX=$LRB_SHARD_INDEX LRB_SHARD_COUNT=$LRB_SHARD_COUNT LRB_RESULTS='$LRB_RESULTS' $LRB_ROOT/scripts/g5k_node_run.sh"
