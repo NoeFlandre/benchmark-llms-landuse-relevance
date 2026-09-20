@@ -12,6 +12,7 @@ for argument in "$@"; do
   esac
 done
 LRB_ROOT="${LRB_ROOT:-$HOME/benchmark-llms-landuse-relevance}"
+LRB_RESULTS="${LRB_RESULTS:-$LRB_ROOT/results-live}"
 LRB_SHARD_INDEX="${LRB_SHARD_INDEX:-0}"
 LRB_SHARD_COUNT="${LRB_SHARD_COUNT:-1}"
 
@@ -27,6 +28,6 @@ usagepolicycheck -t
 oarsub -l "host=1/gpu=1,walltime=$WALLTIME" \
   -O "$LRB_ROOT/oar.%jobid%.out" \
   -E "$LRB_ROOT/oar.%jobid%.err" \
-  "LRB_SHARD_INDEX=$LRB_SHARD_INDEX LRB_SHARD_COUNT=$LRB_SHARD_COUNT $LRB_ROOT/scripts/g5k_node_run.sh"
+  "LRB_SHARD_INDEX=$LRB_SHARD_INDEX LRB_SHARD_COUNT=$LRB_SHARD_COUNT LRB_RESULTS='$LRB_RESULTS' $LRB_ROOT/scripts/g5k_node_run.sh"
 
 oarstat -u
