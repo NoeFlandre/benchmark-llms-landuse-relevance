@@ -89,6 +89,37 @@ def test_run_writes_a_result_file(
     assert payload["metrics"]["n_items"] == 2
 
 
+def test_run_reuses_one_generator_across_languages(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    data_root = _translation_root(tmp_path, benchmark_path)
+    provider_languages: list[str] = []
+
+    def recording_provider(request: RunRequest) -> tuple[AlwaysYes, str]:
+        provider_languages.append(request.language)
+        return AlwaysYes(), "fakerev"
+
+    monkeypatch.setattr(cli, "generator_provider", lambda: recording_provider)
+    result = runner.invoke(
+        cli.app,
+        [
+            "run",
+            "some/model",
+            "--data-root",
+            str(data_root),
+            "--prompt",
+            str(prompt_path),
+            "--out",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert provider_languages == ["en"]
+    assert (tmp_path / "en" / "some__model.json").is_file()
+    assert (tmp_path / "fr" / "some__model.json").is_file()
+
+
 def test_run_reports_a_missing_benchmark_without_a_traceback(
     monkeypatch, tmp_path: Path, prompt_path: Path
 ) -> None:
@@ -112,7 +143,9 @@ def test_run_reports_a_missing_benchmark_without_a_traceback(
 
 def test_run_defaults_to_every_language(monkeypatch, tmp_path: Path) -> None:
     requests: list[RunRequest] = []
-    monkeypatch.setattr(cli, "_benchmark_one", requests.append)
+    monkeypatch.setattr(
+        cli, "_benchmark_one", lambda request, _provider=None: requests.append(request)
+    )
 
     result = runner.invoke(
         cli.app,
@@ -130,7 +163,11 @@ def test_run_accepts_repeated_and_comma_separated_language_filters(
     monkeypatch,
 ) -> None:
     languages: list[str] = []
-    monkeypatch.setattr(cli, "_benchmark_one", lambda request: languages.append(request.language))
+    monkeypatch.setattr(
+        cli,
+        "_benchmark_one",
+        lambda request, _provider=None: languages.append(request.language),
+    )
 
     result = runner.invoke(
         cli.app,
@@ -152,7 +189,9 @@ def test_run_accepts_repeated_and_comma_separated_language_filters(
 
 def test_run_all_shard_selects_a_deterministic_subset(monkeypatch) -> None:
     requests: list[RunRequest] = []
-    monkeypatch.setattr(cli, "_benchmark_one", requests.append)
+    monkeypatch.setattr(
+        cli, "_benchmark_one", lambda request, _provider=None: requests.append(request)
+    )
 
     result = runner.invoke(
         cli.app,

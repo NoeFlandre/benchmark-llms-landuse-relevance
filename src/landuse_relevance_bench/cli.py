@@ -28,6 +28,7 @@ from landuse_relevance_bench.adapters.translations import (
     TranslationManifest,
     load_manifest,
 )
+from landuse_relevance_bench.domain.engine import TextGenerator
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
 from landuse_relevance_bench.domain.roster import ROSTER, model_ids
 from landuse_relevance_bench.domain.sharding import (
@@ -58,6 +59,21 @@ def generator_provider() -> GeneratorProvider:
     return provide
 
 
+def _cached_generator_provider() -> GeneratorProvider:
+    """Load one model lazily and reuse it for all of that model's languages."""
+    provider: GeneratorProvider | None = None
+    loaded: tuple[TextGenerator, str] | None = None
+
+    def provide(request: RunRequest) -> tuple[TextGenerator, str]:
+        nonlocal loaded, provider
+        if loaded is None:
+            provider = provider or generator_provider()
+            loaded = provider(request)
+        return loaded
+
+    return provide
+
+
 def source_commit() -> str:
     """The commit the code was run from, recorded alongside every result."""
     try:
@@ -69,7 +85,7 @@ def source_commit() -> str:
     return completed.stdout.strip()
 
 
-def _benchmark_one(request: RunRequest) -> None:
+def _benchmark_one(request: RunRequest, provider: GeneratorProvider | None = None) -> None:
     """Run one model, reporting input problems as usage errors rather than tracebacks."""
     result_path = request.output_dir / run_filename(request.model_id, request.language)
     if result_path.is_file():
@@ -80,7 +96,7 @@ def _benchmark_one(request: RunRequest) -> None:
         typer.echo(f"{request.model_id} [{request.language}] already complete; skipping")
         return
     try:
-        result = execute(request, generator_provider(), source_commit=source_commit())
+        result = execute(request, provider or generator_provider(), source_commit=source_commit())
     except (OSError, BenchmarkFileError, PromptFileError, TranslationDataError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
     metrics = result.metrics
@@ -129,6 +145,7 @@ def run(
     """Benchmark one model on every selected language."""
     manifest, selected = _selected_languages(data_root, language)
     pairs = _planned_pairs((model_id,), selected, shard_index, shard_count)
+    provider = _cached_generator_provider()
     for _, selected_language in pairs:
         _benchmark_one(
             RunRequest(
@@ -142,7 +159,8 @@ def run(
                 max_new_tokens=max_new_tokens,
                 seed=seed,
                 dtype=dtype,
-            )
+            ),
+            provider,
         )
 
 
@@ -162,20 +180,26 @@ def run_all(
     """Benchmark every rostered model on every selected language."""
     manifest, selected = _selected_languages(data_root, language)
     pairs = _planned_pairs(model_ids(), selected, shard_index, shard_count)
+    pairs_by_model: dict[str, list[str]] = {}
     for model, selected_language in pairs:
-        _benchmark_one(
-            RunRequest(
-                model_id=model,
-                language=selected_language,
-                benchmark_path=data_root / manifest.files[selected_language].path,
-                prompt_path=prompt,
-                output_dir=out,
-                batch_size=batch_size,
-                max_new_tokens=max_new_tokens,
-                seed=seed,
-                dtype=dtype,
+        pairs_by_model.setdefault(model, []).append(selected_language)
+    for model, languages_for_model in pairs_by_model.items():
+        provider = _cached_generator_provider()
+        for selected_language in languages_for_model:
+            _benchmark_one(
+                RunRequest(
+                    model_id=model,
+                    language=selected_language,
+                    benchmark_path=data_root / manifest.files[selected_language].path,
+                    prompt_path=prompt,
+                    output_dir=out,
+                    batch_size=batch_size,
+                    max_new_tokens=max_new_tokens,
+                    seed=seed,
+                    dtype=dtype,
+                ),
+                provider,
             )
-        )
 
 
 @app.command()
