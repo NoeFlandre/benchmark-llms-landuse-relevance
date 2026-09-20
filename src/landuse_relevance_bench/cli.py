@@ -105,7 +105,8 @@ def languages(data_root: DataRoot = DEFAULT_DATA_ROOT) -> None:
     try:
         manifest = load_manifest(data_root)
     except (OSError, TranslationDataError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+        label = data_root.name or str(data_root)
+        raise typer.BadParameter(f"{label}: {exc}") from exc
     for language in manifest.languages:
         typer.echo(f"{language}\t{manifest.files[language].rows}")
 
@@ -280,7 +281,8 @@ def _selected_languages(
     try:
         manifest = load_manifest(data_root)
     except (OSError, TranslationDataError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+        label = data_root.name or str(data_root)
+        raise typer.BadParameter(f"{label}: {exc}") from exc
     selected = _normalize_language_selectors(selectors)
     unknown = sorted(set(selected) - set(manifest.languages))
     if unknown:
