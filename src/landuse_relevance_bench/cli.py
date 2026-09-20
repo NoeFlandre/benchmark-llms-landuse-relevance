@@ -30,6 +30,11 @@ from landuse_relevance_bench.adapters.translations import (
 )
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
 from landuse_relevance_bench.domain.roster import ROSTER, model_ids
+from landuse_relevance_bench.domain.sharding import (
+    model_language_pairs,
+    pair_statuses,
+    shard_pairs,
+)
 
 DEFAULT_DATA_ROOT = Path("data/translations")
 DEFAULT_PROMPT = Path("data/prompt.txt")
@@ -117,10 +122,13 @@ def run(
     max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
     seed: Annotated[int, typer.Option()] = 0,
     dtype: Annotated[str, typer.Option(help="Torch dtype name.")] = DEFAULT_DTYPE,
+    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
+    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
 ) -> None:
     """Benchmark one model on every selected language."""
     manifest, selected = _selected_languages(data_root, language)
-    for selected_language in selected:
+    pairs = _planned_pairs((model_id,), selected, shard_index, shard_count)
+    for _, selected_language in pairs:
         _benchmark_one(
             RunRequest(
                 model_id=model_id,
@@ -147,24 +155,68 @@ def run_all(
     max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
     seed: Annotated[int, typer.Option()] = 0,
     dtype: Annotated[str, typer.Option()] = DEFAULT_DTYPE,
+    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
+    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
 ) -> None:
     """Benchmark every rostered model on every selected language."""
     manifest, selected = _selected_languages(data_root, language)
-    for model in model_ids():
-        for selected_language in selected:
-            _benchmark_one(
-                RunRequest(
-                    model_id=model,
-                    language=selected_language,
-                    benchmark_path=data_root / manifest.files[selected_language].path,
-                    prompt_path=prompt,
-                    output_dir=out,
-                    batch_size=batch_size,
-                    max_new_tokens=max_new_tokens,
-                    seed=seed,
-                    dtype=dtype,
-                )
+    pairs = _planned_pairs(model_ids(), selected, shard_index, shard_count)
+    for model, selected_language in pairs:
+        _benchmark_one(
+            RunRequest(
+                model_id=model,
+                language=selected_language,
+                benchmark_path=data_root / manifest.files[selected_language].path,
+                prompt_path=prompt,
+                output_dir=out,
+                batch_size=batch_size,
+                max_new_tokens=max_new_tokens,
+                seed=seed,
+                dtype=dtype,
             )
+        )
+
+
+@app.command()
+def status(
+    data_root: DataRoot = DEFAULT_DATA_ROOT,
+    results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
+    language: Language = None,
+    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
+    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+) -> None:
+    """Show complete or pending state for the selected model-language shard."""
+    _, selected = _selected_languages(data_root, language)
+    pairs = _planned_pairs(model_ids(), selected, shard_index, shard_count)
+    completed = set()
+    for model_id, selected_language in pairs:
+        path = results_dir / run_filename(model_id, selected_language)
+        if not path.is_file():
+            continue
+        try:
+            result = read_run(path)
+        except ValueError:
+            continue
+        if result.metadata.model_id == model_id and result.metadata.language == selected_language:
+            completed.add((model_id, selected_language))
+    for pair_status in pair_statuses(pairs, completed):
+        typer.echo(f"{pair_status.model_id}\t{pair_status.language}\t{pair_status.status}")
+
+
+def _planned_pairs(
+    models: tuple[str, ...] | list[str],
+    languages: tuple[str, ...],
+    shard_index: int,
+    shard_count: int,
+) -> tuple[tuple[str, str], ...]:
+    try:
+        return shard_pairs(
+            model_language_pairs(models, languages),
+            shard_index,
+            shard_count,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 @app.command()

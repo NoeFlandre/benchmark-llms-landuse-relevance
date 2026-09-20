@@ -150,6 +150,86 @@ def test_run_accepts_repeated_and_comma_separated_language_filters(
     assert languages == ["de", "en", "fr"]
 
 
+def test_run_all_shard_selects_a_deterministic_subset(monkeypatch) -> None:
+    requests: list[RunRequest] = []
+    monkeypatch.setattr(cli, "_benchmark_one", requests.append)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "run-all",
+            "--data-root",
+            "data/translations",
+            "--shard-index",
+            "1",
+            "--shard-count",
+            "3",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert len(requests) == 113
+    assert [(request.model_id, request.language) for request in requests] == sorted(
+        (request.model_id, request.language) for request in requests
+    )
+
+
+def test_status_reports_pending_pairs_for_a_selected_language() -> None:
+    result = runner.invoke(
+        cli.app,
+        [
+            "status",
+            "--data-root",
+            "data/translations",
+            "--language",
+            "en",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert len(result.stdout.strip().splitlines()) == 4
+    assert all(line.endswith("\tpending") for line in result.stdout.strip().splitlines())
+
+
+def test_status_marks_a_valid_rostered_pair_complete(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    data_root = _translation_root(tmp_path, benchmark_path)
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    run = runner.invoke(
+        cli.app,
+        [
+            "run",
+            "LiquidAI/LFM2.5-350M",
+            "--data-root",
+            str(data_root),
+            "--language",
+            "en",
+            "--prompt",
+            str(prompt_path),
+            "--out",
+            str(tmp_path / "results"),
+        ],
+    )
+    assert run.exit_code == 0, run.stdout
+
+    status_result = runner.invoke(
+        cli.app,
+        [
+            "status",
+            "--data-root",
+            str(data_root),
+            "--language",
+            "en",
+            "--results-dir",
+            str(tmp_path / "results"),
+        ],
+    )
+
+    assert status_result.exit_code == 0, status_result.stdout
+    assert "LiquidAI/LFM2.5-350M\ten\tcomplete" in status_result.stdout
+
+
 def test_run_skips_an_existing_valid_model_language_pair(
     monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
 ) -> None:
