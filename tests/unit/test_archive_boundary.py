@@ -1,10 +1,9 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 from landuse_relevance_bench.adapters.hf_publish import read_published_runs
 from landuse_relevance_bench.adapters.results_store import read_runs
 from landuse_relevance_bench.adapters.translations import load_manifest
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_DOCS = (

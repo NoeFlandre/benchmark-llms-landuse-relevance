@@ -46,3 +46,23 @@ Feature: Benchmarking small LLMs on land-use relevance
     When I benchmark that model
     Then the stored result pins the benchmark and prompt digests
     And the stored result names the model revision that was used
+
+  Scenario: The active multilingual inventory is complete and aligned
+    Given the active multilingual benchmark inventory
+    Then 85 languages are available with 300 rows each
+    And every language shares the same source identity sequence
+
+  Scenario: Model-language checkpoints aggregate without collisions
+    Given a gold model run for each of two languages
+    When I read the active results
+    Then each language has its own checkpoint
+    And the model aggregate covers both languages
+
+  Scenario: Archived results are outside the active contract
+    Given an active result directory with an archived invalid file
+    When I read the active archive directory
+    Then the archived file is ignored
+
+  Scenario: Deterministic shards cover the multilingual sweep exactly once
+    Given a multilingual roster and four shard slots
+    Then the shard union is complete and disjoint
