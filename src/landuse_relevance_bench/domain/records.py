@@ -48,6 +48,7 @@ class RunMetadata:
     """Everything needed to reproduce or audit a run."""
 
     model_id: str
+    language: str
     model_revision: str
     prompt_sha256: str
     benchmark_sha256: str
@@ -60,12 +61,23 @@ class RunMetadata:
     duration_seconds: float
     source_commit: str = ""
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.language, str) or not self.language.strip():
+            raise ValueError(
+                "run metadata requires a non-empty language; legacy records are archive-only"
+            )
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "RunMetadata":
-        return cls(**dict(payload))
+        if "language" not in payload or not payload["language"]:
+            raise ValueError("legacy/archive-only run metadata is missing required language")
+        try:
+            return cls(**dict(payload))
+        except TypeError as exc:
+            raise ValueError(f"invalid run metadata: {exc}") from exc
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,6 +6,7 @@ import pytest
 from landuse_relevance_bench.adapters.results_store import (
     leaderboard_rows,
     read_run,
+    read_runs,
     run_filename,
     write_leaderboard_csv,
     write_run,
@@ -15,9 +16,14 @@ from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
 
 
-def _result(model_id: str = "LiquidAI/LFM2.5-350M", accuracy_pair: tuple = (Label.YES, Label.YES)):
+def _result(
+    model_id: str = "LiquidAI/LFM2.5-350M",
+    language: str = "en",
+    accuracy_pair: tuple = (Label.YES, Label.YES),
+):
     metadata = RunMetadata(
         model_id=model_id,
+        language=language,
         model_revision="abc123",
         prompt_sha256="p" * 64,
         benchmark_sha256="b" * 64,
@@ -45,11 +51,19 @@ def test_a_written_run_reads_back_identically(tmp_path: Path) -> None:
 def test_the_filename_is_derived_from_the_model_id(tmp_path: Path) -> None:
     path = write_run(_result(), tmp_path)
     assert path.name == "LiquidAI__LFM2.5-350M.json"
-    assert path.parent == tmp_path
+    assert path.parent == tmp_path / "en"
 
 
 def test_run_filename_flattens_the_namespace_separator() -> None:
-    assert run_filename("a/b") == "a__b.json"
+    assert run_filename("a/b", "fr") == Path("fr/a__b.json")
+
+
+def test_two_languages_have_distinct_result_paths(tmp_path: Path) -> None:
+    english = write_run(_result(language="en"), tmp_path)
+    french = write_run(_result(language="fr"), tmp_path)
+
+    assert english != french
+    assert english.read_text(encoding="utf-8") != french.read_text(encoding="utf-8")
 
 
 def test_the_file_is_pretty_printed_json_with_a_trailing_newline(tmp_path: Path) -> None:
@@ -65,8 +79,8 @@ def test_writing_the_same_run_twice_is_idempotent(tmp_path: Path) -> None:
 
 
 def test_the_leaderboard_ranks_models_by_descending_f1(tmp_path: Path) -> None:
-    weak = _result("weak/model", (Label.YES, Label.NO))
-    strong = _result("strong/model", (Label.YES, Label.YES))
+    weak = _result("weak/model", accuracy_pair=(Label.YES, Label.NO))
+    strong = _result("strong/model", accuracy_pair=(Label.YES, Label.YES))
     rows = leaderboard_rows([weak, strong])
     assert [r["model_id"] for r in rows] == ["strong/model", "weak/model"]
 
@@ -78,11 +92,38 @@ def test_the_leaderboard_csv_has_a_header_and_one_row_per_model(tmp_path: Path) 
     assert len(lines) == 3
 
 
+def test_detailed_leaderboard_rows_carry_language() -> None:
+    (row,) = leaderboard_rows([_result(language="fr")])
+
+    assert row["language"] == "fr"
+
+
 def test_reading_a_corrupt_run_file_fails_loudly(tmp_path: Path) -> None:
     path = tmp_path / "broken.json"
     path.write_text("{not json", encoding="utf-8")
     with pytest.raises(ValueError):
         read_run(path)
+
+
+def test_reading_legacy_metadata_explains_that_it_is_archive_only(tmp_path: Path) -> None:
+    payload = _result().to_dict()
+    del payload["metadata"]["language"]
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"archive-only.*language"):
+        read_run(path)
+
+
+def test_recursive_reading_skips_archive_results(tmp_path: Path) -> None:
+    write_run(_result(), tmp_path)
+    archive = tmp_path / "archive" / "en"
+    archive.mkdir(parents=True)
+    (archive / "old.json").write_text(json.dumps(_result("old/model").to_dict()), encoding="utf-8")
+
+    runs = read_runs(tmp_path)
+
+    assert [run.metadata.model_id for run in runs] == ["LiquidAI/LFM2.5-350M"]
 
 
 def test_the_leaderboard_separates_truncated_generations_from_other_failures() -> None:

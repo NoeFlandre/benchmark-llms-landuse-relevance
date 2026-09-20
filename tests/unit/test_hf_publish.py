@@ -14,9 +14,10 @@ from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
 
 
-def _result(model_id: str = "LiquidAI/LFM2.5-350M") -> RunResult:
+def _result(model_id: str = "LiquidAI/LFM2.5-350M", language: str = "en") -> RunResult:
     metadata = RunMetadata(
         model_id=model_id,
+        language=language,
         model_revision="abc123",
         prompt_sha256="p" * 64,
         benchmark_sha256="b" * 64,
@@ -55,6 +56,7 @@ def test_the_card_is_a_markdown_leaderboard_naming_every_model() -> None:
     assert "| a/one |" in card and "| b/two |" in card
     assert "n_items" not in card
     assert "benchmark.csv" in card
+    assert "language" in card and "benchmark_set" in card
 
 
 def test_the_card_declares_the_prompt_and_benchmark_digests() -> None:
@@ -64,14 +66,19 @@ def test_the_card_declares_the_prompt_and_benchmark_digests() -> None:
 
 
 def test_published_runs_reads_nested_result_folders_in_stable_order(tmp_path: Path) -> None:
-    (tmp_path / "root__one.json").write_text(
+    english = tmp_path / "en"
+    english.mkdir()
+    (english / "root__one.json").write_text(
         json.dumps(_result("a/one").to_dict()), encoding="utf-8"
     )
-    extra = tmp_path / "recent-models-20260913"
+    extra = tmp_path / "fr"
     extra.mkdir()
     (extra / "nested__two.json").write_text(
-        json.dumps(_result("b/two").to_dict()), encoding="utf-8"
+        json.dumps(_result("b/two", language="fr").to_dict()), encoding="utf-8"
     )
+    archive = tmp_path / "archive" / "en"
+    archive.mkdir(parents=True)
+    (archive / "old.json").write_text(json.dumps(_result("old/model").to_dict()), encoding="utf-8")
     published = read_published_runs(tmp_path)
 
     assert [result.metadata.model_id for result in published] == ["a/one", "b/two"]
@@ -105,6 +112,15 @@ def test_publishing_writes_the_card_into_the_uploaded_folder(tmp_path: Path) -> 
 def test_publishing_nothing_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         publish_results("me/bench", tmp_path, [], api=FakeApi())
+
+
+def test_publishing_refuses_to_upload_an_archive_path(tmp_path: Path) -> None:
+    archive = tmp_path / "archive" / "en"
+    archive.mkdir(parents=True)
+    (archive / "old.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="archive"):
+        publish_results("me/bench", tmp_path, [_result()], api=FakeApi())
 
 
 def test_the_card_leaderboard_shows_the_truncation_count() -> None:

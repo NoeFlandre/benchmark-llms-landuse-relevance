@@ -4,12 +4,14 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from landuse_relevance_bench.adapters.results_store import read_run
+from landuse_relevance_bench.adapters.results_store import read_runs
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
 
 CARD_COLUMNS = (
     "model_id",
+    "language",
+    "benchmark_set",
     "accuracy",
     "balanced_accuracy",
     "f1",
@@ -30,8 +32,10 @@ class DatasetHub(Protocol):
 
 def read_published_runs(results_dir: Path) -> tuple[RunResult, ...]:
     """Read every result below ``results_dir`` in stable model-id order."""
-    runs = [read_run(path) for path in sorted(results_dir.rglob("*.json"))]
-    return tuple(sorted(runs, key=lambda result: result.metadata.model_id))
+    runs = read_runs(results_dir)
+    return tuple(
+        sorted(runs, key=lambda result: (result.metadata.model_id, result.metadata.language))
+    )
 
 
 def dataset_card(
@@ -42,9 +46,10 @@ def dataset_card(
     """Build a terse card whose scores are recomputed from every prediction."""
     if not results:
         raise ValueError("cannot build a card from an empty set of results")
-    rows = _card_rows(results)
+    rows = _card_rows(results, benchmark_name=benchmark_name)
     reference = results[0].metadata
     n_items = results[0].metrics.n_items
+    languages = sorted({result.metadata.language for result in results})
     header = "| " + " | ".join(CARD_COLUMNS) + " |"
     divider = "|" + "|".join(["---"] * len(CARD_COLUMNS)) + "|"
     body = "\n".join(
@@ -63,7 +68,8 @@ tags:
 
 # Land-use relevance benchmark
 
-`{benchmark_name}`; {n_items} labelled sentences; greedy decoding;
+`{benchmark_name}`; {len(languages)} language(s); {n_items} labelled sentences per language;
+greedy decoding;
 `max_new_tokens={reference.max_new_tokens}`; seed {reference.seed}.
 Scores are recomputed from the published predictions.
 
@@ -78,17 +84,17 @@ Scores are recomputed from the published predictions.
 """
 
 
-def _card_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
+def _card_rows(results: Sequence[RunResult], *, benchmark_name: str) -> list[dict[str, Any]]:
     rows = []
     for result in results:
         derived = evaluate(outcomes_of(result.predictions))
         if derived != result.metrics:
-            raise ValueError(
-                f"{result.metadata.model_id} metrics do not match predictions"
-            )
+            raise ValueError(f"{result.metadata.model_id} metrics do not match predictions")
         rows.append(
             {
                 "model_id": result.metadata.model_id,
+                "language": result.metadata.language,
+                "benchmark_set": benchmark_name,
                 "accuracy": round(derived.accuracy, 4),
                 "balanced_accuracy": round(derived.balanced_accuracy, 4),
                 "f1": round(derived.f1, 4),
@@ -99,7 +105,7 @@ def _card_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
                 "truncated": sum(prediction.truncated for prediction in result.predictions),
             }
         )
-    return sorted(rows, key=lambda row: (-row["f1"], row["model_id"]))
+    return sorted(rows, key=lambda row: (-row["f1"], row["model_id"], row["language"]))
 
 
 def publish_results(
@@ -110,11 +116,12 @@ def publish_results(
     api: DatasetHub | None = None,
     private: bool = False,
     commit_message: str = "Publish small-LLM land-use relevance benchmark results",
-    benchmark_name: str = "benchmark.csv",
+    benchmark_name: str = "v3-multilingual",
 ) -> str:
     """Write the card next to the results, then push the whole folder to the Hub."""
     if not results:
         raise ValueError("refusing to publish an empty set of results")
+    _reject_archive_paths(results_dir)
     hub = api if api is not None else _default_api()
     results_dir.mkdir(parents=True, exist_ok=True)
     (results_dir / "README.md").write_text(
@@ -140,3 +147,10 @@ def _default_api() -> DatasetHub:
     # HfApi satisfies DatasetHub in practice; its **kwargs signatures are wider than
     # the protocol can express.
     return cast(DatasetHub, HfApi())
+
+
+def _reject_archive_paths(results_dir: Path) -> None:
+    paths = results_dir.rglob("*") if results_dir.exists() else ()
+    for path in paths:
+        if "archive" in path.relative_to(results_dir).parts:
+            raise ValueError(f"refusing to upload archive path: {path}")

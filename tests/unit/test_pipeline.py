@@ -28,6 +28,7 @@ def request_for(tmp_path: Path, benchmark_path: Path, prompt_path: Path):
         return replace(
             RunRequest(
                 model_id="LiquidAI/LFM2.5-350M",
+                language="en",
                 benchmark_path=benchmark_path,
                 prompt_path=prompt_path,
                 output_dir=tmp_path / "results",
@@ -62,7 +63,7 @@ def test_scores_the_whole_benchmark_and_returns_the_result(request_for) -> None:
 
 def test_writes_one_result_file_named_after_the_model(request_for, tmp_path: Path) -> None:
     result = execute(request_for(), _provider(["yes", "no"]))
-    path = tmp_path / "results" / run_filename("LiquidAI/LFM2.5-350M")
+    path = tmp_path / "results" / run_filename("LiquidAI/LFM2.5-350M", "en")
     assert read_run(path) == result
 
 
@@ -71,6 +72,7 @@ def test_records_the_inputs_it_actually_used(request_for, benchmark_path: Path) 
     metadata = result.metadata
     assert metadata.benchmark_sha256 == sha256_of_file(benchmark_path)
     assert metadata.model_revision == "rev0"
+    assert metadata.language == "en"
     assert metadata.batch_size == 1
     assert metadata.max_new_tokens == 4
     assert metadata.seed == 7

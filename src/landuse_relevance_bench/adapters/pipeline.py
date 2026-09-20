@@ -24,6 +24,7 @@ class RunRequest:
     """Everything one benchmark run needs, resolved from the CLI."""
 
     model_id: str
+    language: str
     benchmark_path: Path
     prompt_path: Path
     output_dir: Path
@@ -44,7 +45,7 @@ def execute(
     source_commit: str = "",
 ) -> RunResult:
     """Run the benchmark for one model and write the result next to the others."""
-    items = load_benchmark(request.benchmark_path)
+    items = load_benchmark(request.benchmark_path, expected_language=request.language)
     template = load_prompt(request.prompt_path)
     generator, revision = provide_generator(request)
 
@@ -56,6 +57,7 @@ def execute(
     result = RunResult(
         metadata=RunMetadata(
             model_id=request.model_id,
+            language=request.language,
             model_revision=revision,
             prompt_sha256=sha256_of_text(template),
             benchmark_sha256=sha256_of_file(request.benchmark_path),
