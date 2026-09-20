@@ -7,7 +7,7 @@ Each language split contains the same 300 adjudicated source items. A row is lab
 `yes` if it carries land-use, land-cover, or geographic-environment signal — vegetation,
 water, terrain, buildings, roads, mining, managed land — and `no` if it only concerns
 history, administration, people, or events. One English prompt, one token of expected
-output, four models, scored end to end on a Grid'5000 GPU.
+output, 18 previously tested open-weight models, scored end to end on Grid'5000 GPUs.
 
 ```bash
 uv sync --extra inference

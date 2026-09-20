@@ -33,4 +33,5 @@ unreachable defence — the explicit length check above it already guarantees eq
 lengths — so mutating `strict` changes nothing. The check is kept for its error message
 and `strict=True` for the lint rule that requires it. One further mutant rewrites
 `"utf-8"` as `"UTF-8"`, which Python treats as the same encoding. The mutation gate
-allows exactly these four.
+allows exactly the active roster listed in `domain/roster.py`; the multilingual sweep
+currently contains the 18 model IDs previously tested by this project.

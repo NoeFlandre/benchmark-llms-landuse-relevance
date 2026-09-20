@@ -1,7 +1,8 @@
-"""The models under benchmark.
+"""The model IDs included in the active multilingual benchmark.
 
-Liquid AI's LFM2.5 family is the subject; each entry is an ungated Hugging Face
-repository that was current at the time of writing.
+The roster reuses every model ID tested in the earlier benchmark, but all new
+results are generated against the active multilingual dataset. Historical result
+files remain archive-only.
 """
 
 from dataclasses import dataclass
@@ -21,6 +22,28 @@ ROSTER: tuple[ModelSpec, ...] = (
     ModelSpec("LiquidAI/LFM2.5-1.2B-Instruct", 1_170_340_608, "Instruction-tuned 1.2B."),
     ModelSpec("LiquidAI/LFM2.5-2.6B", 2_697_198_592, "Mid-size LFM2.5 dense model."),
     ModelSpec("LiquidAI/LFM2.5-8B-A1B", 8_467_856_832, "Sparse MoE, ~1B active parameters."),
+    ModelSpec("HuggingFaceTB/SmolLM3-3B", 3_000_000_000, "Previously tested SmolLM3 3B."),
+    ModelSpec("allenai/OLMo-2-1124-7B-Instruct", 7_000_000_000, "Previously tested OLMo 2 7B."),
+    ModelSpec(
+        "ibm-granite/granite-3.3-2b-instruct",
+        2_000_000_000,
+        "Previously tested Granite 3.3 2B.",
+    ),
+    ModelSpec("tiiuae/Falcon3-1B-Instruct", 1_000_000_000, "Previously tested Falcon 3 1B."),
+    ModelSpec("tiiuae/Falcon3-3B-Instruct", 3_000_000_000, "Previously tested Falcon 3 3B."),
+    ModelSpec("tiiuae/Falcon3-7B-Instruct", 7_000_000_000, "Previously tested Falcon 3 7B."),
+    ModelSpec("Qwen/Qwen3-0.6B", 600_000_000, "Previously tested Qwen3 0.6B."),
+    ModelSpec("Qwen/Qwen3-1.7B", 1_700_000_000, "Previously tested Qwen3 1.7B."),
+    ModelSpec("Qwen/Qwen3-4B", 4_000_000_000, "Previously tested Qwen3 4B."),
+    ModelSpec("Qwen/Qwen3-8B", 8_000_000_000, "Previously tested Qwen3 8B."),
+    ModelSpec(
+        "Qwen/Qwen3-4B-Instruct-2507",
+        4_000_000_000,
+        "Previously tested Qwen3 4B Instruct 2507.",
+    ),
+    ModelSpec("allenai/Olmo-3-7B-Instruct", 7_000_000_000, "Previously tested OLMo 3 7B."),
+    ModelSpec("google/gemma-4-E2B-it", 2_000_000_000, "Previously tested Gemma 4 E2B."),
+    ModelSpec("google/gemma-4-E4B-it", 4_000_000_000, "Previously tested Gemma 4 E4B."),
 )
 
 

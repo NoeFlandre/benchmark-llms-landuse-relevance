@@ -7,8 +7,8 @@ The active benchmark is an 85-language golden human set with 300 aligned adjudic
 items per language. Each item is labelled `yes` if it carries land-use, land-cover, or
 geographic-environment signal — vegetation, water, terrain, buildings, roads, mining,
 managed land — and `no` if it only concerns history, administration, people, or events.
-One English prompt, one token of expected output, four Liquid AI LFM2.5 models, scored
-end to end on a Grid'5000 GPU.
+One English prompt, one token of expected output, 18 previously tested open-weight
+models, scored end to end on Grid'5000 GPUs.
 
 - **Code:** this repository
 - **Results:** [NoeFlandre/benchmark-llms-landuse-relevance](https://huggingface.co/datasets/NoeFlandre/benchmark-llms-landuse-relevance)
@@ -63,6 +63,20 @@ macro aggregates.
 | `LiquidAI/LFM2.5-1.2B-Instruct` | 1.2B |
 | `LiquidAI/LFM2.5-2.6B` | 2.7B |
 | `LiquidAI/LFM2.5-8B-A1B` | 8.5B total, ~1B active (MoE) |
+| `HuggingFaceTB/SmolLM3-3B` | ~3B |
+| `allenai/OLMo-2-1124-7B-Instruct` | ~7B |
+| `ibm-granite/granite-3.3-2b-instruct` | ~2B |
+| `tiiuae/Falcon3-1B-Instruct` | ~1B |
+| `tiiuae/Falcon3-3B-Instruct` | ~3B |
+| `tiiuae/Falcon3-7B-Instruct` | ~7B |
+| `Qwen/Qwen3-0.6B` | ~0.6B |
+| `Qwen/Qwen3-1.7B` | ~1.7B |
+| `Qwen/Qwen3-4B` | ~4B |
+| `Qwen/Qwen3-8B` | ~8B |
+| `Qwen/Qwen3-4B-Instruct-2507` | ~4B |
+| `allenai/Olmo-3-7B-Instruct` | ~7B |
+| `google/gemma-4-E2B-it` | ~2B |
+| `google/gemma-4-E4B-it` | ~4B |
 
 ## Grid'5000
 

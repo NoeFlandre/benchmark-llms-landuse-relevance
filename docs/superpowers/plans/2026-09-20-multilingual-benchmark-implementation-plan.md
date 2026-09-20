@@ -17,7 +17,7 @@
 - For every behavior change: write the smallest failing test, run it and observe the expected failure, implement the minimum, run the focused test green, then run the affected suite.
 - Commit after each issue-sized task with a Conventional Commit message.
 - Use `UV_CACHE_DIR=/private/tmp/landuse-relevance-bench-uv-cache` for all `uv` commands.
-- Do not run a production 102,000-prompt model sweep or publish to Hugging Face as part of local code verification. Those require separate live infrastructure and credentials.
+- Do not run a production 459,000-prompt model sweep or publish to Hugging Face as part of local code verification. Those require separate live infrastructure and credentials.
 
 ## Task 1: Implement language-aware item identity (#3)
 
