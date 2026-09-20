@@ -1,6 +1,6 @@
 Feature: Benchmarking small LLMs on land-use relevance
   As a researcher comparing small language models,
-  I want each model scored on the same labelled sentences with the same prompt,
+  I want each model scored on the active multilingual labelled sentences with the same prompt,
   so that the leaderboard reflects the models and not the harness.
 
   Background:

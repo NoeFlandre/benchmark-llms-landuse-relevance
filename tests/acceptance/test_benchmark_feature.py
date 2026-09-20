@@ -90,6 +90,7 @@ def _benchmark_models(models, benchmark: Path, prompt: Path, tmp_path: Path):
         model_id: execute(
             RunRequest(
                 model_id=model_id,
+                language="en",
                 benchmark_path=benchmark,
                 prompt_path=prompt,
                 output_dir=results_dir,
@@ -120,9 +121,11 @@ def _all_unparsed(runs) -> None:
 @then("the stored result covers every sentence in the benchmark")
 def _covers_all(runs, benchmark: Path) -> None:
     items = load_benchmark(benchmark)
-    stored = read_run(runs["dir"] / run_filename(GOLD_MODEL))
+    stored = read_run(runs["dir"] / run_filename(GOLD_MODEL, "en"))
     assert [p.item_id for p in stored.predictions] == [i.item_id for i in items]
-    assert stored.predictions[0].item_id == item_id_for(items[0].sentence)
+    assert stored.predictions[0].item_id == item_id_for(
+        items[0].source_item_id, items[0].language
+    )
 
 
 @then("the run recalls every relevant sentence")
@@ -137,13 +140,13 @@ def _no_misses(runs) -> None:
 
 @then("the raw generations are kept in the stored result")
 def _raw_kept(runs) -> None:
-    stored = read_run(runs["dir"] / run_filename(GOLD_MODEL))
+    stored = read_run(runs["dir"] / run_filename(GOLD_MODEL, "en"))
     assert {p.raw_output for p in stored.predictions} == {"I cannot decide"}
 
 
 @then("the stored result marks every generation as truncated")
 def _truncation_recorded(runs) -> None:
-    stored = read_run(runs["dir"] / run_filename(GOLD_MODEL))
+    stored = read_run(runs["dir"] / run_filename(GOLD_MODEL, "en"))
     assert all(p.truncated for p in stored.predictions)
     assert all(p.predicted is None for p in stored.predictions)
 
@@ -161,11 +164,14 @@ def _one_row_each(runs) -> None:
 
 @then("the stored result pins the benchmark and prompt digests")
 def _digests(runs, benchmark: Path, prompt: Path) -> None:
-    metadata = read_run(runs["dir"] / run_filename(GOLD_MODEL)).metadata
+    metadata = read_run(runs["dir"] / run_filename(GOLD_MODEL, "en")).metadata
     assert metadata.benchmark_sha256 == sha256_of_file(benchmark)
     assert metadata.prompt_sha256 == sha256_of_text(load_prompt(prompt))
 
 
 @then("the stored result names the model revision that was used")
 def _revision(runs) -> None:
-    assert read_run(runs["dir"] / run_filename(GOLD_MODEL)).metadata.model_revision == "stubrev"
+    assert (
+        read_run(runs["dir"] / run_filename(GOLD_MODEL, "en")).metadata.model_revision
+        == "stubrev"
+    )

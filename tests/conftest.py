@@ -31,7 +31,7 @@ def benchmark_path(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def real_benchmark_path() -> Path:
-    return PROJECT_ROOT / "data" / "benchmark.csv"
+    return PROJECT_ROOT / "data" / "translations" / "en" / "v3-final-en.csv"
 
 
 @pytest.fixture
