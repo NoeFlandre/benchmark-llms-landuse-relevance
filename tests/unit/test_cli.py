@@ -107,7 +107,7 @@ def test_run_reports_a_missing_benchmark_without_a_traceback(
         ],
     )
     assert result.exit_code == 2
-    assert "missing-translations" in (result.stdout + result.stderr)
+    assert "missing-translations" in "".join(result.output.split())
 
 
 def test_run_defaults_to_every_language(monkeypatch, tmp_path: Path) -> None:
