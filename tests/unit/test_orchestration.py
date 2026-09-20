@@ -9,8 +9,22 @@ from landuse_relevance_bench.domain.orchestration import predict_all
 
 TEMPLATE = "SENTENCE: {}"
 ITEMS = (
-    build_item({"sentence": "Dense forest covers the ridge.", "label": "yes"}),
-    build_item({"sentence": "He was elected in 1974.", "label": "no"}),
+    build_item(
+        {
+            "sentence": "Dense forest covers the ridge.",
+            "label": "yes",
+            "source_item_id": "source-1",
+            "language": "en",
+        }
+    ),
+    build_item(
+        {
+            "sentence": "He was elected in 1974.",
+            "label": "no",
+            "source_item_id": "source-2",
+            "language": "en",
+        }
+    ),
 )
 
 

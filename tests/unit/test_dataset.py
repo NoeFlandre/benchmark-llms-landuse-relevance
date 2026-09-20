@@ -70,6 +70,12 @@ def test_rejects_a_blank_sentence() -> None:
         build_item({**ROW, "sentence": "   "})
 
 
+@pytest.mark.parametrize("field", ["source_item_id", "language"])
+def test_rejects_a_blank_identity_field(field: str) -> None:
+    with pytest.raises(InvalidRowError, match=rf"^benchmark row has a blank {field}$"):
+        build_item({**ROW, field: "   "})
+
+
 def test_rejects_an_unknown_label() -> None:
     with pytest.raises(InvalidRowError, match=r"^unknown label 'maybe'; expected 'yes' or 'no'$"):
         build_item({**ROW, "label": "maybe"})

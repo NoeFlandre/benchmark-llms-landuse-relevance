@@ -51,6 +51,7 @@ def test_a_whole_run_completes_end_to_end(
     result = execute(
         RunRequest(
             model_id=TINY_MODEL,
+            language="en",
             benchmark_path=benchmark_path,
             prompt_path=prompt_path,
             output_dir=tmp_path,
@@ -60,7 +61,7 @@ def test_a_whole_run_completes_end_to_end(
         lambda _request: (generator, "smoke"),
     )
     assert result.metrics.n_items == 2
-    assert (tmp_path / "HuggingFaceTB__SmolLM2-135M-Instruct.json").exists()
+    assert (tmp_path / "en" / "HuggingFaceTB__SmolLM2-135M-Instruct.json").exists()
 
 
 def test_a_completion_that_exhausts_the_budget_reports_itself_truncated() -> None:
