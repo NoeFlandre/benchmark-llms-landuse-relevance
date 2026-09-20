@@ -15,9 +15,11 @@ class InvalidRowError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkItem:
-    """One labelled sentence, identified by the content of that sentence."""
+    """One labelled sentence with stable cross-language source identity."""
 
     item_id: str
+    source_item_id: str
+    language: str
     sentence: str
     label: Label
     polygon_name: str = ""
@@ -25,9 +27,9 @@ class BenchmarkItem:
     source: str = ""
 
 
-def item_id_for(sentence: str) -> str:
-    """A stable, content-addressed id, so runs stay comparable across orderings."""
-    digest = hashlib.sha256(sentence.encode("utf-8")).hexdigest()
+def item_id_for(source_item_id: str, language: str) -> str:
+    """Identify one translated source item without hashing translated text."""
+    digest = hashlib.sha256(f"{source_item_id}\0{language}".encode()).hexdigest()
     return digest[:ITEM_ID_LENGTH]
 
 
@@ -36,13 +38,21 @@ def build_item(row: Mapping[str, str]) -> BenchmarkItem:
     sentence = _required(row, "sentence").strip()
     if not sentence:
         raise InvalidRowError("benchmark row has a blank sentence")
+    source_item_id = _required(row, "source_item_id").strip()
+    language = _required(row, "language").strip().lower()
+    if not source_item_id:
+        raise InvalidRowError("benchmark row has a blank source_item_id")
+    if not language:
+        raise InvalidRowError("benchmark row has a blank language")
     raw_label = _required(row, "label").strip().lower()
     try:
         label = Label(raw_label)
     except ValueError as exc:
         raise InvalidRowError(f"unknown label {raw_label!r}; expected 'yes' or 'no'") from exc
     return BenchmarkItem(
-        item_id=item_id_for(sentence),
+        item_id=item_id_for(source_item_id, language),
+        source_item_id=source_item_id,
+        language=language,
         sentence=sentence,
         label=label,
         polygon_name=(row.get("polygon_name") or "").strip(),

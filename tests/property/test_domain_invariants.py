@@ -43,7 +43,7 @@ def test_a_trailing_verdict_is_recovered_when_nothing_earlier_decides(
 
 @given(sentence=text)
 def test_item_ids_are_stable_across_calls(sentence: str) -> None:
-    assert item_id_for(sentence) == item_id_for(sentence)
+    assert item_id_for(sentence, "en") == item_id_for(sentence, "en")
 
 
 @given(pairs=st.lists(outcomes, min_size=1, max_size=60))
