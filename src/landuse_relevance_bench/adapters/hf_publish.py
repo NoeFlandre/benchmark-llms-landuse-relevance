@@ -59,7 +59,17 @@ def dataset_card(
     dtype = _uniform(results, "dtype", lambda r: r.metadata.dtype)
     seed = _uniform(results, "seed", lambda r: r.metadata.seed)
     max_new_tokens = _uniform(results, "token budget", lambda r: r.metadata.max_new_tokens)
-    batch_size = _uniform(results, "batch size", lambda r: r.metadata.batch_size)
+    # Batch size is a throughput knob, not a decoding setting, and one rostered model
+    # cannot be batched at all: Falcon-H1 is a hybrid attention-SSM model and its state
+    # handling breaks under the left padding batching needs. So the card reports the
+    # batch size when the sweep agrees on one and points at the runs when it does not,
+    # rather than refusing to describe a sweep over the settings that shape a verdict.
+    batch_sizes = sorted({result.metadata.batch_size for result in results})
+    batch_size_line = (
+        f"batch size {batch_sizes[0]}"
+        if len(batch_sizes) == 1
+        else "batch size varying by model, recorded per run"
+    )
     n_items = _uniform(results, "items per language", lambda r: r.metrics.n_items)
     languages = sorted({result.metadata.language for result in results})
     rows = aggregate_rows(results)
@@ -96,7 +106,7 @@ The label set is the two lowercase tokens `yes` and `no`.
 - {len(languages)} languages, {n_items} labelled sentences each, one result file per
   model and language.
 - {decoding} decoding, seed {seed}, `max_new_tokens={max_new_tokens}`, dtype `{dtype}`,
-  batch size {batch_size}.
+  {batch_size_line}.
 - The verdict is the last standalone `yes` or `no` in the generation. A generation that
   reaches the token budget without stopping is recorded as truncated and yields no
   verdict; `unparsed_rate_macro` reports how often that happened.

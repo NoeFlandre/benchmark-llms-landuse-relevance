@@ -180,3 +180,29 @@ def test_the_card_states_the_per_language_benchmark_digests_are_recorded() -> No
 
     assert "b" * 64 not in card
     assert "`benchmark_sha256` is recorded" in card
+
+
+def test_the_card_states_the_batch_size_when_the_sweep_agrees_on_one() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert "batch size 16" in card
+
+
+def test_the_card_points_at_the_runs_when_batch_sizes_differ() -> None:
+    batched = _result("fits/in-a-batch")
+    hybrid = _result("hybrid/ssm")
+    unbatched = replace(hybrid, metadata=replace(hybrid.metadata, batch_size=1))
+    card = dataset_card([batched, unbatched], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert "batch size varying by model, recorded per run" in card
+    assert "batch size 16" not in card
+
+
+def test_the_card_still_refuses_settings_that_shape_a_verdict() -> None:
+    result = _result("a/one")
+    other = replace(
+        _result("b/two"), metadata=replace(_result("b/two").metadata, max_new_tokens=32)
+    )
+
+    with pytest.raises(ValueError, match="runs disagree on token budget"):
+        dataset_card([result, other], benchmark_name="benchmark.csv", prompt_text=PROMPT)
