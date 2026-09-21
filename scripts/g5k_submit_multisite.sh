@@ -6,6 +6,7 @@ set -euo pipefail
 WALLTIME="${LRB_WALLTIME:-1:00}"
 REMOTE_ROOT="${LRB_REMOTE_ROOT:-$HOME/benchmark-llms-landuse-relevance}"
 REMOTE_RESULTS="${LRB_REMOTE_RESULTS:-$REMOTE_ROOT/results-live}"
+MODEL_ID="${LRB_MODEL_ID:-}"
 GPU_FILTER="${LRB_GPU_FILTER:-gpu_compute_capability_major>=7 AND gpu_mem>=23040}"
 JOB_TYPE="${LRB_JOB_TYPE:-night}"
 SITES_CONFIG="${LRB_SITES_CONFIG:-}"
@@ -62,7 +63,11 @@ for (( site_index = 0; site_index < site_count; site_index++ )); do
   frontend="$(jq -er ".sites[$site_index].frontend" "$SITES_CONFIG")"
   weight="$(jq -er ".sites[$site_index].weight" "$SITES_CONFIG")"
   for (( site_slot = 0; site_slot < weight; site_slot++ )); do
-    job_command="LRB_ROOT=$REMOTE_ROOT LRB_SHARD_INDEX=$shard_index LRB_SHARD_COUNT=$total_weight LRB_RESULTS=$REMOTE_RESULTS $REMOTE_ROOT/scripts/g5k_node_run.sh"
+    model_environment=""
+    if [[ -n "$MODEL_ID" ]]; then
+      model_environment=" LRB_MODEL_ID=$MODEL_ID"
+    fi
+    job_command="LRB_ROOT=$REMOTE_ROOT$model_environment LRB_SHARD_INDEX=$shard_index LRB_SHARD_COUNT=$total_weight LRB_RESULTS=$REMOTE_RESULTS $REMOTE_ROOT/scripts/g5k_node_run.sh"
     remote_command="cd '$REMOTE_ROOT' && oarsub -t '$JOB_TYPE' -p '$GPU_FILTER' -l 'host=1/gpu=1,walltime=$WALLTIME' -O '$REMOTE_ROOT/oar.$site_name.%jobid%.out' -E '$REMOTE_ROOT/oar.$site_name.%jobid%.err' '$job_command'"
     echo "[$site_name shard $shard_index/$total_weight] ssh $frontend: usagepolicycheck -t"
     echo "[$site_name shard $shard_index/$total_weight] ssh $frontend: $remote_command"

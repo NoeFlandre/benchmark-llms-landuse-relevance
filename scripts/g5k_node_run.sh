@@ -10,6 +10,7 @@
 #   LRB_MAX_NEW_TOKENS  generation budget per prompt     (default: 4096)
 #   LRB_SHARD_INDEX shard index among deterministic pairs (default: 0)
 #   LRB_SHARD_COUNT number of deterministic pair shards   (default: 1)
+#   LRB_MODEL_ID    optional single model to run instead of the full roster
 #   LRB_DRY_RUN     print sizing information and exit     (default: 0)
 #   HF_HOME         Hugging Face cache                  (default: node-local /tmp scratch)
 set -euo pipefail
@@ -22,6 +23,7 @@ LRB_BATCH_SIZE="${LRB_BATCH_SIZE:-16}"
 LRB_MAX_NEW_TOKENS="${LRB_MAX_NEW_TOKENS:-4096}"
 LRB_SHARD_INDEX="${LRB_SHARD_INDEX:-0}"
 LRB_SHARD_COUNT="${LRB_SHARD_COUNT:-1}"
+LRB_MODEL_ID="${LRB_MODEL_ID:-}"
 LRB_DRY_RUN="${LRB_DRY_RUN:-0}"
 
 if [[ "${1:-}" == "--dry-run" ]]; then
@@ -77,6 +79,20 @@ for language_row in "${language_rows[@]}"; do
 done
 
 mapfile -t models < <(uv run --no-sync lrb models | cut -f1)
+if [[ -n "$LRB_MODEL_ID" ]]; then
+  model_found=0
+  for model in "${models[@]}"; do
+    if [[ "$model" == "$LRB_MODEL_ID" ]]; then
+      model_found=1
+      break
+    fi
+  done
+  if (( model_found == 0 )); then
+    echo "unknown LRB_MODEL_ID: $LRB_MODEL_ID" >&2
+    exit 2
+  fi
+  models=("$LRB_MODEL_ID")
+fi
 pair_count=$(( ${#models[@]} * ${#languages[@]} ))
 total_rows=$(( rows_per_language * ${#languages[@]} ))
 estimated_prompts=$(( rows_per_language * pair_count ))
@@ -86,19 +102,30 @@ for (( pair_index = 0; pair_index < pair_count; pair_index++ )); do
     assigned_pair_count=$(( assigned_pair_count + 1 ))
   fi
 done
-echo "== sizing: languages=${#languages[@]} rows=$total_rows pairs=$pair_count assigned_pairs=$assigned_pair_count prompts=$estimated_prompts batch_size=$LRB_BATCH_SIZE max_new_tokens=$LRB_MAX_NEW_TOKENS shard=$LRB_SHARD_INDEX/$LRB_SHARD_COUNT"
+echo "== sizing: model=${LRB_MODEL_ID:-all} languages=${#languages[@]} rows=$total_rows pairs=$pair_count assigned_pairs=$assigned_pair_count prompts=$estimated_prompts batch_size=$LRB_BATCH_SIZE max_new_tokens=$LRB_MAX_NEW_TOKENS shard=$LRB_SHARD_INDEX/$LRB_SHARD_COUNT"
 
 if [[ "$LRB_DRY_RUN" == "1" ]]; then
   exit 0
 fi
 
-uv run --no-sync lrb run-all \
-  --data-root "$LRB_DATA_ROOT" \
-  --prompt data/prompt.txt \
-  --out "$LRB_RESULTS" \
-  --batch-size "$LRB_BATCH_SIZE" \
-  --max-new-tokens "$LRB_MAX_NEW_TOKENS" \
-  --shard-index "$LRB_SHARD_INDEX" \
-  --shard-count "$LRB_SHARD_COUNT"
+if [[ -n "$LRB_MODEL_ID" ]]; then
+  uv run --no-sync lrb run "$LRB_MODEL_ID" \
+    --data-root "$LRB_DATA_ROOT" \
+    --prompt data/prompt.txt \
+    --out "$LRB_RESULTS" \
+    --batch-size "$LRB_BATCH_SIZE" \
+    --max-new-tokens "$LRB_MAX_NEW_TOKENS" \
+    --shard-index "$LRB_SHARD_INDEX" \
+    --shard-count "$LRB_SHARD_COUNT"
+else
+  uv run --no-sync lrb run-all \
+    --data-root "$LRB_DATA_ROOT" \
+    --prompt data/prompt.txt \
+    --out "$LRB_RESULTS" \
+    --batch-size "$LRB_BATCH_SIZE" \
+    --max-new-tokens "$LRB_MAX_NEW_TOKENS" \
+    --shard-index "$LRB_SHARD_INDEX" \
+    --shard-count "$LRB_SHARD_COUNT"
+fi
 
 uv run --no-sync lrb report --results-dir "$LRB_RESULTS"
