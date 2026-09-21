@@ -439,6 +439,8 @@ def test_publish_pushes_the_stored_runs(
             "me/bench",
             "--results-dir",
             str(results_dir),
+            "--prompt",
+            str(prompt_path),
             "--benchmark-name",
             "v3-multilingual",
         ],

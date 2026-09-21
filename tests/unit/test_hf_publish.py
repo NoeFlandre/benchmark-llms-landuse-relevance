@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.hf_publish import (
     dataset_card,
     publish_results,
@@ -13,13 +14,16 @@ from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
 
+PROMPT = "Classify the sentence.\n\nTARGET SENTENCE: {}\n"
+PROMPT_SHA256 = sha256_of_text(PROMPT)
+
 
 def _result(model_id: str = "LiquidAI/LFM2.5-350M", language: str = "en") -> RunResult:
     metadata = RunMetadata(
         model_id=model_id,
         language=language,
         model_revision="abc123",
-        prompt_sha256="p" * 64,
+        prompt_sha256=PROMPT_SHA256,
         benchmark_sha256="b" * 64,
         max_new_tokens=8,
         batch_size=16,
@@ -54,6 +58,7 @@ def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
     card = dataset_card(
         [_result("a/one"), _result("a/one", language="fr"), _result("b/two")],
         benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
     )
     assert card.startswith("---")
     assert "| model_id | language_count | n_items_total |" in card
@@ -67,9 +72,8 @@ def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
 
 
 def test_the_card_declares_the_prompt_and_benchmark_digests() -> None:
-    card = dataset_card([_result()], benchmark_name="benchmark.csv")
-    assert "b" * 64 in card
-    assert "p" * 64 in card
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+    assert PROMPT_SHA256 in card
 
 
 def test_published_runs_reads_nested_result_folders_in_stable_order(tmp_path: Path) -> None:
@@ -96,7 +100,7 @@ def test_card_rejects_metrics_that_are_not_derived_from_predictions() -> None:
     tampered = replace(result, metrics=replace(result.metrics, accuracy=0.0))
 
     with pytest.raises(ValueError, match="metrics do not match predictions"):
-        dataset_card([tampered], benchmark_name="benchmark.csv")
+        dataset_card([tampered], benchmark_name="benchmark.csv", prompt_text=PROMPT)
 
 
 def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(
@@ -104,7 +108,7 @@ def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(
 ) -> None:
     (tmp_path / "run.json").write_text("{}", encoding="utf-8")
     api = FakeApi()
-    url = publish_results("me/bench", tmp_path, [_result()], api=api)
+    url = publish_results("me/bench", tmp_path, [_result()], api=api, prompt_text=PROMPT)
     assert api.created[0]["repo_id"] == "me/bench"
     assert api.created[0]["repo_type"] == "dataset"
     assert api.uploaded[0]["folder_path"] == str(tmp_path)
@@ -112,13 +116,13 @@ def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(
 
 
 def test_publishing_writes_the_card_into_the_uploaded_folder(tmp_path: Path) -> None:
-    publish_results("me/bench", tmp_path, [_result()], api=FakeApi())
+    publish_results("me/bench", tmp_path, [_result()], api=FakeApi(), prompt_text=PROMPT)
     assert "LiquidAI/LFM2.5-350M" in (tmp_path / "README.md").read_text(encoding="utf-8")
 
 
 def test_publishing_nothing_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
-        publish_results("me/bench", tmp_path, [], api=FakeApi())
+        publish_results("me/bench", tmp_path, [], api=FakeApi(), prompt_text=PROMPT)
 
 
 def test_publishing_refuses_to_upload_an_archive_path(tmp_path: Path) -> None:
@@ -127,17 +131,52 @@ def test_publishing_refuses_to_upload_an_archive_path(tmp_path: Path) -> None:
     (archive / "old.json").write_text("{}", encoding="utf-8")
 
     with pytest.raises(ValueError, match="archive"):
-        publish_results("me/bench", tmp_path, [_result()], api=FakeApi())
+        publish_results("me/bench", tmp_path, [_result()], api=FakeApi(), prompt_text=PROMPT)
 
 
 def test_the_card_contains_only_aggregate_metrics() -> None:
-    card = dataset_card([_result()], benchmark_name="benchmark.csv")
-    assert "truncated" not in card
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+    table_header = card.split("## Aggregate scores")[1].splitlines()[2]
+
+    assert "truncated" not in table_header
+    assert "language_count" in table_header
 
 
 def test_card_is_terse_and_has_no_companion_prose() -> None:
-    card = dataset_card([_result()], benchmark_name="benchmark.csv")
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
 
     assert "companion" not in card.lower()
     assert "configuration" not in card
     assert "Predictions and scores" not in card
+
+
+def test_the_card_documents_the_prompt_and_run_settings() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+    section = card.split("## Benchmark")[1].split("## Aggregate scores")[0]
+
+    assert PROMPT in section
+    assert "greedy decoding" in section
+    assert "`max_new_tokens=8`" in section
+    assert "dtype `bfloat16`" in section
+    assert "batch size 16" in section
+    assert "seed 0" in section
+
+
+def test_the_card_refuses_a_prompt_that_the_runs_did_not_use() -> None:
+    with pytest.raises(ValueError, match="prompt text does not match"):
+        dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text="something else {}")
+
+
+def test_the_card_refuses_runs_that_disagree_on_their_settings() -> None:
+    result = _result()
+    other = replace(result, metadata=replace(result.metadata, dtype="float16"))
+
+    with pytest.raises(ValueError, match="runs disagree on dtype"):
+        dataset_card([result, other], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+
+def test_the_card_states_the_per_language_benchmark_digests_are_recorded() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert "b" * 64 not in card
+    assert "`benchmark_sha256` is recorded" in card

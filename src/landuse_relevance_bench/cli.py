@@ -14,7 +14,7 @@ from landuse_relevance_bench.adapters.pipeline import (
     RunRequest,
     execute,
 )
-from landuse_relevance_bench.adapters.prompt_file import PromptFileError
+from landuse_relevance_bench.adapters.prompt_file import PromptFileError, load_prompt
 from landuse_relevance_bench.adapters.results_store import (
     leaderboard_rows,
     read_run,
@@ -274,6 +274,7 @@ def report(
 def publish(
     repo_id: Annotated[str, typer.Argument(help="Hugging Face dataset repository id.")],
     results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
+    prompt: Prompt = DEFAULT_PROMPT,
     benchmark_name: Annotated[str, typer.Option("--benchmark-name")] = "v3-multilingual",
     private: Annotated[bool, typer.Option(help="Create the dataset repository private.")] = False,
 ) -> None:
@@ -288,12 +289,17 @@ def publish(
         raise typer.BadParameter(f"no run results found in {results_dir}")
     write_leaderboard_csv(runs, results_dir / "leaderboard.csv")
     write_aggregates_csv(runs, results_dir / "aggregates.csv")
+    try:
+        prompt_text = load_prompt(prompt)
+    except (OSError, PromptFileError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
     url = publish_results(
         repo_id,
         results_dir,
         runs,
         private=private,
         benchmark_name=benchmark_name,
+        prompt_text=prompt_text,
     )
     typer.echo(f"published {len(runs)} run(s) to {url}")
 
