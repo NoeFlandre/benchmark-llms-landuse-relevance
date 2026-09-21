@@ -46,7 +46,7 @@ def test_status_counts_every_model_language_pair_against_the_roster(tmp_path: Pa
         benchmark_name="v3-multilingual",
     )
 
-    assert "- Completed model-language runs: 3 of 36" in status
+    assert f"- Completed model-language runs: 3 of {len(model_ids()) * 2}" in status
     assert f"- `{first}`: complete, 2/2 languages" in status
     assert f"- `{second}`: in progress, 1/2 languages" in status
 

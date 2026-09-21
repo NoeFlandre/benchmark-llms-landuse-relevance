@@ -44,6 +44,8 @@ ROSTER: tuple[ModelSpec, ...] = (
     ModelSpec("allenai/Olmo-3-7B-Instruct", 7_000_000_000, "Previously tested OLMo 3 7B."),
     ModelSpec("google/gemma-4-E2B-it", 2_000_000_000, "Previously tested Gemma 4 E2B."),
     ModelSpec("google/gemma-4-E4B-it", 4_000_000_000, "Previously tested Gemma 4 E4B."),
+    ModelSpec("Qwen/Qwen3.5-4B", 4_659_900_000, "Qwen3.5 4B; vision-language, prompted text-only."),
+    ModelSpec("Qwen/Qwen3.5-9B", 9_653_100_000, "Qwen3.5 9B; vision-language, prompted text-only."),
 )
 
 

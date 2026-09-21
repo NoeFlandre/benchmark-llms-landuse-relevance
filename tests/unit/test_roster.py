@@ -37,7 +37,11 @@ def test_model_ids_are_unique() -> None:
 
 
 def test_roster_includes_every_previously_tested_model() -> None:
-    assert set(model_ids()) == EXPECTED_PREVIOUS_MODEL_IDS
+    assert set(model_ids()) >= EXPECTED_PREVIOUS_MODEL_IDS
+
+
+def test_roster_has_no_duplicate_model_ids() -> None:
+    assert len(set(model_ids())) == len(model_ids())
 
 
 def test_every_model_is_small_enough_to_be_a_little_llm() -> None:

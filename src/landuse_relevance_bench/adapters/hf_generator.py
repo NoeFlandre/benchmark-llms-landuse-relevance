@@ -25,6 +25,24 @@ def is_truncated(
     return len(token_ids) >= max_new_tokens and not any(t in stop_token_ids for t in token_ids)
 
 
+def _auto_class(model_id: str, revision: str | None) -> Any:
+    """Pick the loader a checkpoint declares, not the one most checkpoints happen to use.
+
+    Some rostered checkpoints are vision-language models whose architecture is a
+    conditional-generation class (Qwen3.5, for example). ``AutoModelForCausalLM``
+    cannot load those, so read the config and choose. The benchmark only ever sends
+    text, so a vision-language model is prompted through its text tower.
+    """
+    from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForImageTextToText
+
+    config = AutoConfig.from_pretrained(model_id, revision=revision)
+    architectures = getattr(config, "architectures", None) or []
+    vision = getattr(config, "vision_config", None) is not None
+    if vision or any(name.endswith("ForConditionalGeneration") for name in architectures):
+        return AutoModelForImageTextToText
+    return AutoModelForCausalLM
+
+
 @dataclass(frozen=True, slots=True)
 class GeneratorSettings:
     """Decoding settings; greedy throughout, so a run replays exactly."""
@@ -48,7 +66,7 @@ class TransformersGenerator:
         cls, model_id: str, settings: GeneratorSettings, revision: str | None = None
     ) -> "TransformersGenerator":
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
+        from transformers import AutoTokenizer, set_seed
 
         set_seed(settings.seed)
         # The Transformers stubs model a tokenizer as a union that includes None, so the
@@ -57,7 +75,7 @@ class TransformersGenerator:
         tokenizer.padding_side = "left"
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token
-        model: Any = AutoModelForCausalLM.from_pretrained(
+        model: Any = _auto_class(model_id, revision).from_pretrained(
             model_id,
             revision=revision,
             dtype=getattr(torch, settings.dtype),

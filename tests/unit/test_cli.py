@@ -7,6 +7,8 @@ from typer.testing import CliRunner
 
 from landuse_relevance_bench import cli
 from landuse_relevance_bench.adapters.pipeline import RunRequest
+from landuse_relevance_bench.adapters.translations import load_manifest
+from landuse_relevance_bench.domain.roster import model_ids
 
 runner = CliRunner()
 
@@ -207,7 +209,8 @@ def test_run_all_shard_selects_a_deterministic_subset(monkeypatch) -> None:
     )
 
     assert result.exit_code == 0, result.stdout
-    assert len(requests) == 510
+    pairs = len(model_ids()) * len(load_manifest(Path("data/translations")).languages)
+    assert len(requests) == len(range(1, pairs, 3))
     assert [(request.model_id, request.language) for request in requests] == sorted(
         (request.model_id, request.language) for request in requests
     )
@@ -226,7 +229,7 @@ def test_status_reports_pending_pairs_for_a_selected_language() -> None:
     )
 
     assert result.exit_code == 0, result.stdout
-    assert len(result.stdout.strip().splitlines()) == 18
+    assert len(result.stdout.strip().splitlines()) == len(model_ids())
     assert all(line.endswith("\tpending") for line in result.stdout.strip().splitlines())
 
 
