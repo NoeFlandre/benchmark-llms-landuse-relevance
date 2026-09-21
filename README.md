@@ -7,8 +7,8 @@ The active benchmark is an 85-language golden human set with 300 aligned adjudic
 items per language. Each item is labelled `yes` if it carries land-use, land-cover, or
 geographic-environment signal — vegetation, water, terrain, buildings, roads, mining,
 managed land — and `no` if it only concerns history, administration, people, or events.
-One English prompt, one token of expected output, 18 previously tested open-weight
-models, scored end to end on Grid'5000 GPUs.
+One English prompt, one token of expected output, and the open-weight models listed in
+`domain/roster.py`, scored end to end on Grid'5000 GPUs.
 
 - **Code:** this repository
 - **Results:** [NoeFlandre/benchmark-llms-landuse-relevance](https://huggingface.co/datasets/NoeFlandre/benchmark-llms-landuse-relevance)
