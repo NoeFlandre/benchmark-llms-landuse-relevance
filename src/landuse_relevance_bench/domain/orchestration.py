@@ -1,9 +1,14 @@
-"""Driving a text generator across the benchmark."""
+"""Driving a text generator, or a non-generative scorer, across the benchmark."""
 
 from collections.abc import Iterator, Sequence
 
 from landuse_relevance_bench.domain.dataset import BenchmarkItem
-from landuse_relevance_bench.domain.engine import Generation, TextGenerator
+from landuse_relevance_bench.domain.engine import (
+    Generation,
+    LabelScorer,
+    LabelScores,
+    TextGenerator,
+)
 from landuse_relevance_bench.domain.parsing import parse_label
 from landuse_relevance_bench.domain.prompting import render_prompt
 from landuse_relevance_bench.domain.records import Prediction
@@ -31,6 +36,56 @@ def predict_all(
             for item, output in zip(batch, outputs, strict=True)  # length checked above
         )
     return tuple(predictions)
+
+
+def score_all(
+    items: Sequence[BenchmarkItem],
+    template: str,
+    scorer: LabelScorer,
+    *,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+) -> tuple[Prediction, ...]:
+    """Score every item in order, taking each verdict from the model's own scores.
+
+    A scoring model cannot leave a verdict unparsed or run out of budget, so no
+    prediction here is ever truncated or None. That is a property of the method,
+    not a perfect score, and the published card says so.
+    """
+    if batch_size < 1:
+        raise ValueError(f"batch_size must be at least 1, got {batch_size}")
+    predictions: list[Prediction] = []
+    for batch in _batched(items, batch_size):
+        scored = list(scorer.score([render_prompt(template, i.sentence) for i in batch]))
+        if len(scored) != len(batch):
+            raise ValueError(f"scorer returned {len(scored)} scores for {len(batch)} prompts")
+        predictions.extend(
+            _scored_prediction(item, scores)
+            for item, scores in zip(batch, scored, strict=True)  # length checked above
+        )
+    return tuple(predictions)
+
+
+def _scored_prediction(item: BenchmarkItem, scores: LabelScores) -> Prediction:
+    return Prediction(
+        item_id=item.item_id,
+        expected=item.label,
+        predicted=scores.verdict,
+        raw_output=format_scores(scores),
+        truncated=False,
+    )
+
+
+def format_scores(scores: LabelScores) -> str:
+    """Render native scores as stable ``label=score`` text, ordered by label.
+
+    Kept as text rather than a serialised structure so the domain stays free of
+    serialisation libraries, and readable enough that another decision rule can be
+    recomputed from a published result without re-running the model.
+    """
+    return " ".join(
+        f"{label.value}={scores.scores[label]:.6f}"
+        for label in sorted(scores.scores, key=lambda label: label.value)
+    )
 
 
 def _predict(item: BenchmarkItem, generation: Generation) -> Prediction:

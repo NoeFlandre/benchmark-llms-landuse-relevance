@@ -206,3 +206,101 @@ def test_the_card_still_refuses_settings_that_shape_a_verdict() -> None:
 
     with pytest.raises(ValueError, match="runs disagree on token budget"):
         dataset_card([result, other], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+
+SCORER_PROMPT = "<Instruct>: judge it\n<Query>: is it?\n<Document>: {}\n"
+SCORER_PROMPT_SHA256 = sha256_of_text(SCORER_PROMPT)
+
+
+def _scored(model_id: str, language: str = "en") -> RunResult:
+    result = _result(model_id, language)
+    return replace(
+        result,
+        metadata=replace(
+            result.metadata,
+            inference="scoring",
+            decision_rule="argmax over the native yes/no scores",
+            max_new_tokens=0,
+            prompt_sha256=SCORER_PROMPT_SHA256,
+        ),
+    )
+
+
+def test_scoring_models_are_reported_in_their_own_section() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    generative, scoring = card.split("## Scoring models")
+
+    assert "| gen/one |" in generative and "| gen/one |" not in scoring
+    assert "| score/two |" in scoring and "| score/two |" not in generative
+    assert "argmax over the native yes/no scores" in scoring
+
+
+def test_the_card_says_why_scoring_models_never_look_unparsed() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "by construction" in card.split("## Scoring models")[1]
+
+
+def test_generation_settings_ignore_the_scoring_runs() -> None:
+    # A scoring run has no token budget; it must not be read as a disagreement.
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "`max_new_tokens=8`" in card
+
+
+def test_a_card_of_only_scoring_runs_is_refused() -> None:
+    with pytest.raises(ValueError, match="without any generative run"):
+        dataset_card(
+            [_scored("score/two")],
+            benchmark_name="benchmark.csv",
+            prompt_text=PROMPT,
+            scorer_prompt_text=SCORER_PROMPT,
+        )
+
+
+def test_a_sweep_with_no_scoring_models_has_no_scoring_section() -> None:
+    card = dataset_card([_result("gen/one")], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert "## Scoring models" not in card
+
+
+def test_the_card_shows_the_reranker_input_it_was_actually_given() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    scoring = card.split("## Scoring models")[1]
+
+    assert SCORER_PROMPT in scoring
+    assert SCORER_PROMPT_SHA256 in scoring
+    assert "Judge whether the Document meets the requirements" in scoring
+    assert "next-token scores" in scoring
+    # the generative prompt stays in the generative half, not duplicated into scoring
+    assert PROMPT not in scoring
+
+
+def test_the_card_refuses_a_scoring_prompt_the_runs_did_not_use() -> None:
+    with pytest.raises(ValueError, match="scoring prompt text does not match"):
+        dataset_card(
+            [_result("gen/one"), _scored("score/two")],
+            benchmark_name="benchmark.csv",
+            prompt_text=PROMPT,
+            scorer_prompt_text="a different reranker prompt {}",
+        )

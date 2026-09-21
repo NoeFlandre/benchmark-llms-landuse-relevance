@@ -12,7 +12,9 @@ from landuse_relevance_bench.adapters.pipeline import (
     DEFAULT_MAX_NEW_TOKENS,
     GeneratorProvider,
     RunRequest,
+    ScorerProvider,
     execute,
+    execute_scoring,
 )
 from landuse_relevance_bench.adapters.prompt_file import PromptFileError, load_prompt
 from landuse_relevance_bench.adapters.results_store import (
@@ -28,9 +30,10 @@ from landuse_relevance_bench.adapters.translations import (
     TranslationManifest,
     load_manifest,
 )
-from landuse_relevance_bench.domain.engine import TextGenerator
+from landuse_relevance_bench.domain.engine import LabelScorer, TextGenerator
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
 from landuse_relevance_bench.domain.roster import ROSTER, model_ids
+from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, scorer_ids
 from landuse_relevance_bench.domain.sharding import (
     model_language_pairs,
     pair_statuses,
@@ -39,6 +42,7 @@ from landuse_relevance_bench.domain.sharding import (
 
 DEFAULT_DATA_ROOT = Path("data/translations")
 DEFAULT_PROMPT = Path("data/prompt.txt")
+DEFAULT_SCORER_PROMPT = Path("data/prompt_reranker.txt")
 DEFAULT_RESULTS = Path("results")
 
 app = typer.Typer(add_completion=False, help=__doc__)
@@ -55,6 +59,28 @@ Language = Annotated[
 def generator_provider() -> GeneratorProvider:
     """Imported lazily so the CLI stays usable without a model runtime installed."""
     from landuse_relevance_bench.adapters.hf_generator import provide
+
+    return provide
+
+
+def scorer_provider() -> ScorerProvider:
+    """Imported lazily so the CLI stays usable without a model runtime installed."""
+    from landuse_relevance_bench.adapters.hf_scorer import provide_scorer
+
+    return provide_scorer
+
+
+def _cached_scorer_provider() -> ScorerProvider:
+    """Load one scoring model lazily and reuse it for all of that model's languages."""
+    provider: ScorerProvider | None = None
+    loaded: tuple[LabelScorer, str] | None = None
+
+    def provide(request: RunRequest) -> tuple[LabelScorer, str]:
+        nonlocal loaded, provider
+        if loaded is None:
+            provider = provider or scorer_provider()
+            loaded = provider(request)
+        return loaded
 
     return provide
 
@@ -108,11 +134,43 @@ def _benchmark_one(request: RunRequest, provider: GeneratorProvider | None = Non
     )
 
 
+def _score_one(request: RunRequest, provider: ScorerProvider | None = None) -> None:
+    """Score one model, reporting input problems as usage errors rather than tracebacks."""
+    result_path = request.output_dir / run_filename(request.model_id, request.language)
+    if result_path.is_file():
+        try:
+            read_run(result_path)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        typer.echo(f"{request.model_id} [{request.language}] already complete; skipping")
+        return
+    try:
+        result = execute_scoring(
+            request, provider or scorer_provider(), source_commit=source_commit()
+        )
+    except (OSError, BenchmarkFileError, PromptFileError, TranslationDataError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    metrics = result.metrics
+    typer.echo(
+        f"{request.model_id} [{request.language}]  accuracy={metrics.accuracy:.3f}  "
+        f"f1={metrics.f1:.3f}  "
+        f"mcc={metrics.matthews_corrcoef:.3f}  "
+        f"({result.metadata.duration_seconds:.1f}s)"
+    )
+
+
 @app.command()
 def models() -> None:
     """List the models in the benchmark roster."""
     for spec in ROSTER:
         typer.echo(f"{spec.model_id}\t{spec.total_parameters / 1e9:.2f}B\t{spec.note}")
+
+
+@app.command()
+def scorers() -> None:
+    """List the non-generative models scored on the same benchmark."""
+    for spec in SCORER_ROSTER:
+        typer.echo(f"{spec.model_id}\t{spec.total_parameters / 1e9:.2f}B\t{spec.kind}\t{spec.note}")
 
 
 @app.command()
@@ -157,6 +215,45 @@ def run(
                 revision=revision,
                 batch_size=batch_size,
                 max_new_tokens=max_new_tokens,
+                seed=seed,
+                dtype=dtype,
+            ),
+            provider,
+        )
+
+
+@app.command()
+def score(
+    model_id: Annotated[str, typer.Argument(help="Hugging Face model repository id.")],
+    data_root: DataRoot = DEFAULT_DATA_ROOT,
+    prompt: Prompt = DEFAULT_PROMPT,
+    out: Results = DEFAULT_RESULTS,
+    language: Language = None,
+    revision: Annotated[str | None, typer.Option(help="Pin the model to a commit.")] = None,
+    batch_size: Annotated[int, typer.Option(help="Prompts per forward pass.")] = DEFAULT_BATCH_SIZE,
+    seed: Annotated[int, typer.Option()] = 0,
+    dtype: Annotated[str, typer.Option(help="Torch dtype name.")] = DEFAULT_DTYPE,
+    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
+    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+) -> None:
+    """Score one non-generative model on every selected language."""
+    if model_id not in scorer_ids():
+        raise typer.BadParameter(
+            f"{model_id!r} is not in the scoring roster; `lrb run` benchmarks generative models"
+        )
+    manifest, selected = _selected_languages(data_root, language)
+    pairs = _planned_pairs((model_id,), selected, shard_index, shard_count)
+    provider = _cached_scorer_provider()
+    for _, selected_language in pairs:
+        _score_one(
+            RunRequest(
+                model_id=model_id,
+                language=selected_language,
+                benchmark_path=data_root / manifest.files[selected_language].path,
+                prompt_path=prompt,
+                output_dir=out,
+                revision=revision,
+                batch_size=batch_size,
                 seed=seed,
                 dtype=dtype,
             ),
@@ -275,6 +372,9 @@ def publish(
     repo_id: Annotated[str, typer.Argument(help="Hugging Face dataset repository id.")],
     results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
     prompt: Prompt = DEFAULT_PROMPT,
+    scorer_prompt: Annotated[
+        Path, typer.Option("--scorer-prompt", help="Prompt template used by scoring models.")
+    ] = DEFAULT_SCORER_PROMPT,
     benchmark_name: Annotated[str, typer.Option("--benchmark-name")] = "v3-multilingual",
     private: Annotated[bool, typer.Option(help="Create the dataset repository private.")] = False,
 ) -> None:
@@ -291,6 +391,7 @@ def publish(
     write_aggregates_csv(runs, results_dir / "aggregates.csv")
     try:
         prompt_text = load_prompt(prompt)
+        scorer_prompt_text = load_prompt(scorer_prompt) if scorer_prompt.is_file() else ""
     except (OSError, PromptFileError) as exc:
         raise typer.BadParameter(str(exc)) from exc
     url = publish_results(
@@ -300,6 +401,7 @@ def publish(
         private=private,
         benchmark_name=benchmark_name,
         prompt_text=prompt_text,
+        scorer_prompt_text=scorer_prompt_text,
     )
     typer.echo(f"published {len(runs)} run(s) to {url}")
 

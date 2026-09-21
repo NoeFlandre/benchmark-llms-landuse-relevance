@@ -7,6 +7,9 @@ from typing import Any
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import ClassificationMetrics, Outcome
 
+GENERATION = "generation"
+SCORING = "scoring"
+
 
 @dataclass(frozen=True, slots=True)
 class Prediction:
@@ -60,6 +63,18 @@ class RunMetadata:
     started_at: str
     duration_seconds: float
     source_commit: str = ""
+    # How the verdict was obtained. Generative models are prompted and their text is
+    # parsed; scoring models emit a native score per label and never produce text, so
+    # they can neither leave a verdict unparsed nor run out of budget. Defaulted, so
+    # every result written before scoring models existed still reads back.
+    inference: str = GENERATION
+    # The rule that turned a scoring model's native scores into a verdict; empty for
+    # generative runs, whose rule is the parser.
+    decision_rule: str = ""
+
+    @property
+    def is_generative(self) -> bool:
+        return self.inference == GENERATION
 
     def __post_init__(self) -> None:
         if not isinstance(self.language, str) or not self.language.strip():

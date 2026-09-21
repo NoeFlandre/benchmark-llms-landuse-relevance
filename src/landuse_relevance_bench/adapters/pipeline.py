@@ -10,10 +10,20 @@ from landuse_relevance_bench.adapters.benchmark_csv import load_benchmark
 from landuse_relevance_bench.adapters.hashing import sha256_of_file, sha256_of_text
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
 from landuse_relevance_bench.adapters.results_store import write_run
-from landuse_relevance_bench.domain.engine import TextGenerator
+from landuse_relevance_bench.domain.engine import LabelScorer, TextGenerator
 from landuse_relevance_bench.domain.metrics import evaluate
-from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE, predict_all
-from landuse_relevance_bench.domain.records import RunMetadata, RunResult, outcomes_of
+from landuse_relevance_bench.domain.orchestration import (
+    DEFAULT_BATCH_SIZE,
+    predict_all,
+    score_all,
+)
+from landuse_relevance_bench.domain.records import (
+    SCORING,
+    RunMetadata,
+    RunResult,
+    outcomes_of,
+)
+from landuse_relevance_bench.domain.scorers import scorer_for
 
 DEFAULT_MAX_NEW_TOKENS = 4096
 DEFAULT_DTYPE = "bfloat16"
@@ -36,6 +46,7 @@ class RunRequest:
 
 
 GeneratorProvider = Callable[[RunRequest], tuple[TextGenerator, str]]
+ScorerProvider = Callable[[RunRequest], tuple[LabelScorer, str]]
 
 
 def execute(
@@ -69,6 +80,54 @@ def execute(
             started_at=started_at,
             duration_seconds=round(duration, 3),
             source_commit=source_commit,
+        ),
+        predictions=predictions,
+        metrics=evaluate(outcomes_of(predictions)),
+    )
+    write_run(result, request.output_dir)
+    return result
+
+
+def execute_scoring(
+    request: RunRequest,
+    provide_scorer: ScorerProvider,
+    *,
+    source_commit: str = "",
+) -> RunResult:
+    """Score one non-generative model over the benchmark and store the result.
+
+    Written into the same tree as a generative run so a language's results stay
+    together, but marked as a scoring run and carrying the rule that produced its
+    verdicts, so the two families can be reported apart.
+    """
+    spec = scorer_for(request.model_id)
+    items = load_benchmark(request.benchmark_path, expected_language=request.language)
+    template = load_prompt(request.prompt_path)
+    scorer, revision = provide_scorer(request)
+
+    started_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    started = time.monotonic()
+    predictions = score_all(items, template, scorer, batch_size=request.batch_size)
+    duration = time.monotonic() - started
+
+    result = RunResult(
+        metadata=RunMetadata(
+            model_id=request.model_id,
+            language=request.language,
+            model_revision=revision,
+            prompt_sha256=sha256_of_text(template),
+            benchmark_sha256=sha256_of_file(request.benchmark_path),
+            # Nothing is decoded, so there is no token budget and no decoding strategy.
+            max_new_tokens=0,
+            batch_size=request.batch_size,
+            seed=request.seed,
+            decoding="none",
+            dtype=request.dtype,
+            started_at=started_at,
+            duration_seconds=round(duration, 3),
+            source_commit=source_commit,
+            inference=SCORING,
+            decision_rule=spec.decision_rule,
         ),
         predictions=predictions,
         metrics=evaluate(outcomes_of(predictions)),

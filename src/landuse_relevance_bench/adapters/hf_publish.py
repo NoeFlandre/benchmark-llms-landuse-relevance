@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from landuse_relevance_bench.adapters.hashing import sha256_of_text
+from landuse_relevance_bench.adapters.hf_scorer_prompt import RERANKER_SYSTEM
 from landuse_relevance_bench.adapters.results_store import (
     AGGREGATE_COLUMNS,
     aggregate_rows,
@@ -44,6 +45,7 @@ def dataset_card(
     *,
     benchmark_name: str,
     prompt_text: str,
+    scorer_prompt_text: str = "",
 ) -> str:
     """Build a terse card whose scores are recomputed from every prediction."""
     if not results:
@@ -52,19 +54,38 @@ def dataset_card(
         derived = evaluate(outcomes_of(result.predictions))
         if derived != result.metrics:
             raise ValueError(f"{result.metadata.model_id} metrics do not match predictions")
-    prompt_sha256 = _uniform(results, "prompt digest", lambda r: r.metadata.prompt_sha256)
+    # Generative and scoring models are given different inputs on purpose, so each
+    # family's prompt is checked against the runs that actually used it.
+    generative_pre = [r for r in results if r.metadata.is_generative]
+    if not generative_pre:
+        raise ValueError("cannot build a card without any generative run")
+    prompt_sha256 = _uniform(generative_pre, "prompt digest", lambda r: r.metadata.prompt_sha256)
     if sha256_of_text(prompt_text) != prompt_sha256:
         raise ValueError("prompt text does not match the digest recorded in the runs")
-    decoding = _uniform(results, "decoding", lambda r: r.metadata.decoding)
-    dtype = _uniform(results, "dtype", lambda r: r.metadata.dtype)
-    seed = _uniform(results, "seed", lambda r: r.metadata.seed)
-    max_new_tokens = _uniform(results, "token budget", lambda r: r.metadata.max_new_tokens)
+    # Generation settings describe how a generative model was prompted. A scoring
+    # model is never prompted for text, so asserting them over every run would make
+    # the two families look like one method described badly.
+    generative = generative_pre
+    scoring = [r for r in results if not r.metadata.is_generative]
+    scorer_prompt_sha256 = ""
+    if scoring:
+        scorer_prompt_sha256 = _uniform(
+            scoring, "scoring prompt digest", lambda r: r.metadata.prompt_sha256
+        )
+        if sha256_of_text(scorer_prompt_text) != scorer_prompt_sha256:
+            raise ValueError(
+                "scoring prompt text does not match the digest recorded in the scoring runs"
+            )
+    decoding = _uniform(generative, "decoding", lambda r: r.metadata.decoding)
+    dtype = _uniform(generative, "dtype", lambda r: r.metadata.dtype)
+    seed = _uniform(generative, "seed", lambda r: r.metadata.seed)
+    max_new_tokens = _uniform(generative, "token budget", lambda r: r.metadata.max_new_tokens)
     # Batch size is a throughput knob, not a decoding setting, and one rostered model
     # cannot be batched at all: Falcon-H1 is a hybrid attention-SSM model and its state
     # handling breaks under the left padding batching needs. So the card reports the
     # batch size when the sweep agrees on one and points at the runs when it does not,
     # rather than refusing to describe a sweep over the settings that shape a verdict.
-    batch_sizes = sorted({result.metadata.batch_size for result in results})
+    batch_sizes = sorted({result.metadata.batch_size for result in generative})
     batch_size_line = (
         f"batch size {batch_sizes[0]}"
         if len(batch_sizes) == 1
@@ -72,11 +93,27 @@ def dataset_card(
     )
     n_items = _uniform(results, "items per language", lambda r: r.metrics.n_items)
     languages = sorted({result.metadata.language for result in results})
-    rows = aggregate_rows(results)
     header = "| " + " | ".join(CARD_COLUMNS) + " |"
     divider = "|" + "|".join(["---"] * len(CARD_COLUMNS)) + "|"
-    body = "\n".join(
-        "| " + " | ".join(str(row[column]) for column in CARD_COLUMNS) + " |" for row in rows
+
+    def table(subset: Sequence[RunResult]) -> str:
+        return "\n".join(
+            "| " + " | ".join(str(row[column]) for column in CARD_COLUMNS) + " |"
+            for row in aggregate_rows(subset)
+        )
+
+    body = table(generative)
+    scoring_section = (
+        ""
+        if not scoring
+        else _scoring_section(
+            scoring,
+            header=header,
+            divider=divider,
+            table=table,
+            prompt_text=scorer_prompt_text,
+            prompt_sha256=scorer_prompt_sha256,
+        )
     )
     return f"""---
 license: mit
@@ -124,6 +161,59 @@ sentence:
 {header}
 {divider}
 {body}
+{scoring_section}"""
+
+
+def _scoring_section(
+    scoring: Sequence[RunResult],
+    *,
+    header: str,
+    divider: str,
+    table: Any,
+    prompt_text: str,
+    prompt_sha256: str,
+) -> str:
+    """Report the non-generative models apart, with the rule that produced them."""
+    rules = sorted({result.metadata.decision_rule or "unrecorded" for result in scoring})
+    joined = "; ".join(rules)
+    batch_sizes = sorted({result.metadata.batch_size for result in scoring})
+    batch_line = (
+        f"batch size {batch_sizes[0]}"
+        if len(batch_sizes) == 1
+        else "batch size varying by model, recorded per run"
+    )
+    return f"""
+## Scoring models
+
+These are rerankers, not chat models: nothing is generated and no text is parsed. Each
+item is fed as one relevance judgement, and the verdict is read from the model's own
+next-token scores for `yes` and `no`, softmaxed over just those two tokens. The verdict
+is then taken by: {joined}. Every prediction stores the scores it came from, as
+`no=<score> yes=<score>`, so a different rule — a threshold rather than an argmax, say —
+can be recomputed from the published results without re-running anything.
+
+Because a scoring model cannot produce unparseable or unfinished text,
+`unparsed_rate_macro` is zero for every row below by construction. That is a property
+of the method, not a comparison won against the generative models above.
+
+- dtype `{_uniform(scoring, "scoring dtype", lambda r: r.metadata.dtype)}`, {batch_line},
+  seed {_uniform(scoring, "scoring seed", lambda r: r.metadata.seed)}.
+- Scoring prompt sha256 `{prompt_sha256}`.
+
+The reranker is given this system turn, which is the one it was trained to judge under:
+
+```text
+{RERANKER_SYSTEM}
+```
+
+and this user turn, where `{{}}` is replaced by the target sentence:
+
+```text
+{prompt_text}```
+
+{header}
+{divider}
+{table(scoring)}
 """
 
 
@@ -137,6 +227,7 @@ def publish_results(
     commit_message: str = "Publish small-LLM land-use relevance benchmark results",
     benchmark_name: str = "v3-multilingual",
     prompt_text: str,
+    scorer_prompt_text: str = "",
 ) -> str:
     """Write the card next to the results, then push the whole folder to the Hub."""
     if not results:
@@ -149,6 +240,7 @@ def publish_results(
             results,
             benchmark_name=benchmark_name,
             prompt_text=prompt_text,
+            scorer_prompt_text=scorer_prompt_text,
         ),
         encoding="utf-8",
     )

@@ -79,17 +79,29 @@ for language_row in "${language_rows[@]}"; do
 done
 
 mapfile -t models < <(uv run --no-sync lrb models | cut -f1)
+mapfile -t scoring_models < <(uv run --no-sync lrb scorers | cut -f1)
+# A scoring model is benchmarked by `lrb score`, not `lrb run`: it is never prompted for
+# text. Dispatch on which roster the id belongs to so the submitter does not have to.
+is_scoring=0
 if [[ -n "$LRB_MODEL_ID" ]]; then
-  model_found=0
-  for model in "${models[@]}"; do
+  for model in "${scoring_models[@]}"; do
     if [[ "$model" == "$LRB_MODEL_ID" ]]; then
-      model_found=1
+      is_scoring=1
       break
     fi
   done
-  if (( model_found == 0 )); then
-    echo "unknown LRB_MODEL_ID: $LRB_MODEL_ID" >&2
-    exit 2
+  if (( is_scoring == 0 )); then
+    model_found=0
+    for model in "${models[@]}"; do
+      if [[ "$model" == "$LRB_MODEL_ID" ]]; then
+        model_found=1
+        break
+      fi
+    done
+    if (( model_found == 0 )); then
+      echo "unknown LRB_MODEL_ID: $LRB_MODEL_ID" >&2
+      exit 2
+    fi
   fi
   models=("$LRB_MODEL_ID")
 fi
@@ -108,7 +120,15 @@ if [[ "$LRB_DRY_RUN" == "1" ]]; then
   exit 0
 fi
 
-if [[ -n "$LRB_MODEL_ID" ]]; then
+if (( is_scoring == 1 )); then
+  uv run --no-sync lrb score "$LRB_MODEL_ID" \
+    --data-root "$LRB_DATA_ROOT" \
+    --prompt "${LRB_SCORER_PROMPT:-data/prompt_reranker.txt}" \
+    --out "$LRB_RESULTS" \
+    --batch-size "$LRB_BATCH_SIZE" \
+    --shard-index "$LRB_SHARD_INDEX" \
+    --shard-count "$LRB_SHARD_COUNT"
+elif [[ -n "$LRB_MODEL_ID" ]]; then
   uv run --no-sync lrb run "$LRB_MODEL_ID" \
     --data-root "$LRB_DATA_ROOT" \
     --prompt data/prompt.txt \
