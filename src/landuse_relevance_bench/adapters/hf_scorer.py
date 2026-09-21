@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from landuse_relevance_bench.adapters.hf_scorer_prompt import RERANKER_SYSTEM
+from landuse_relevance_bench.adapters.hf_scorer_prompt import reranker_input
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.domain.engine import LabelScorer, LabelScores
 from landuse_relevance_bench.domain.labels import Label
@@ -78,22 +78,7 @@ class RerankerScorer:
         ]
 
     def _as_chat(self, prompt: str) -> str:
-        template = getattr(self._tokenizer, "chat_template", None)
-        if not template:
-            return f"{RERANKER_SYSTEM}\n\n{prompt}"
-        # enable_thinking=False closes an empty <think> block, so the very next token
-        # is the verdict. Left open, the next token is a reasoning token and the yes/no
-        # logits become near-identical for every input — which is exactly what a first
-        # run produced: 300 items sharing one score to six decimals.
-        return self._tokenizer.apply_chat_template(
-            [
-                {"role": "system", "content": RERANKER_SYSTEM},
-                {"role": "user", "content": prompt},
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False,
-        )
+        return reranker_input(prompt)
 
 
 class GliClassScorer:
