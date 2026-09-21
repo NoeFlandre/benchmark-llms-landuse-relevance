@@ -32,3 +32,8 @@ The dataset card is a deterministic model-level aggregate table. It includes one
 per model, with `language_count` showing how many language checkpoints contributed;
 `lrb publish` discovers result JSONs recursively and recomputes every aggregate from
 their predictions.
+
+The card also states what was measured: the prompt verbatim, the label set, the token
+budget, decoding, dtype, batch size and seed. `lrb publish --prompt` supplies the
+prompt, and the card refuses to build unless it hashes to the digest the runs recorded,
+so the published prompt is always the one the scores came from.
