@@ -46,6 +46,25 @@ ROSTER: tuple[ModelSpec, ...] = (
     ModelSpec("google/gemma-4-E4B-it", 4_000_000_000, "Previously tested Gemma 4 E4B."),
     ModelSpec("Qwen/Qwen3.5-4B", 4_659_900_000, "Qwen3.5 4B; vision-language, prompted text-only."),
     ModelSpec("Qwen/Qwen3.5-9B", 9_653_100_000, "Qwen3.5 9B; vision-language, prompted text-only."),
+    ModelSpec(
+        "Qwen/Qwen3.5-0.8B", 873_400_000, "Qwen3.5 0.8B; vision-language, prompted text-only."
+    ),
+    ModelSpec("Qwen/Qwen3.5-2B", 2_274_100_000, "Qwen3.5 2B; vision-language, prompted text-only."),
+    ModelSpec("tiiuae/Falcon-H1-3B-Instruct", 3_149_400_000, "Falcon-H1 3B; hybrid attention-SSM."),
+    ModelSpec("ibm-granite/granite-4.1-3b", 3_402_800_000, "Granite 4.1 3B."),
+    ModelSpec("microsoft/Phi-4-mini-instruct", 3_836_000_000, "Phi-4 mini instruct."),
+    ModelSpec(
+        "mistralai/Ministral-3-3B-Instruct-2512-BF16",
+        4_251_700_000,
+        "Ministral 3 3B; vision-language, prompted text-only.",
+    ),
+    ModelSpec("swiss-ai/Apertus-8B-Instruct-2509", 8_053_300_000, "Apertus 8B instruct."),
+    ModelSpec(
+        "mistralai/Ministral-3-8B-Instruct-2512-BF16",
+        8_918_000_000,
+        "Ministral 3 8B; vision-language, prompted text-only.",
+    ),
+    ModelSpec("utter-project/EuroLLM-9B-Instruct-2512", 9_152_300_000, "EuroLLM 9B instruct."),
 )
 
 
