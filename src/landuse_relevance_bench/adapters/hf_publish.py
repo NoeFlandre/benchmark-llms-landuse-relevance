@@ -4,23 +4,15 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from landuse_relevance_bench.adapters.results_store import read_runs
+from landuse_relevance_bench.adapters.results_store import (
+    AGGREGATE_COLUMNS,
+    aggregate_rows,
+    read_runs,
+)
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
 
-CARD_COLUMNS = (
-    "model_id",
-    "language",
-    "benchmark_set",
-    "accuracy",
-    "balanced_accuracy",
-    "f1",
-    "precision",
-    "recall",
-    "matthews_corrcoef",
-    "unparsed_rate",
-    "truncated",
-)
+CARD_COLUMNS = AGGREGATE_COLUMNS
 
 
 class DatasetHub(Protocol):
@@ -46,10 +38,12 @@ def dataset_card(
     """Build a terse card whose scores are recomputed from every prediction."""
     if not results:
         raise ValueError("cannot build a card from an empty set of results")
-    rows = _card_rows(results, benchmark_name=benchmark_name)
+    for result in results:
+        derived = evaluate(outcomes_of(result.predictions))
+        if derived != result.metrics:
+            raise ValueError(f"{result.metadata.model_id} metrics do not match predictions")
+    rows = aggregate_rows(results)
     reference = results[0].metadata
-    n_items = results[0].metrics.n_items
-    languages = sorted({result.metadata.language for result in results})
     header = "| " + " | ".join(CARD_COLUMNS) + " |"
     divider = "|" + "|".join(["---"] * len(CARD_COLUMNS)) + "|"
     body = "\n".join(
@@ -68,44 +62,21 @@ tags:
 
 # Land-use relevance benchmark
 
-`{benchmark_name}`; {len(languages)} language(s); {n_items} labelled sentences per language;
+`{benchmark_name}`; model-level macro averages over the completed languages;
 greedy decoding;
 `max_new_tokens={reference.max_new_tokens}`; seed {reference.seed}.
-Scores are recomputed from the published predictions.
+Scores are recomputed from the published predictions. `language_count` reports how many
+language checkpoints contributed to each model row.
 
 - Benchmark sha256: `{reference.benchmark_sha256}`; prompt sha256: `{reference.prompt_sha256}`
 - Code: https://github.com/NoeFlandre/benchmark-llms-landuse-relevance
 
-## Scores
+## Aggregate scores
 
 {header}
 {divider}
 {body}
 """
-
-
-def _card_rows(results: Sequence[RunResult], *, benchmark_name: str) -> list[dict[str, Any]]:
-    rows = []
-    for result in results:
-        derived = evaluate(outcomes_of(result.predictions))
-        if derived != result.metrics:
-            raise ValueError(f"{result.metadata.model_id} metrics do not match predictions")
-        rows.append(
-            {
-                "model_id": result.metadata.model_id,
-                "language": result.metadata.language,
-                "benchmark_set": benchmark_name,
-                "accuracy": round(derived.accuracy, 4),
-                "balanced_accuracy": round(derived.balanced_accuracy, 4),
-                "f1": round(derived.f1, 4),
-                "precision": round(derived.precision, 4),
-                "recall": round(derived.recall, 4),
-                "matthews_corrcoef": round(derived.matthews_corrcoef, 4),
-                "unparsed_rate": round(derived.unparsed_rate, 4),
-                "truncated": sum(prediction.truncated for prediction in result.predictions),
-            }
-        )
-    return sorted(rows, key=lambda row: (-row["f1"], row["model_id"], row["language"]))
 
 
 def publish_results(

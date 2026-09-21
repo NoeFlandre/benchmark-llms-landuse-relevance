@@ -50,13 +50,20 @@ class FakeApi:
         return f"https://huggingface.co/datasets/{kwargs['repo_id']}"
 
 
-def test_the_card_is_a_markdown_leaderboard_naming_every_model() -> None:
-    card = dataset_card([_result("a/one"), _result("b/two")], benchmark_name="benchmark.csv")
+def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
+    card = dataset_card(
+        [_result("a/one"), _result("a/one", language="fr"), _result("b/two")],
+        benchmark_name="benchmark.csv",
+    )
     assert card.startswith("---")
-    assert "| a/one |" in card and "| b/two |" in card
-    assert "n_items" not in card
+    assert "| model_id | language_count | n_items_total |" in card
+    assert "| a/one | 2 | 2 |" in card
+    assert "| b/two | 1 | 1 |" in card
+    assert "| language |" not in card
+    assert card.count("| a/one |") == 1
+    assert card.count("| b/two |") == 1
+    assert "| n_items |" not in card
     assert "benchmark.csv" in card
-    assert "language" in card and "benchmark_set" in card
 
 
 def test_the_card_declares_the_prompt_and_benchmark_digests() -> None:
@@ -123,9 +130,9 @@ def test_publishing_refuses_to_upload_an_archive_path(tmp_path: Path) -> None:
         publish_results("me/bench", tmp_path, [_result()], api=FakeApi())
 
 
-def test_the_card_leaderboard_shows_the_truncation_count() -> None:
+def test_the_card_contains_only_aggregate_metrics() -> None:
     card = dataset_card([_result()], benchmark_name="benchmark.csv")
-    assert "truncated" in card.split("## Scores")[1].split("\n")[2]
+    assert "truncated" not in card
 
 
 def test_card_is_terse_and_has_no_companion_prose() -> None:

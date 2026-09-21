@@ -28,5 +28,7 @@ uv run lrb report
 Decoding is greedy and every input is pinned by digest, so the same revision reproduces
 the same generations.
 
-The dataset card is a deterministic table of every published run. `lrb publish`
-discovers result JSONs recursively and recomputes each row from its predictions.
+The dataset card is a deterministic model-level aggregate table. It includes one row
+per model, with `language_count` showing how many language checkpoints contributed;
+`lrb publish` discovers result JSONs recursively and recomputes every aggregate from
+their predictions.
