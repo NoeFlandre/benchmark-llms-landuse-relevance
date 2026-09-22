@@ -27,6 +27,7 @@ from landuse_relevance_bench.domain.scorers import scorer_for
 
 DEFAULT_MAX_NEW_TOKENS = 4096
 DEFAULT_DTYPE = "bfloat16"
+SCORING_SEQUENCE_LENGTH = 8192
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,9 +107,14 @@ def execute_scoring(
     scorer, revision = provide_scorer(request)
 
     started_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    _begin_measurement(scorer)
     started = time.monotonic()
-    predictions = score_all(items, template, scorer, batch_size=request.batch_size)
+    try:
+        predictions = score_all(items, template, scorer, batch_size=request.batch_size)
+    finally:
+        _end_measurement(scorer)
     duration = time.monotonic() - started
+    throughput = len(items) / duration if duration > 0.0 else None
 
     result = RunResult(
         metadata=RunMetadata(
@@ -128,9 +134,29 @@ def execute_scoring(
             source_commit=source_commit,
             inference=SCORING,
             decision_rule=spec.decision_rule,
+            throughput_items_per_second=throughput,
+            peak_vram_bytes=_peak_vram_bytes(scorer),
+            sequence_length=SCORING_SEQUENCE_LENGTH,
         ),
         predictions=predictions,
         metrics=evaluate(outcomes_of(predictions)),
     )
     write_run(result, request.output_dir)
     return result
+
+
+def _begin_measurement(scorer: LabelScorer) -> None:
+    hook = getattr(scorer, "begin_measurement", None)
+    if callable(hook):
+        hook()
+
+
+def _end_measurement(scorer: LabelScorer) -> None:
+    hook = getattr(scorer, "end_measurement", None)
+    if callable(hook):
+        hook()
+
+
+def _peak_vram_bytes(scorer: LabelScorer) -> int | None:
+    value = getattr(scorer, "peak_vram_bytes", None)
+    return int(value) if value is not None else None

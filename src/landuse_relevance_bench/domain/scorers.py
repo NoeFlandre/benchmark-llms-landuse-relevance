@@ -11,6 +11,8 @@ from dataclasses import dataclass
 #: How a scoring model's native scores become a verdict. Recorded on every scoring
 #: run, because without it a scoring row cannot be compared to a generative one.
 ARGMAX = "argmax over the native yes/no scores"
+RELEVANCE_THRESHOLD = "sigmoid of the native relevance logit at 0.5"
+MXBAI_RELEVANCE_THRESHOLD = "sigmoid(native yes-minus-no logit minus 4.5) at 0.5"
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +27,20 @@ class ScorerSpec:
 
 
 SCORER_ROSTER: tuple[ScorerSpec, ...] = (
+    ScorerSpec(
+        "Alibaba-NLP/gte-multilingual-reranker-base",
+        306_000_000,
+        "sequence-classifier",
+        RELEVANCE_THRESHOLD,
+        "Multilingual sequence classifier; sigmoid of its relevance logit is the yes score.",
+    ),
+    ScorerSpec(
+        "mixedbread-ai/mxbai-rerank-base-v2",
+        500_000_000,
+        "reranker",
+        MXBAI_RELEVANCE_THRESHOLD,
+        "Binary relevance reranker; scores the official 1/0 continuation and normalises it.",
+    ),
     ScorerSpec(
         "Qwen/Qwen3-Reranker-0.6B",
         595_800_000,

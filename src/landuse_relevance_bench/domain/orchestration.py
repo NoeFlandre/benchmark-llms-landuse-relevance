@@ -7,6 +7,7 @@ from landuse_relevance_bench.domain.engine import (
     Generation,
     LabelScorer,
     LabelScores,
+    ScoringInput,
     TextGenerator,
 )
 from landuse_relevance_bench.domain.parsing import parse_label
@@ -55,7 +56,11 @@ def score_all(
         raise ValueError(f"batch_size must be at least 1, got {batch_size}")
     predictions: list[Prediction] = []
     for batch in _batched(items, batch_size):
-        scored = list(scorer.score([render_prompt(template, i.sentence) for i in batch]))
+        scored = list(
+            scorer.score(
+                [ScoringInput(render_prompt(template, i.sentence), i.sentence) for i in batch]
+            )
+        )
         if len(scored) != len(batch):
             raise ValueError(f"scorer returned {len(scored)} scores for {len(batch)} prompts")
         predictions.extend(
@@ -82,10 +87,13 @@ def format_scores(scores: LabelScores) -> str:
     serialisation libraries, and readable enough that another decision rule can be
     recomputed from a published result without re-running the model.
     """
-    return " ".join(
+    rendered = " ".join(
         f"{label.value}={scores.scores[label]:.6f}"
         for label in sorted(scores.scores, key=lambda label: label.value)
     )
+    if scores.native_score is not None:
+        rendered += f" native={scores.native_score:.6f}"
+    return rendered
 
 
 def _predict(item: BenchmarkItem, generation: Generation) -> Prediction:

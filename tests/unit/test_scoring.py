@@ -3,7 +3,7 @@
 import pytest
 
 from landuse_relevance_bench.domain.dataset import BenchmarkItem
-from landuse_relevance_bench.domain.engine import LabelScores
+from landuse_relevance_bench.domain.engine import LabelScores, ScoringInput
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.orchestration import score_all
 from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, scorer_for, scorer_ids
@@ -58,6 +58,24 @@ def test_scoring_keeps_the_native_scores_so_another_rule_can_be_recomputed() -> 
     assert prediction.predicted is Label.YES
 
 
+def test_scoring_keeps_a_model_native_relevance_score() -> None:
+    (prediction,) = score_all(
+        _items(1), "{}", _NativeScoreScorer(1.25), batch_size=4
+    )
+
+    assert prediction.raw_output == "no=0.270000 yes=0.730000 native=1.250000"
+
+
+def test_scoring_passes_both_rendered_prompt_and_original_sentence() -> None:
+    scorer = _InputCaptureScorer()
+
+    score_all(_items(1), "Question: {}", scorer)
+
+    assert scorer.inputs == [
+        ScoringInput(prompt="Question: sentence 0", sentence="sentence 0")
+    ]
+
+
 def test_a_scored_prediction_is_never_truncated_or_unparsed() -> None:
     scorer = _Scorer({Label.YES: 0.1, Label.NO: 0.9}, {Label.YES: 0.6, Label.NO: 0.4})
 
@@ -78,3 +96,27 @@ def test_the_scoring_roster_is_separate_from_the_generative_one() -> None:
     assert set(scorer_ids()).isdisjoint(model_ids())
     assert all(spec.decision_rule for spec in SCORER_ROSTER)
     assert scorer_for("Qwen/Qwen3-Reranker-0.6B").kind == "reranker"
+    assert scorer_for("Alibaba-NLP/gte-multilingual-reranker-base").kind == "sequence-classifier"
+    assert scorer_for("mixedbread-ai/mxbai-rerank-base-v2").kind == "reranker"
+
+
+class _NativeScoreScorer:
+    def __init__(self, native_score: float) -> None:
+        self._native_score = native_score
+
+    def score(self, inputs):
+        return [
+            LabelScores(
+                {Label.YES: 0.73, Label.NO: 0.27}, native_score=self._native_score
+            )
+            for _ in inputs
+        ]
+
+
+class _InputCaptureScorer:
+    def __init__(self) -> None:
+        self.inputs = []
+
+    def score(self, inputs):
+        self.inputs.extend(inputs)
+        return [LabelScores({Label.YES: 1.0, Label.NO: 0.0}) for _ in inputs]

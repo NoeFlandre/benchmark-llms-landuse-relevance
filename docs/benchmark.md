@@ -29,8 +29,11 @@ The fixed English-prompt policy is documented in
 
 ## Scoring
 
-Positive class is `yes`. Reported per model: accuracy, precision, recall, F1,
-balanced accuracy, Matthews correlation, and `unparsed_rate`.
+Positive class is `yes`. Generative models report accuracy, precision, recall, F1,
+balanced accuracy, Matthews correlation, and `unparsed_rate`. Scoring models emit a
+normalised relevance score and optional native score for every item; their report
+sweeps thresholds and selects the best MCC, F1, balanced accuracy, precision, recall,
+and ROC-AUC. It also records items/second and peak allocated CUDA VRAM per run.
 
 A generation that contains no standalone `yes`/`no` token is counted as an error and
 kept verbatim in the results — see [ADR-0002](adr/0002-unparsed-as-error.md).
@@ -39,4 +42,7 @@ kept verbatim in the results — see [ADR-0002](adr/0002-unparsed-as-error.md).
 
 Results are checkpointed at `results/<language>/<model>.json`. The detailed
 `leaderboard.csv` has one row per model-language pair; `aggregates.csv` groups those
-rows by model with macro metrics and F1 spread across languages.
+rows by model with macro metrics and F1 spread across languages. `threshold_sweep.csv`
+contains the threshold grid, while `scoring_summary.csv` contains one best-operating-
+point row per scoring model. New benchmark runs may be kept in an ignored
+`benchmark-runs/` directory so the established `results/` archive is not modified.

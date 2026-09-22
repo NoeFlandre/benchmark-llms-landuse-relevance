@@ -345,6 +345,8 @@ def test_report_builds_a_leaderboard_from_stored_runs(
     assert len(lines) == 3
     assert "a/one" in report.stdout
     assert (results_dir / "aggregates.csv").exists()
+    assert (results_dir / "threshold_sweep.csv").exists()
+    assert (results_dir / "scoring_summary.csv").exists()
 
 
 def test_report_filters_languages_and_writes_both_csvs(
@@ -379,6 +381,8 @@ def test_report_filters_languages_and_writes_both_csvs(
     assert report.exit_code == 0, report.stdout
     assert len((results_dir / "leaderboard.csv").read_text(encoding="utf-8").splitlines()) == 2
     assert len((results_dir / "aggregates.csv").read_text(encoding="utf-8").splitlines()) == 2
+    assert (results_dir / "threshold_sweep.csv").exists()
+    assert (results_dir / "scoring_summary.csv").exists()
 
 
 def test_report_on_an_empty_directory_fails_clearly(tmp_path: Path) -> None:
@@ -440,6 +444,8 @@ def test_publish_pushes_the_stored_runs(
         [
             "publish",
             "me/bench",
+            "--data-root",
+            str(data_root),
             "--results-dir",
             str(results_dir),
             "--prompt",
@@ -453,6 +459,9 @@ def test_publish_pushes_the_stored_runs(
     assert (results_dir / "README.md").exists()
     assert (results_dir / "leaderboard.csv").exists()
     assert (results_dir / "aggregates.csv").exists()
+    assert (results_dir / "threshold_sweep.csv").exists()
+    assert (results_dir / "scoring_summary.csv").exists()
+    assert (results_dir / "data" / "train.csv").exists()
     card = (results_dir / "README.md").read_text(encoding="utf-8")
     assert "some/model" in card and "other/model" in card
 

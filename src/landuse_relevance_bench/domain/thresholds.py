@@ -16,6 +16,7 @@ from landuse_relevance_bench.domain.records import Prediction
 #: of magnitude below 0.5, so a linear grid would measure nothing but the same verdict
 #: over and over.
 DEFAULT_THRESHOLDS: tuple[float, ...] = (
+    0.0,
     1e-5,
     3e-5,
     1e-4,
@@ -25,10 +26,15 @@ DEFAULT_THRESHOLDS: tuple[float, ...] = (
     1e-2,
     3e-2,
     0.1,
+    0.2,
     0.3,
+    0.4,
     0.5,
+    0.6,
     0.7,
+    0.8,
     0.9,
+    1.0,
 )
 
 
@@ -52,8 +58,10 @@ def parse_scores(raw_output: str) -> dict[Label, float]:
         if not separator:
             raise ScoreFormatError(f"not a label=score pair: {part!r}")
         try:
-            scores[Label(name)] = float(value)
-        except ValueError as exc:
+            parsed = float(value)
+            if name != "native":
+                scores[Label(name)] = parsed
+        except (TypeError, ValueError) as exc:
             raise ScoreFormatError(f"unreadable score {part!r}") from exc
     if not scores:
         raise ScoreFormatError(f"no scores in {raw_output!r}")

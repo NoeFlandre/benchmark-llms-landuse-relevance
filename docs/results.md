@@ -9,9 +9,10 @@ compliance.
 ## Reading a run file
 
 Each run file holds the metadata needed to audit it — language, model revision, prompt
-and benchmark sha256, decoding settings, seed, host duration, and the source commit —
-then every prediction with its raw generation, and finally the metrics computed from
-exactly those predictions.
+and benchmark sha256, decoding settings, seed, host duration, throughput, peak CUDA
+VRAM when available, and the source commit — then every prediction with its raw
+generation or relevance scores, and finally the metrics computed from exactly those
+predictions.
 
 Each prediction carries `truncated`. A truncated generation is scored unparsed however
 many verdict words appear in it: the model ran out of budget mid-thought and never
@@ -37,3 +38,12 @@ The card also states what was measured: the prompt verbatim, the label set, the 
 budget, decoding, dtype, batch size and seed. `lrb publish --prompt` supplies the
 prompt, and the card refuses to build unless it hashes to the digest the runs recorded,
 so the published prompt is always the one the scores came from.
+
+For scoring models, `threshold_sweep.csv` recomputes classification metrics from the
+stored `yes` relevance scores without another model call. `scoring_summary.csv` gives
+the best threshold for each requested classification metric and includes ROC-AUC,
+throughput, and maximum observed allocated VRAM.
+
+The Hub release includes `data/train.csv` as the default Dataset Viewer split. It is a
+validated, row-oriented export of all language files with stable `item_id` and
+`source_item_id` fields; detailed model checkpoints remain separate JSON files.

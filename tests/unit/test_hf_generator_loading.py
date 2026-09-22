@@ -1,5 +1,7 @@
 """Which loader a checkpoint gets, decided from its config rather than assumed."""
 
+import sys
+import types
 from typing import Any
 
 import pytest
@@ -14,12 +16,17 @@ class _Config:
 
 
 def _pretend_config(monkeypatch: pytest.MonkeyPatch, config: _Config) -> None:
-    import transformers
-
     def from_pretrained(*_args: Any, **_kwargs: Any) -> _Config:
         return config
 
-    monkeypatch.setattr(transformers.AutoConfig, "from_pretrained", from_pretrained)
+    auto_config = type("AutoConfig", (), {"from_pretrained": staticmethod(from_pretrained)})
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoConfig = auto_config
+    fake_transformers.AutoModelForCausalLM = type("AutoModelForCausalLM", (), {})
+    fake_transformers.AutoModelForImageTextToText = type(
+        "AutoModelForImageTextToText", (), {}
+    )
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 
 
 def test_a_plain_causal_checkpoint_loads_as_a_causal_model(

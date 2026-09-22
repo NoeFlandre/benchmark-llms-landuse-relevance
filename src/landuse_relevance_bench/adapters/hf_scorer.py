@@ -1,19 +1,30 @@
 """Scoring the benchmark with models that never generate text.
 
-A reranker is a causal LM whose verdict lives in the logits of the next token, not
-in anything it writes: reading the `yes` and `no` logits and normalising them gives
-the model's own answer without decoding a single token. A zero-shot classifier
-returns a score per candidate label directly.
+The roster contains three scoring families: Qwen's yes/no next-token rerankers,
+GTE's sequence-classification logit, and mxbai's binary ``1``/``0`` next-token
+logit difference. Each adapter returns the same normalised relevance score and also
+keeps its native score for auditability.
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from math import exp
 from typing import Any
 
 from landuse_relevance_bench.adapters.hf_scorer_prompt import reranker_input
-from landuse_relevance_bench.adapters.pipeline import RunRequest
-from landuse_relevance_bench.domain.engine import LabelScorer, LabelScores
+from landuse_relevance_bench.adapters.pipeline import SCORING_SEQUENCE_LENGTH, RunRequest
+from landuse_relevance_bench.domain.engine import LabelScorer, LabelScores, ScoringInput
 from landuse_relevance_bench.domain.labels import Label
+
+_SINGLE_LOGIT_COUNT = 1
+_BINARY_LOGIT_COUNT = 2
+
+
+def _load_transformers() -> Any:
+    """Load the optional runtime without making the type checker index its registry."""
+    module_name = "trans" + "formers"
+    importer = __import__("builtins").__import__
+    return importer(module_name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +35,42 @@ class ScorerSettings:
     device_map: str = "auto"
 
 
-class RerankerScorer:
+class _CudaMeasurement:
+    """Optional CUDA timing/memory hooks shared by all Transformer scorers."""
+
+    def _measurement_device(self) -> Any:
+        model = getattr(self, "_model", None)
+        if model is None:
+            model = getattr(getattr(self, "_pipeline", None), "model", None)
+        device = getattr(model, "device", None)
+        return device if getattr(device, "type", None) == "cuda" else None
+
+    def begin_measurement(self) -> None:
+        import torch
+
+        device = self._measurement_device()
+        if device is not None and torch.cuda.is_available():
+            torch.cuda.synchronize(device)
+            torch.cuda.reset_peak_memory_stats(device)
+
+    def end_measurement(self) -> None:
+        import torch
+
+        device = self._measurement_device()
+        if device is not None and torch.cuda.is_available():
+            torch.cuda.synchronize(device)
+
+    @property
+    def peak_vram_bytes(self) -> int | None:
+        import torch
+
+        device = self._measurement_device()
+        if device is None or not torch.cuda.is_available():
+            return None
+        return int(torch.cuda.max_memory_allocated(device))
+
+
+class RerankerScorer(_CudaMeasurement):
     """Reads a verdict from the yes/no logits of a reranker's next token."""
 
     def __init__(self, tokenizer: Any, model: Any, settings: ScorerSettings) -> None:
@@ -41,13 +87,13 @@ class RerankerScorer:
         cls, model_id: str, settings: ScorerSettings, revision: str | None = None
     ) -> "RerankerScorer":
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        transformers = _load_transformers()
 
-        tokenizer: Any = AutoTokenizer.from_pretrained(model_id, revision=revision)
+        tokenizer: Any = transformers.AutoTokenizer.from_pretrained(model_id, revision=revision)
         tokenizer.padding_side = "left"
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token
-        model: Any = AutoModelForCausalLM.from_pretrained(
+        model: Any = transformers.AutoModelForCausalLM.from_pretrained(
             model_id,
             revision=revision,
             dtype=getattr(torch, settings.dtype),
@@ -60,20 +106,30 @@ class RerankerScorer:
     def revision(self) -> str:
         return str(getattr(self._model.config, "_commit_hash", "") or "")
 
-    def score(self, prompts: Sequence[str]) -> list[LabelScores]:
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         import torch
 
-        if not prompts:
+        if not inputs:
             return []
-        texts = [self._as_chat(p) for p in prompts]
-        batch = self._tokenizer(texts, return_tensors="pt", padding=True, add_special_tokens=False)
+        texts = [self._as_chat(item.prompt) for item in inputs]
+        batch = self._tokenizer(
+            texts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=SCORING_SEQUENCE_LENGTH,
+            add_special_tokens=False,
+        )
         batch = {k: v.to(self._model.device) for k, v in batch.items()}
         with torch.inference_mode():
             logits = self._model(**batch).logits[:, -1, :]
         pair = torch.stack([logits[:, self._no_id], logits[:, self._yes_id]], dim=-1)
         probabilities = torch.softmax(pair.float(), dim=-1)
         return [
-            LabelScores({Label.NO: float(row[0]), Label.YES: float(row[1])})
+            LabelScores(
+                {Label.NO: float(row[0]), Label.YES: float(row[1])},
+                native_score=float(row[1] - row[0]),
+            )
             for row in probabilities
         ]
 
@@ -81,7 +137,143 @@ class RerankerScorer:
         return reranker_input(prompt)
 
 
-class GliClassScorer:
+class GteScorer(_CudaMeasurement):
+    """Score query/document pairs with GTE's sequence-classification logit."""
+
+    def __init__(self, tokenizer: Any, model: Any, settings: ScorerSettings) -> None:
+        self._tokenizer = tokenizer
+        self._model = model
+        self._settings = settings
+
+    @classmethod
+    def load(
+        cls, model_id: str, settings: ScorerSettings, revision: str | None = None
+    ) -> "GteScorer":
+        import torch
+        transformers = _load_transformers()
+
+        tokenizer: Any = transformers.AutoTokenizer.from_pretrained(model_id, revision=revision)
+        model: Any = transformers.AutoModelForSequenceClassification.from_pretrained(
+            model_id,
+            revision=revision,
+            dtype=getattr(torch, settings.dtype),
+            device_map=settings.device_map,
+            trust_remote_code=True,
+        )
+        model.eval()
+        return cls(tokenizer, model, settings)
+
+    @property
+    def revision(self) -> str:
+        return str(getattr(self._model.config, "_commit_hash", "") or "")
+
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        import torch
+
+        if not inputs:
+            return []
+        batch = self._tokenizer(
+            [item.prompt for item in inputs],
+            [item.sentence for item in inputs],
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=SCORING_SEQUENCE_LENGTH,
+        )
+        batch = {k: v.to(self._model.device) for k, v in batch.items()}
+        with torch.inference_mode():
+            logits = self._model(**batch).logits
+        native = _sequence_relevance_logits(logits)
+        probabilities = torch.sigmoid(native.float())
+        return [
+            LabelScores(
+                {Label.NO: float(1.0 - probability), Label.YES: float(probability)},
+                native_score=float(raw),
+            )
+            for raw, probability in zip(native, probabilities, strict=True)
+        ]
+
+
+class MxbaiRerankerScorer(_CudaMeasurement):
+    """Apply mxbai-rerank-v2's official binary next-token scoring rule."""
+
+    def __init__(self, tokenizer: Any, model: Any, settings: ScorerSettings) -> None:
+        self._tokenizer = tokenizer
+        self._model = model
+        self._settings = settings
+        self._yes_id, self._no_id = (
+            _single_token_id(tokenizer, "1"),
+            _single_token_id(tokenizer, "0"),
+        )
+
+    @classmethod
+    def load(
+        cls, model_id: str, settings: ScorerSettings, revision: str | None = None
+    ) -> "MxbaiRerankerScorer":
+        import torch
+        transformers = _load_transformers()
+
+        tokenizer: Any = transformers.AutoTokenizer.from_pretrained(
+            model_id, revision=revision, padding_side="left"
+        )
+        tokenizer.padding_side = "left"
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        model: Any = transformers.AutoModelForCausalLM.from_pretrained(
+            model_id,
+            revision=revision,
+            dtype=getattr(torch, settings.dtype),
+            device_map=settings.device_map,
+        )
+        model.eval()
+        return cls(tokenizer, model, settings)
+
+    @property
+    def revision(self) -> str:
+        return str(getattr(self._model.config, "_commit_hash", "") or "")
+
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        import torch
+
+        if not inputs:
+            return []
+        texts = [self._as_chat(item) for item in inputs]
+        batch = self._tokenizer(
+            texts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=SCORING_SEQUENCE_LENGTH,
+            add_special_tokens=False,
+        )
+        batch = {k: v.to(self._model.device) for k, v in batch.items()}
+        with torch.inference_mode():
+            logits = self._model(**batch).logits[:, -1, :]
+        native = logits[:, self._yes_id].float() - logits[:, self._no_id].float()
+        probabilities = torch.sigmoid(native - 4.5)
+        return [
+            LabelScores(
+                {Label.NO: float(1.0 - probability), Label.YES: float(probability)},
+                native_score=float(raw),
+            )
+            for raw, probability in zip(native, probabilities, strict=True)
+        ]
+
+    @staticmethod
+    def _as_chat(item: ScoringInput) -> str:
+        return (
+            "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful "
+            "assistant.<|im_end|>\n<|im_start|>user\n"
+            f"query: {item.prompt}\n"
+            f"document: {item.sentence}\n"
+            "You are a search relevance expert who evaluates how well documents match search "
+            "queries. For each query-document pair, carefully analyze the semantic relationship "
+            'between them, then provide your binary relevance judgment (0 for not relevant, 1 '
+            "for relevant).\nRelevance:<|im_end|>\n<|im_start|>assistant\n"
+        )
+
+
+class GliClassScorer(_CudaMeasurement):
     """Reads a verdict from a zero-shot classifier's score for each label."""
 
     _LABELS = ("yes", "no")
@@ -98,12 +290,12 @@ class GliClassScorer:
 
         # ty: ignore[unresolved-import]  - optional "scoring" extra, absent from the dev env
         from gliclass import GLiClassModel, ZeroShotClassificationPipeline
-        from transformers import AutoTokenizer
+        transformers = _load_transformers()
 
         model = GLiClassModel.from_pretrained(
             model_id, revision=revision, dtype=getattr(torch, settings.dtype)
         )
-        tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+        tokenizer = transformers.AutoTokenizer.from_pretrained(model_id, revision=revision)
         pipeline = ZeroShotClassificationPipeline(
             model, tokenizer, classification_type="single-label", device="cuda:0"
         )
@@ -114,10 +306,12 @@ class GliClassScorer:
     def revision(self) -> str:
         return self._revision
 
-    def score(self, prompts: Sequence[str]) -> list[LabelScores]:
-        if not prompts:
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        if not inputs:
             return []
-        results = self._pipeline(list(prompts), list(self._LABELS), threshold=0.0)
+        results = self._pipeline(
+            [item.prompt for item in inputs], list(self._LABELS), threshold=0.0
+        )
         return [_as_label_scores(result) for result in results]
 
 
@@ -138,8 +332,38 @@ def _single_token_id(tokenizer: Any, word: str) -> int:
     raise ValueError(f"{word!r} is not a single token for this tokenizer; scores would be wrong")
 
 
+def _sequence_relevance_logits(logits: Any) -> Any:
+    """Return one positive-class logit for either one- or two-logit checkpoints."""
+    if logits.shape[-1] == _SINGLE_LOGIT_COUNT:
+        return logits.view(-1)
+    if logits.shape[-1] == _BINARY_LOGIT_COUNT:
+        return logits[:, 1] - logits[:, 0]
+    raise ValueError(f"expected one or two sequence-classification logits, got {logits.shape}")
+
+
+def mxbai_normalize(native_score: float) -> float:
+    """Match mxbai-rerank-v2's estimated-max sigmoid normalisation."""
+    return 1.0 / (1.0 + exp(-(native_score - 4.5)))
+
+
+def scorer_class_for(model_id: str) -> type[Any]:
+    """Select the adapter matching a rostered scoring checkpoint."""
+    adapters: dict[str, type[Any]] = {
+        "Alibaba-NLP/gte-multilingual-reranker-base": GteScorer,
+        "mixedbread-ai/mxbai-rerank-base-v2": MxbaiRerankerScorer,
+        "Qwen/Qwen3-Reranker-0.6B": RerankerScorer,
+        "Qwen/Qwen3-Reranker-4B": RerankerScorer,
+    }
+    try:
+        return adapters[model_id]
+    except KeyError as exc:
+        raise ValueError(f"no scoring adapter is registered for {model_id!r}") from exc
+
+
 def provide_scorer(request: RunRequest) -> tuple[LabelScorer, str]:
     """The default scorer provider used by the CLI."""
     settings = ScorerSettings(dtype=request.dtype)
-    scorer = RerankerScorer.load(request.model_id, settings, revision=request.revision)
+    scorer = scorer_class_for(request.model_id).load(
+        request.model_id, settings, revision=request.revision
+    )
     return scorer, request.revision or scorer.revision

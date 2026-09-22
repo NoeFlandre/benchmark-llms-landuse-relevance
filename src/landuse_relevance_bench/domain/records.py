@@ -71,6 +71,11 @@ class RunMetadata:
     # The rule that turned a scoring model's native scores into a verdict; empty for
     # generative runs, whose rule is the parser.
     decision_rule: str = ""
+    # Optional performance telemetry. Legacy result files did not carry these keys,
+    # so defaults keep them readable while GPU runs can report their measurements.
+    throughput_items_per_second: float | None = None
+    peak_vram_bytes: int | None = None
+    sequence_length: int | None = None
 
     @property
     def is_generative(self) -> bool:

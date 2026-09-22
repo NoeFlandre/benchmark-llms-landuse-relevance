@@ -12,6 +12,7 @@ htmlcov/
 coverage.xml
 dist/
 site/
+benchmark-runs/
 .mutmut-cache
 mutants/
 .DS_Store

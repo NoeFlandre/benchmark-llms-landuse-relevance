@@ -31,6 +31,14 @@ class TextGenerator(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class ScoringInput:
+    """The rendered judgement plus the original sentence being judged."""
+
+    prompt: str
+    sentence: str
+
+
+@dataclass(frozen=True, slots=True)
 class LabelScores:
     """What a non-generative model assigns to each label for one item.
 
@@ -40,6 +48,7 @@ class LabelScores:
     """
 
     scores: Mapping[Label, float]
+    native_score: float | None = None
 
     def __post_init__(self) -> None:
         if not self.scores:
@@ -54,4 +63,4 @@ class LabelScores:
 class LabelScorer(Protocol):
     """Scores a batch of rendered prompts against the labels, without generating."""
 
-    def score(self, prompts: Sequence[str]) -> Sequence[LabelScores]: ...
+    def score(self, inputs: Sequence[ScoringInput]) -> Sequence[LabelScores]: ...

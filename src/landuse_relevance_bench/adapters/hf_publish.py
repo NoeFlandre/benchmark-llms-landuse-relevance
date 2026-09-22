@@ -1,15 +1,16 @@
 """Publishing run results to a Hugging Face dataset repository."""
 
+import html
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol, cast
 
 from landuse_relevance_bench.adapters.hashing import sha256_of_text
-from landuse_relevance_bench.adapters.hf_scorer_prompt import RERANKER_SYSTEM
 from landuse_relevance_bench.adapters.results_store import (
     AGGREGATE_COLUMNS,
     aggregate_rows,
     read_runs,
+    scoring_summary_rows,
 )
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
@@ -46,6 +47,8 @@ def dataset_card(
     benchmark_name: str,
     prompt_text: str,
     scorer_prompt_text: str = "",
+    viewer_file: str = "",
+    plot_files: Sequence[str] = (),
 ) -> str:
     """Build a terse card whose scores are recomputed from every prediction."""
     if not results:
@@ -54,17 +57,12 @@ def dataset_card(
         derived = evaluate(outcomes_of(result.predictions))
         if derived != result.metrics:
             raise ValueError(f"{result.metadata.model_id} metrics do not match predictions")
-    # Generative and scoring models are given different inputs on purpose, so each
-    # family's prompt is checked against the runs that actually used it.
     generative_pre = [r for r in results if r.metadata.is_generative]
     if not generative_pre:
         raise ValueError("cannot build a card without any generative run")
     prompt_sha256 = _uniform(generative_pre, "prompt digest", lambda r: r.metadata.prompt_sha256)
     if sha256_of_text(prompt_text) != prompt_sha256:
         raise ValueError("prompt text does not match the digest recorded in the runs")
-    # Generation settings describe how a generative model was prompted. A scoring
-    # model is never prompted for text, so asserting them over every run would make
-    # the two families look like one method described badly.
     generative = generative_pre
     scoring = [r for r in results if not r.metadata.is_generative]
     scorer_prompt_sha256 = ""
@@ -80,11 +78,6 @@ def dataset_card(
     dtype = _uniform(generative, "dtype", lambda r: r.metadata.dtype)
     seed = _uniform(generative, "seed", lambda r: r.metadata.seed)
     max_new_tokens = _uniform(generative, "token budget", lambda r: r.metadata.max_new_tokens)
-    # Batch size is a throughput knob, not a decoding setting, and one rostered model
-    # cannot be batched at all: Falcon-H1 is a hybrid attention-SSM model and its state
-    # handling breaks under the left padding batching needs. So the card reports the
-    # batch size when the sweep agrees on one and points at the runs when it does not,
-    # rather than refusing to describe a sweep over the settings that shape a verdict.
     batch_sizes = sorted({result.metadata.batch_size for result in generative})
     batch_size_line = (
         f"batch size {batch_sizes[0]}"
@@ -115,6 +108,7 @@ def dataset_card(
             prompt_sha256=scorer_prompt_sha256,
         )
     )
+    plots_section = _plots_section(plot_files)
     return f"""---
 license: mit
 task_categories:
@@ -128,30 +122,33 @@ tags:
 
 # Land-use relevance benchmark
 
-`{benchmark_name}`; model-level macro averages over the completed languages.
-Scores are recomputed from the published predictions. `language_count` reports how many
-language checkpoints contributed to each model row.
+`{benchmark_name}` · model-level macro averages over completed language checkpoints.
 
 - Code: https://github.com/NoeFlandre/benchmark-llms-landuse-relevance
 
 ## Benchmark
 
-Binary sentence classification: does the sentence describe its target place in a way that
-helps characterise land use, land cover or the geographic environment from remote sensing?
-The label set is the two lowercase tokens `yes` and `no`.
+Binary sentence classification of land-use, land-cover, and geographic-environment
+signal observable from remote sensing.
 
-- {len(languages)} languages, {n_items} labelled sentences each, one result file per
-  model and language.
-- {decoding} decoding, seed {seed}, `max_new_tokens={max_new_tokens}`, dtype `{dtype}`,
-  {batch_size_line}.
-- The verdict is the last standalone `yes` or `no` in the generation. A generation that
-  reaches the token budget without stopping is recorded as truncated and yields no
-  verdict; `unparsed_rate_macro` reports how often that happened.
-- Prompt sha256 `{prompt_sha256}`. Each language has its own benchmark file, whose
-  `benchmark_sha256` is recorded in every run it produced.
+| setting | value |
+|---|---|
+| languages | {len(languages)} |
+| items per language | {n_items} |
+| labels | `yes`, `no` |
+| positive class | `yes` |
+| prompt language | English |
+| generation | {decoding} decoding; seed {seed}; `max_new_tokens={max_new_tokens}` |
+| dtype | `{dtype}` |
+| batch size | {batch_size_line} |
+| result layout | one JSON per model/language |
+| dataset viewer | `{viewer_file or "not included"}` |
+| prompt sha256 | `{prompt_sha256}` |
+| benchmark hashes | recorded per language run |
 
-Prompt template, used verbatim for every language, where `{{}}` is replaced by the target
-sentence:
+### Prompt
+
+Used verbatim; `{{}}` is replaced by the target sentence.
 
 ```text
 {prompt_text}```
@@ -161,7 +158,21 @@ sentence:
 {header}
 {divider}
 {body}
-{scoring_section}"""
+{scoring_section}{plots_section}"""
+
+
+def _plots_section(plot_files: Sequence[str]) -> str:
+    """Render stable relative links to the plots placed beside the card."""
+    if not plot_files:
+        return ""
+    alt_text = {
+        "quality_metrics.svg": "Best scoring metrics",
+        "performance.svg": "Inference performance",
+    }
+    links = "\n\n".join(
+        f"![{alt_text.get(Path(file).name, Path(file).stem)}]({file})" for file in plot_files
+    )
+    return f"\n\n## Plots\n\n{links}"
 
 
 def _scoring_section(
@@ -173,7 +184,7 @@ def _scoring_section(
     prompt_text: str,
     prompt_sha256: str,
 ) -> str:
-    """Report the non-generative models apart, with the rule that produced them."""
+    """Render compact public-facing scoring details and tables."""
     rules = sorted({result.metadata.decision_rule or "unrecorded" for result in scoring})
     joined = "; ".join(rules)
     batch_sizes = sorted({result.metadata.batch_size for result in scoring})
@@ -182,43 +193,39 @@ def _scoring_section(
         if len(batch_sizes) == 1
         else "batch size varying by model, recorded per run"
     )
+    sequence_lengths = sorted(
+        {result.metadata.sequence_length for result in scoring if result.metadata.sequence_length}
+    )
+    sequence_line = (
+        ", ".join(str(length) for length in sequence_lengths) + " tokens"
+        if sequence_lengths
+        else "model-defined"
+    )
+    summary = scoring_summary_rows(scoring)
+    summary_header = "| " + " | ".join(SCORING_SUMMARY_CARD_COLUMNS) + " |"
+    summary_divider = "|" + "|".join(["---"] * len(SCORING_SUMMARY_CARD_COLUMNS)) + "|"
+    summary_body = "\n".join(
+        "| " + " | ".join(str(row[column]) for column in SCORING_SUMMARY_CARD_COLUMNS) + " |"
+        for row in summary
+    )
+    scoring_dtype = _setting_or_varying(scoring, "scoring dtype", lambda r: r.metadata.dtype)
+    scoring_seed = _setting_or_varying(scoring, "scoring seed", lambda r: r.metadata.seed)
     return f"""
 ## Scoring models
 
-These are rerankers, not chat models: nothing is generated and no text is parsed. Each
-item is fed as one relevance judgement, and the verdict is read from the model's own
-next-token scores for `yes` and `no`, softmaxed over just those two tokens. The verdict
-is then taken by: {joined}. Every prediction stores the scores it came from, as
-`no=<score> yes=<score>`, so a different rule — a threshold rather than an argmax, say —
-can be recomputed from the published results without re-running anything.
+| setting | value |
+|---|---|
+| normalized output | `yes` relevance score in [0, 1] |
+| native output | retained per prediction when available |
+| decision rule | {joined} |
+| sequence length | {sequence_line} |
+| dtype | `{scoring_dtype}` |
+| batch size | {batch_line} |
+| seed | {scoring_seed} |
+| scoring prompt sha256 | `{prompt_sha256}` |
+| reports | `threshold_sweep.csv`, `scoring_summary.csv` |
 
-Because a scoring model cannot produce unparseable or unfinished text,
-`unparsed_rate_macro` is zero for every row below by construction. That is a property
-of the method, not a comparison won against the generative models above.
-
-Read these rows with their decision rule in mind. A reranker's score is trained to
-rank documents for retrieval, where almost nothing is relevant, so it is not calibrated
-to a 0.5 boundary on a roughly balanced task: taking the argmax makes it answer `no`
-almost always, which lowers F1 far more than it reflects how well the score separates
-the two classes. The published per-item scores are what to use for that question, and
-they support recomputing any other rule without re-running the models.
-
-`threshold_sweep.csv` reports exactly that: every metric for each model at a range of
-boundaries, plus `roc_auc_macro`, which does not depend on a boundary at all. Read the
-best row there as an upper bound rather than a score, because the boundary that
-produces it was chosen on this same benchmark.
-
-- dtype `{_uniform(scoring, "scoring dtype", lambda r: r.metadata.dtype)}`, {batch_line},
-  seed {_uniform(scoring, "scoring seed", lambda r: r.metadata.seed)}.
-- Scoring prompt sha256 `{prompt_sha256}`.
-
-The reranker is given this system turn, which is the one it was trained to judge under:
-
-```text
-{RERANKER_SYSTEM}
-```
-
-and this user turn, where `{{}}` is replaced by the target sentence:
+### Scoring prompt
 
 ```text
 {prompt_text}```
@@ -226,7 +233,200 @@ and this user turn, where `{{}}` is replaced by the target sentence:
 {header}
 {divider}
 {table(scoring)}
+
+### Best thresholded scoring metrics
+
+{summary_header}
+{summary_divider}
+{summary_body}
 """
+
+
+def _setting_or_varying(
+    results: Sequence[RunResult], name: str, value_of: Any
+) -> str:
+    """Describe a setting without rejecting a mixed, explicitly recorded roster."""
+    values = sorted({value_of(result) for result in results}, key=str)
+    if len(values) == 1:
+        return str(values[0])
+    return f"varies by model ({name} is recorded per run)"
+
+
+def write_scoring_plots(results: Sequence[RunResult], directory: Path) -> tuple[Path, ...]:
+    """Write deterministic SVG summaries for scoring quality and performance."""
+    summary = scoring_summary_rows(results)
+    if not summary:
+        return ()
+    directory.mkdir(parents=True, exist_ok=True)
+    quality = directory / "quality_metrics.svg"
+    performance = directory / "performance.svg"
+    quality.write_text(_quality_svg(summary), encoding="utf-8")
+    performance.write_text(_performance_svg(summary), encoding="utf-8")
+    return quality, performance
+
+
+def _quality_svg(summary: Sequence[dict[str, Any]]) -> str:
+    """Build a compact horizontal bar chart with fixed geometry and ordering."""
+    rows = sorted(summary, key=lambda row: str(row["model_id"]))
+    metrics = (
+        ("MCC", "best_mcc", -1.0, 1.0),
+        ("F1", "best_f1", 0.0, 1.0),
+        ("Balanced accuracy", "best_balanced_accuracy", 0.0, 1.0),
+        ("Precision", "best_precision", 0.0, 1.0),
+        ("Recall", "best_recall", 0.0, 1.0),
+        ("ROC-AUC", "roc_auc_macro", 0.0, 1.0),
+    )
+    colors = ("#2563eb", "#ea580c", "#059669", "#7c3aed", "#ca8a04")
+    width, left, right, top, row_height, bottom = 960, 220, 28, 76, 62, 34
+    height = top + row_height * len(metrics) + bottom
+    plot_width = width - left - right
+    fragments = [
+        _svg_open(width, height, "Best thresholded scoring metrics"),
+        _svg_text("Best thresholded scoring metrics", 24, 32, size=20, weight="bold"),
+        _svg_text("Higher is better; MCC uses a -1 to 1 scale.", 24, 54, size=12),
+    ]
+    legend_x = left
+    for index, row in enumerate(rows):
+        color = colors[index % len(colors)]
+        label = str(row["model_id"])
+        fragments.append(f'<rect x="{legend_x}" y="38" width="12" height="12" fill="{color}"/>')
+        fragments.append(_svg_text(label, legend_x + 18, 49, size=12))
+        legend_x += 18 + max(90, len(label) * 7)
+    for metric_index, (label, key, minimum, maximum) in enumerate(metrics):
+        y = top + metric_index * row_height
+        fragments.append(_svg_text(label, 24, y + 18, size=13, weight="bold"))
+        for tick in _ticks(minimum, maximum):
+            x = left + _scale(tick, minimum, maximum) * plot_width
+            fragments.append(
+                f'<line x1="{x:.2f}" y1="{y + 24}" x2="{x:.2f}" '
+                f'y2="{y + row_height - 8}" stroke="#e5e7eb"/>'
+            )
+            fragments.append(
+                _svg_text(_format_number(tick), x, y + row_height - 2, size=10, anchor="middle")
+            )
+        for model_index, row in enumerate(rows):
+            value = _as_float(row.get(key))
+            bar_y = y + 29 + model_index * 14
+            if value is None:
+                fragments.append(_svg_text("n/a", left, bar_y + 10, size=10))
+                continue
+            clamped = min(maximum, max(minimum, value))
+            x_zero = left + _scale(0.0, minimum, maximum) * plot_width
+            x_value = left + _scale(clamped, minimum, maximum) * plot_width
+            fragments.append(
+                f'<rect x="{min(x_zero, x_value):.2f}" y="{bar_y}" '
+                f'width="{abs(x_value - x_zero):.2f}" height="10" '
+                f'fill="{colors[model_index % len(colors)]}" rx="2"/>'
+            )
+            value_x = min(plot_width + left - 2, max(left + 2, x_value + 5))
+            fragments.append(_svg_text(_format_number(value), value_x, bar_y + 9, size=10))
+    fragments.append("</svg>")
+    return "".join(fragments) + "\n"
+
+
+def _performance_svg(summary: Sequence[dict[str, Any]]) -> str:
+    """Build deterministic throughput and VRAM panels with independent scales."""
+    rows = sorted(summary, key=lambda row: str(row["model_id"]))
+    width, left, right, top = 960, 220, 28, 74
+    panel_height, panel_gap, bottom = 112, 32, 30
+    height = top + 2 * panel_height + panel_gap + bottom
+    plot_width = width - left - right
+    panels = (
+        ("Throughput (items / s)", "throughput_items_per_second_macro", 1.0),
+        ("Peak VRAM (GiB)", "peak_vram_bytes_max", 1024**3),
+    )
+    colors = ("#2563eb", "#ea580c", "#059669", "#7c3aed", "#ca8a04")
+    fragments = [
+        _svg_open(width, height, "Inference performance"),
+        _svg_text("Inference performance", 24, 32, size=20, weight="bold"),
+        _svg_text("Macro throughput and maximum allocated VRAM.", 24, 54, size=12),
+    ]
+    for panel_index, (label, key, divisor) in enumerate(panels):
+        y = top + panel_index * (panel_height + panel_gap)
+        numeric_values = [_as_float(row.get(key)) for row in rows]
+        values = [value / divisor for value in numeric_values if value is not None]
+        maximum = max(max(values, default=1.0), 1.0)
+        fragments.append(_svg_text(label, 24, y + 16, size=13, weight="bold"))
+        for tick in _ticks(0.0, maximum, count=3):
+            x = left + _scale(tick, 0.0, maximum) * plot_width
+            fragments.append(
+                f'<line x1="{x:.2f}" y1="{y + 22}" x2="{x:.2f}" '
+                f'y2="{y + panel_height - 8}" stroke="#e5e7eb"/>'
+            )
+            fragments.append(
+                _svg_text(_format_number(tick), x, y + panel_height - 2, size=10, anchor="middle")
+            )
+        for row_index, row in enumerate(rows):
+            raw_value = _as_float(row.get(key))
+            value = None if raw_value is None else raw_value / divisor
+            bar_y = y + 28 + row_index * 16
+            if value is None:
+                fragments.append(_svg_text(f"{row['model_id']}: n/a", left, bar_y + 10, size=10))
+                continue
+            bar_width = _scale(value, 0.0, maximum) * plot_width
+            fragments.append(
+                f'<rect x="{left}" y="{bar_y}" width="{bar_width:.2f}" height="11" '
+                f'fill="{colors[row_index % len(colors)]}" rx="2"/>'
+            )
+            fragments.append(
+                _svg_text(
+                    f"{row['model_id']}  {_format_number(value)}",
+                    min(width - right, left + bar_width + 6),
+                    bar_y + 10,
+                    size=10,
+                )
+            )
+    fragments.append("</svg>")
+    return "".join(fragments) + "\n"
+
+
+def _svg_open(width: int, height: int, title: str) -> str:
+    escaped = html.escape(title, quote=True)
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" role="img" aria-labelledby="title">'
+        f'<title id="title">{escaped}</title><rect width="100%" height="100%" fill="white"/>'
+    )
+
+
+def _svg_text(
+    value: str,
+    x: float,
+    y: float,
+    *,
+    size: int,
+    weight: str = "normal",
+    anchor: str = "start",
+) -> str:
+    escaped = html.escape(str(value), quote=True)
+    return (
+        f'<text x="{x:.2f}" y="{y:.2f}" font-family="Arial, sans-serif" '
+        f'font-size="{size}px" font-weight="{weight}" text-anchor="{anchor}" '
+        f'fill="#111827">{escaped}</text>'
+    )
+
+
+def _as_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _scale(value: float, minimum: float, maximum: float) -> float:
+    if maximum <= minimum:
+        return 0.0
+    return (value - minimum) / (maximum - minimum)
+
+
+def _ticks(minimum: float, maximum: float, *, count: int = 5) -> tuple[float, ...]:
+    if count <= 1:
+        return (minimum,)
+    step = (maximum - minimum) / (count - 1)
+    return tuple(minimum + step * index for index in range(count))
+
+
+def _format_number(value: float) -> str:
+    return f"{value:.3f}".rstrip("0").rstrip(".")
 
 
 def publish_results(
@@ -240,6 +440,7 @@ def publish_results(
     benchmark_name: str = "v3-multilingual",
     prompt_text: str,
     scorer_prompt_text: str = "",
+    data_root: Path | None = None,
 ) -> str:
     """Write the card next to the results, then push the whole folder to the Hub."""
     if not results:
@@ -247,12 +448,20 @@ def publish_results(
     _reject_archive_paths(results_dir)
     hub = api if api is not None else _default_api()
     results_dir.mkdir(parents=True, exist_ok=True)
+    viewer_file = ""
+    if data_root is not None:
+        write_viewer_dataset(data_root, results_dir / "data" / "train.csv")
+        viewer_file = "data/train.csv"
+    plot_paths = write_scoring_plots(results, results_dir / "plots")
+    plot_files = tuple(path.relative_to(results_dir).as_posix() for path in plot_paths)
     (results_dir / "README.md").write_text(
         dataset_card(
             results,
             benchmark_name=benchmark_name,
             prompt_text=prompt_text,
             scorer_prompt_text=scorer_prompt_text,
+            viewer_file=viewer_file,
+            plot_files=plot_files,
         ),
         encoding="utf-8",
     )
@@ -279,3 +488,71 @@ def _reject_archive_paths(results_dir: Path) -> None:
     for path in paths:
         if "archive" in path.relative_to(results_dir).parts:
             raise ValueError(f"refusing to upload archive path: {path}")
+
+
+SCORING_SUMMARY_CARD_COLUMNS = (
+    "model_id",
+    "best_mcc",
+    "best_mcc_threshold",
+    "best_f1",
+    "best_f1_threshold",
+    "best_balanced_accuracy",
+    "best_balanced_accuracy_threshold",
+    "best_precision",
+    "best_precision_threshold",
+    "best_recall",
+    "best_recall_threshold",
+    "roc_auc_macro",
+    "throughput_items_per_second_macro",
+    "peak_vram_bytes_max",
+)
+
+
+def write_viewer_dataset(data_root: Path, output: Path) -> Path:
+    """Export the validated multilingual benchmark as one Hub-viewable CSV."""
+    import csv
+
+    from landuse_relevance_bench.adapters.translations import (
+        load_language_benchmark,
+        load_manifest,
+    )
+
+    viewer_columns = (
+        "item_id",
+        "source_item_id",
+        "language",
+        "sentence",
+        "label",
+        "polygon_name",
+        "h3_cell",
+        "latitude",
+        "longitude",
+        "source",
+        "region",
+        "source_url",
+    )
+    manifest = load_manifest(data_root)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(viewer_columns), lineterminator="\n")
+        writer.writeheader()
+        for language in manifest.languages:
+            items = load_language_benchmark(data_root, language)
+            source_path = data_root / manifest.files[language].path
+            with source_path.open(newline="", encoding="utf-8") as source_handle:
+                rows = list(csv.DictReader(source_handle))
+            if len(rows) != len(items):
+                raise ValueError(
+                    f"viewer export row mismatch for {language}: {len(rows)} != {len(items)}"
+                )
+            for item, source_row in zip(items, rows, strict=True):
+                row = {column: source_row.get(column, "") or "" for column in viewer_columns}
+                row.update(
+                    item_id=item.item_id,
+                    source_item_id=item.source_item_id,
+                    language=item.language,
+                    sentence=item.sentence,
+                    label=item.label.value,
+                )
+                writer.writerow(row)
+    return output

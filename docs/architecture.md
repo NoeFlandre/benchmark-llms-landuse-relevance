@@ -21,15 +21,18 @@ end to end in seconds without a GPU.
 ## `adapters` — the edges
 
 Translation-manifest and CSV loading, prompt loading, content digests, the results
-store, the Transformers generator, and Hub publishing. `pipeline.execute` is the one
-use case: load one language, run the model, score exactly the predictions it produced,
-and write the nested model-language checkpoint. Active readers explicitly exclude
-`results/archive/`.
+store, the Transformers generator and scorer adapters, and Hub publishing.
+`pipeline.execute` and `pipeline.execute_scoring` are the use cases: load one language,
+run the model, score exactly the predictions it produced, and write the nested
+model-language checkpoint. Active readers explicitly exclude `results/archive/`.
 
 ## `cli` — the surface
 
-`lrb models | languages | run | run-all | report | publish`. Optional dependencies are imported
-lazily, so `lrb report` works on a laptop with no `torch` installed.
+`lrb models | languages | run | run-all | scorers | score | report | publish`.
+Optional dependencies are imported lazily, so `lrb report` works on a laptop with no
+`torch` installed. Scoring adapters expose a common typed input and preserve both
+normalised and native relevance values; the results adapter derives threshold sweeps
+and best-operating-point summaries from those stored values.
 
 ## Quality gates
 

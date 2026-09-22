@@ -23,6 +23,8 @@ uv run lrb languages                   # active language inventory
 uv run lrb run LiquidAI/LFM2.5-350M    # one model, all languages
 uv run lrb run LiquidAI/LFM2.5-350M --language en,fr
 uv run lrb run-all                     # every model
+uv run lrb scorers                     # non-generative scoring roster
+uv run lrb score Alibaba-NLP/gte-multilingual-reranker-base --out benchmark-runs/gte
 uv run lrb report                      # detailed and aggregate leaderboards
 uv run lrb publish NoeFlandre/benchmark-llms-landuse-relevance
 ```
@@ -32,8 +34,15 @@ when a model is actually loaded.
 
 ## What gets measured
 
-Positive class is `yes`. Each run reports accuracy, precision, recall, F1, balanced
-accuracy, Matthews correlation, and `unparsed_rate`.
+Positive class is `yes`. Generative runs report accuracy, precision, recall, F1,
+balanced accuracy, Matthews correlation, and `unparsed_rate`. Scoring runs also keep
+the model's normalised relevance score and native score per item, sweep thresholds, and
+report the best MCC, F1, balanced accuracy, precision, recall, and ROC-AUC in
+`scoring_summary.csv`.
+
+Scoring runs record inference throughput in items per second and peak allocated CUDA
+VRAM when a CUDA device is available. These values appear in the detailed
+`leaderboard.csv` and the scoring summary.
 
 Decoding is greedy, so a run replays exactly. The verdict is the last standalone
 `yes`/`no` in the generation — two of these models open with an analysis preamble that
@@ -52,8 +61,9 @@ Every result file pins the model revision, the prompt sha256, the benchmark sha2
 decoding settings, the seed, and the source commit.
 
 The active data inventory is `data/translations/manifest.json`. Reports read only
-language-nested checkpoints and produce both detailed per-language rows and model-level
-macro aggregates.
+language-nested checkpoints and produce detailed per-language rows, model-level macro
+aggregates, `threshold_sweep.csv`, and `scoring_summary.csv`. The published Hub folder
+also contains `data/train.csv`, a single viewer-friendly multilingual split.
 
 ## Models
 
@@ -77,6 +87,15 @@ macro aggregates.
 | `allenai/Olmo-3-7B-Instruct` | ~7B |
 | `google/gemma-4-E2B-it` | ~2B |
 | `google/gemma-4-E4B-it` | ~4B |
+
+### Scoring models
+
+| model | parameters | scoring rule |
+|---|---:|---|
+| `Alibaba-NLP/gte-multilingual-reranker-base` | ~0.306B | sigmoid sequence-classification relevance logit |
+| `mixedbread-ai/mxbai-rerank-base-v2` | ~0.5B | official binary 1/0 logit-difference normalisation |
+| `Qwen/Qwen3-Reranker-0.6B` | ~0.596B | yes/no next-token argmax |
+| `Qwen/Qwen3-Reranker-4B` | ~4.022B | yes/no next-token argmax |
 
 ## Grid'5000
 

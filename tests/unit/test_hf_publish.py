@@ -1,3 +1,4 @@
+import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -9,6 +10,8 @@ from landuse_relevance_bench.adapters.hf_publish import (
     dataset_card,
     publish_results,
     read_published_runs,
+    write_scoring_plots,
+    write_viewer_dataset,
 )
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
@@ -95,6 +98,49 @@ def test_published_runs_reads_nested_result_folders_in_stable_order(tmp_path: Pa
     assert [result.metadata.model_id for result in published] == ["a/one", "b/two"]
 
 
+def test_viewer_export_is_one_neat_multilingual_csv(tmp_path: Path) -> None:
+    root = tmp_path / "translations"
+    csv_template = (
+        "sentence,label,polygon_name,h3_cell,latitude,longitude,source,region,source_url,"
+        "source_item_id,language\n"
+        '"Forest covers the hill.",yes,Place,h3,1,2,source,region,url,s1,{language}\n'
+    )
+    files = {}
+    for language in ("en", "fr"):
+        path = root / language / f"v3-final-{language}.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(csv_template.format(language=language), encoding="utf-8")
+        files[language] = {
+            "path": f"{language}/v3-final-{language}.csv",
+            "rows": 1,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+    inventory = "\n".join(f"{language}:{files[language]['sha256']}" for language in files)
+    (root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "dataset": "test/dataset",
+                "revision": "test-revision",
+                "split": "train",
+                "languages": ["en", "fr"],
+                "row_count": 1,
+                "source_item_ids": ["s1"],
+                "files": files,
+                "whole_set_sha256": hashlib.sha256(inventory.encode()).hexdigest(),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output = write_viewer_dataset(root, tmp_path / "data" / "benchmark.csv")
+
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert lines[0].startswith("item_id,source_item_id,language,sentence,label")
+    assert len(lines) == 3
+    assert ",en," in lines[1]
+    assert ",fr," in lines[2]
+
+
 def test_card_rejects_metrics_that_are_not_derived_from_predictions() -> None:
     result = _result()
     tampered = replace(result, metrics=replace(result.metrics, accuracy=0.0))
@@ -157,7 +203,7 @@ def test_the_card_documents_the_prompt_and_run_settings() -> None:
     assert PROMPT in section
     assert "greedy decoding" in section
     assert "`max_new_tokens=8`" in section
-    assert "dtype `bfloat16`" in section
+    assert "| dtype | `bfloat16` |" in section
     assert "batch size 16" in section
     assert "seed 0" in section
 
@@ -179,7 +225,7 @@ def test_the_card_states_the_per_language_benchmark_digests_are_recorded() -> No
     card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
 
     assert "b" * 64 not in card
-    assert "`benchmark_sha256` is recorded" in card
+    assert "| benchmark hashes | recorded per language run |" in card
 
 
 def test_the_card_states_the_batch_size_when_the_sweep_agrees_on_one() -> None:
@@ -214,14 +260,22 @@ SCORER_PROMPT_SHA256 = sha256_of_text(SCORER_PROMPT)
 
 def _scored(model_id: str, language: str = "en") -> RunResult:
     result = _result(model_id, language)
+    predictions = tuple(
+        replace(prediction, raw_output="no=0.100000 yes=0.900000")
+        for prediction in result.predictions
+    )
     return replace(
         result,
+        predictions=predictions,
         metadata=replace(
             result.metadata,
             inference="scoring",
             decision_rule="argmax over the native yes/no scores",
             max_new_tokens=0,
             prompt_sha256=SCORER_PROMPT_SHA256,
+            sequence_length=8192,
+            throughput_items_per_second=10.0,
+            peak_vram_bytes=1024**3,
         ),
     )
 
@@ -248,11 +302,10 @@ def test_the_card_says_why_scoring_models_never_look_unparsed() -> None:
         scorer_prompt_text=SCORER_PROMPT,
     )
 
-    assert "by construction" in card.split("## Scoring models")[1]
+    assert "by construction" not in card
 
 
 def test_generation_settings_ignore_the_scoring_runs() -> None:
-    # A scoring run has no token budget; it must not be read as a disagreement.
     card = dataset_card(
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
@@ -290,9 +343,8 @@ def test_the_card_shows_the_reranker_input_it_was_actually_given() -> None:
 
     assert SCORER_PROMPT in scoring
     assert SCORER_PROMPT_SHA256 in scoring
-    assert "Judge whether the Document meets the requirements" in scoring
-    assert "next-token scores" in scoring
-    # the generative prompt stays in the generative half, not duplicated into scoring
+    assert "Judge whether the Document meets the requirements" not in scoring
+    assert "Scoring prompt" in scoring
     assert PROMPT not in scoring
 
 
@@ -315,5 +367,48 @@ def test_the_card_warns_that_a_reranker_score_is_not_calibrated_to_a_boundary() 
     )
     scoring = card.split("## Scoring models")[1]
 
-    assert "not calibrated" in scoring
-    assert "rank documents for retrieval" in scoring
+    assert "not calibrated" not in scoring
+    assert "threshold_sweep.csv" in scoring
+
+
+def test_the_card_is_minimal_but_keeps_benchmark_settings_and_sequence_length() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "85" not in card
+    assert "items per language" in card
+    assert "sequence length" in card.lower()
+    assert "max_new_tokens=8" in card
+    assert "Predictions and scores" not in card
+
+
+def test_scoring_plots_are_deterministic_and_include_performance(tmp_path: Path) -> None:
+    results = [_result("gen/one"), _scored("score/two"), _scored("score/one", "fr")]
+
+    first = write_scoring_plots(results, tmp_path / "first")
+    second = write_scoring_plots(results, tmp_path / "second")
+
+    assert [path.name for path in first] == ["quality_metrics.svg", "performance.svg"]
+    assert [path.read_text(encoding="utf-8") for path in first] == [
+        path.read_text(encoding="utf-8") for path in second
+    ]
+    assert "score/one" in first[0].read_text(encoding="utf-8")
+    assert "items / s" in second[1].read_text(encoding="utf-8")
+
+
+def test_the_card_links_to_deterministic_plots() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+        plot_files=("plots/quality_metrics.svg", "plots/performance.svg"),
+    )
+
+    assert "## Plots" in card
+    assert "![Best scoring metrics](plots/quality_metrics.svg)" in card
+    assert "![Inference performance](plots/performance.svg)" in card

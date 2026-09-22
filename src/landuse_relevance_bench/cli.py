@@ -24,6 +24,7 @@ from landuse_relevance_bench.adapters.results_store import (
     run_filename,
     write_aggregates_csv,
     write_leaderboard_csv,
+    write_scoring_summary_csv,
     write_threshold_sweep_csv,
 )
 from landuse_relevance_bench.adapters.translations import (
@@ -156,6 +157,8 @@ def _score_one(request: RunRequest, provider: ScorerProvider | None = None) -> N
         f"{request.model_id} [{request.language}]  accuracy={metrics.accuracy:.3f}  "
         f"f1={metrics.f1:.3f}  "
         f"mcc={metrics.matthews_corrcoef:.3f}  "
+        f"throughput={result.metadata.throughput_items_per_second or 0.0:.1f}/s  "
+        f"peak_vram={result.metadata.peak_vram_bytes or 0}B  "
         f"({result.metadata.duration_seconds:.1f}s)"
     )
 
@@ -358,6 +361,10 @@ def report(
     write_leaderboard_csv(runs, destination)
     aggregate_destination = destination.with_name("aggregates.csv")
     write_aggregates_csv(runs, aggregate_destination)
+    sweep_destination = destination.with_name("threshold_sweep.csv")
+    write_threshold_sweep_csv(runs, sweep_destination)
+    summary_destination = destination.with_name("scoring_summary.csv")
+    write_scoring_summary_csv(runs, summary_destination)
     for row in leaderboard_rows(runs):
         typer.echo(
             f"{row['model_id']:<34} [{row['language']}] f1={row['f1']:.3f} "
@@ -366,11 +373,14 @@ def report(
         )
     typer.echo(f"\nleaderboard written to {destination}")
     typer.echo(f"aggregates written to {aggregate_destination}")
+    typer.echo(f"threshold sweep written to {sweep_destination}")
+    typer.echo(f"scoring summary written to {summary_destination}")
 
 
 @app.command()
 def publish(
     repo_id: Annotated[str, typer.Argument(help="Hugging Face dataset repository id.")],
+    data_root: DataRoot = DEFAULT_DATA_ROOT,
     results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
     prompt: Prompt = DEFAULT_PROMPT,
     scorer_prompt: Annotated[
@@ -393,6 +403,7 @@ def publish(
     # A reranker's score is not calibrated to a 0.5 boundary, so publish what the
     # boundary does to it alongside the headline row.
     write_threshold_sweep_csv(runs, results_dir / "threshold_sweep.csv")
+    write_scoring_summary_csv(runs, results_dir / "scoring_summary.csv")
     try:
         prompt_text = load_prompt(prompt)
         scorer_prompt_text = load_prompt(scorer_prompt) if scorer_prompt.is_file() else ""
@@ -406,6 +417,7 @@ def publish(
         benchmark_name=benchmark_name,
         prompt_text=prompt_text,
         scorer_prompt_text=scorer_prompt_text,
+        data_root=data_root,
     )
     typer.echo(f"published {len(runs)} run(s) to {url}")
 

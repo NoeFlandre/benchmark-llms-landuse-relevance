@@ -27,6 +27,13 @@ def test_scores_round_trip_out_of_a_stored_prediction() -> None:
     assert parse_scores("no=0.270000 yes=0.730000") == {Label.NO: 0.27, Label.YES: 0.73}
 
 
+def test_parse_scores_ignores_the_optional_native_relevance_score() -> None:
+    assert parse_scores("no=0.270000 yes=0.730000 native=1.250000") == {
+        Label.NO: 0.27,
+        Label.YES: 0.73,
+    }
+
+
 def test_unreadable_scores_are_refused_rather_than_guessed() -> None:
     with pytest.raises(ScoreFormatError):
         parse_scores("no yes=0.5")

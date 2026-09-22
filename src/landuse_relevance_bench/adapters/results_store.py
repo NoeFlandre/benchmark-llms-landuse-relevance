@@ -28,6 +28,8 @@ LEADERBOARD_COLUMNS = (
     "unparsed_rate",
     "truncated",
     "duration_seconds",
+    "throughput_items_per_second",
+    "peak_vram_bytes",
     "model_revision",
 )
 AGGREGATE_COLUMNS = (
@@ -123,6 +125,12 @@ def leaderboard_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
             "unparsed_rate": round(r.metrics.unparsed_rate, 4),
             "truncated": sum(p.truncated for p in r.predictions),
             "duration_seconds": round(r.metadata.duration_seconds, 2),
+            "throughput_items_per_second": (
+                None
+                if r.metadata.throughput_items_per_second is None
+                else round(r.metadata.throughput_items_per_second, 2)
+            ),
+            "peak_vram_bytes": r.metadata.peak_vram_bytes,
             "model_revision": r.metadata.model_revision,
         }
         for r in results
@@ -168,7 +176,15 @@ def threshold_sweep_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
 
     rows = []
     for model_id, runs in sorted(scoring.items()):
-        auc = round(fmean(roc_auc(run.predictions) for run in runs), 4)
+        auc_values = []
+        for run in runs:
+            try:
+                auc_values.append(roc_auc(run.predictions))
+            except ValueError:
+                # A partial/debug fixture can contain one class; the thresholded
+                # metrics remain useful and ROC-AUC is honestly unavailable.
+                continue
+        auc = None if not auc_values else round(fmean(auc_values), 4)
         for threshold in DEFAULT_THRESHOLDS:
             scored = [decide_at(run.predictions, threshold) for run in runs]
             row: dict[str, Any] = {
@@ -198,6 +214,97 @@ def write_threshold_sweep_csv(results: Sequence[RunResult], path: Path) -> Path:
         writer.writeheader()
         writer.writerows(threshold_sweep_rows(results))
     return path
+
+
+SCORING_SUMMARY_COLUMNS = (
+    "model_id",
+    "language_count",
+    "n_items_total",
+    "best_mcc",
+    "best_mcc_threshold",
+    "best_f1",
+    "best_f1_threshold",
+    "best_balanced_accuracy",
+    "best_balanced_accuracy_threshold",
+    "best_precision",
+    "best_precision_threshold",
+    "best_recall",
+    "best_recall_threshold",
+    "roc_auc_macro",
+    "throughput_items_per_second_macro",
+    "peak_vram_bytes_max",
+)
+
+
+def scoring_summary_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
+    """Select each model's best thresholded classification metrics.
+
+    Ties use the lowest threshold, making the summary deterministic and favoring the
+    least strict boundary among equally good operating points.
+    """
+    scoring: dict[str, list[RunResult]] = {}
+    for result in results:
+        if not result.metadata.is_generative:
+            scoring.setdefault(result.metadata.model_id, []).append(result)
+
+    rows = []
+    for model_id, runs in sorted(scoring.items()):
+        sweep_rows = [row for row in threshold_sweep_rows(runs) if row["model_id"] == model_id]
+        if not sweep_rows:
+            continue
+        row: dict[str, Any] = {
+            "model_id": model_id,
+            "language_count": len(runs),
+            "n_items_total": sum(run.metrics.n_items for run in runs),
+            "roc_auc_macro": sweep_rows[0]["roc_auc_macro"],
+            "throughput_items_per_second_macro": _throughput_macro(runs),
+            "peak_vram_bytes_max": _peak_vram_max(runs),
+        }
+        for output_name, source_name in (
+            ("mcc", "matthews_corrcoef_macro"),
+            ("f1", "f1_macro"),
+            ("balanced_accuracy", "balanced_accuracy_macro"),
+            ("precision", "precision_macro"),
+            ("recall", "recall_macro"),
+        ):
+            best = min(
+                sweep_rows,
+                key=lambda candidate: (-candidate[source_name], candidate["threshold"]),
+            )
+            row[f"best_{output_name}"] = best[source_name]
+            row[f"best_{output_name}_threshold"] = best["threshold"]
+        rows.append(row)
+    return sorted(rows, key=lambda row: (-row["best_f1"], row["model_id"]))
+
+
+def write_scoring_summary_csv(results: Sequence[RunResult], path: Path) -> Path:
+    """Write one best-threshold row per scoring model."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=list(SCORING_SUMMARY_COLUMNS), lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerows(scoring_summary_rows(results))
+    return path
+
+
+def _throughput_macro(results: Sequence[RunResult]) -> float | None:
+    values = [
+        result.metadata.throughput_items_per_second
+        for result in results
+        if result.metadata.throughput_items_per_second is not None
+    ]
+    return None if not values else round(fmean(values), 2)
+
+
+def _peak_vram_max(results: Sequence[RunResult]) -> int | None:
+    values = [
+        result.metadata.peak_vram_bytes
+        for result in results
+        if result.metadata.peak_vram_bytes is not None
+    ]
+    return None if not values else max(values)
 
 
 def aggregate_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
