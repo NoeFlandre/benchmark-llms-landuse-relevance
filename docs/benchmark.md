@@ -37,9 +37,9 @@ and ROC-AUC. It also records items/second and peak allocated CUDA VRAM per run.
 
 The adapters keep model-native input contracts: GTE uses a sequence-classification
 prompt/sentence pair, mxbai uses its documented binary query/document continuation,
-and Laya uses a JSON sentence field with one typed `noul` question. Laya's checkpoint
-context is 1,024 tokens; each run records the exact sequence length, dtype, batch,
-revision, and decision rule used.
+and Laya uses four JSON sentence fields with one typed `noul` question per field in
+each scorer call. Laya's checkpoint context is 1,024 tokens; each run records the
+exact sequence length, runtime dtype, batch, revision, and decision rule used.
 
 A generation that contains no standalone `yes`/`no` token is counted as an error and
 kept verbatim in the results — see [ADR-0002](adr/0002-unparsed-as-error.md).

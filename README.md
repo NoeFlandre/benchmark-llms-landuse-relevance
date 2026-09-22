@@ -47,9 +47,10 @@ VRAM when a CUDA device is available. These values appear in the detailed
 
 The adapters preserve each checkpoint's intended interface: GTE receives a
 prompt/sentence pair and returns its sequence-classification relevance logit; mxbai
-receives its official binary query/document turn; Laya receives a JSON sentence field
-and one typed `noul` question. Laya uses the checkpoint's 1,024-token context; other
-scoring sequence lengths are recorded per run.
+receives its official binary query/document turn; Laya receives four JSON sentence
+fields with one typed `noul` question per field. Laya uses the checkpoint's 1,024-token
+context and SDK-selected runtime dtype; other scoring sequence lengths are recorded
+per run.
 
 Decoding is greedy, so a run replays exactly. The verdict is the last standalone
 `yes`/`no` in the generation — two of these models open with an analysis preamble that
