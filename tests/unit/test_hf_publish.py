@@ -407,6 +407,18 @@ def test_the_card_keeps_a_compact_model_specific_scoring_setup() -> None:
     assert "| sequence length |" in card
 
 
+def test_the_card_explicitly_selects_the_viewer_split() -> None:
+    card = dataset_card(
+        [_result("gen/one")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        viewer_file="data/train.csv",
+    )
+
+    assert "configs:" in card
+    assert "path: data/train.csv" in card
+
+
 def test_scoring_plots_are_deterministic_and_include_performance(tmp_path: Path) -> None:
     results = [_result("gen/one"), _scored("score/two"), _scored("score/one", "fr")]
 

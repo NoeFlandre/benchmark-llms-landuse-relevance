@@ -13,6 +13,7 @@ from landuse_relevance_bench.adapters.results_store import read_run, write_run
 from landuse_relevance_bench.adapters.translations import load_manifest
 from landuse_relevance_bench.domain.records import RunResult
 from landuse_relevance_bench.domain.roster import model_ids
+from landuse_relevance_bench.domain.scorers import scorer_ids
 from landuse_relevance_bench.domain.sharding import Pair, model_language_pairs
 
 
@@ -51,6 +52,11 @@ def allocate_pairs(pairs: Sequence[Pair], sites: Sequence[SiteSpec]) -> dict[str
     for index, pair in enumerate(canonical):
         allocation[slots[index % len(slots)]].append(pair)
     return {name: tuple(site_pairs) for name, site_pairs in allocation.items()}
+
+
+def expected_pairs_for_models(models: Sequence[str], languages: Sequence[str]) -> tuple[Pair, ...]:
+    """Build a stable collection target for an explicit model subset."""
+    return tuple(model_language_pairs(tuple(models), tuple(languages)))
 
 
 def collect_results(  # noqa: PLR0912
@@ -148,10 +154,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--data-root", type=Path, default=Path("data/translations"))
     parser.add_argument("--output", type=Path, default=Path("results"))
     parser.add_argument("--source-commit")
+    parser.add_argument(
+        "--model-id",
+        action="append",
+        dest="model_ids",
+        help="Collect only this model; repeat for a mixed generative/scoring target.",
+    )
+    parser.add_argument(
+        "--scoring-only",
+        action="store_true",
+        help="Collect the complete scoring roster instead of the generative roster.",
+    )
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     manifest = load_manifest(args.data_root)
-    expected_pairs = model_language_pairs(model_ids(), manifest.languages)
+    if args.model_ids and args.scoring_only:
+        parser.error("--model-id and --scoring-only cannot be combined")
+    selected_models = (
+        tuple(args.model_ids)
+        if args.model_ids
+        else scorer_ids()
+        if args.scoring_only
+        else model_ids()
+    )
+    expected_pairs = expected_pairs_for_models(selected_models, manifest.languages)
     site_roots = dict(args.site)
     report = collect_results(
         site_roots,

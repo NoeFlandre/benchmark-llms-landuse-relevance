@@ -6,6 +6,7 @@ from scripts.g5k_collect import (
     SiteSpec,
     allocate_pairs,
     collect_results,
+    expected_pairs_for_models,
 )
 
 from landuse_relevance_bench.adapters.results_store import write_run
@@ -54,6 +55,23 @@ def test_weighted_site_allocation_is_deterministic_and_complete() -> None:
     assert [len(allocation[site.name]) for site in sites] == [4, 2]
     assert {pair for site in sites for pair in allocation[site.name]} == set(pairs)
     assert set(allocation["nancy"]).isdisjoint(allocation["grenoble"])
+
+
+def test_collection_can_target_scoring_models_without_changing_default_roster() -> None:
+    pairs = expected_pairs_for_models(
+        (
+            "convaiinnovations/laya-multilingual",
+            "Alibaba-NLP/gte-multilingual-reranker-base",
+        ),
+        ("en", "fr"),
+    )
+
+    assert pairs == (
+        ("Alibaba-NLP/gte-multilingual-reranker-base", "en"),
+        ("Alibaba-NLP/gte-multilingual-reranker-base", "fr"),
+        ("convaiinnovations/laya-multilingual", "en"),
+        ("convaiinnovations/laya-multilingual", "fr"),
+    )
 
 
 def test_duplicate_pairs_fail_during_collection(tmp_path: Path) -> None:

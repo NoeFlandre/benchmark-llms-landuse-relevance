@@ -140,6 +140,11 @@ def dataset_card(
     plots_section = _plots_section(plot_files)
     return f"""---
 license: mit
+configs:
+- config_name: default
+  data_files:
+  - split: train
+    path: data/train.csv
 task_categories:
 - text-classification
 tags:
