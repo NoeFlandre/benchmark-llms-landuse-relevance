@@ -405,6 +405,8 @@ def test_the_card_keeps_a_compact_model_specific_scoring_setup() -> None:
     assert "JSON state + 4 `noul` questions/call" in card
     assert "Laya `noul` yes probability" in card
     assert "| sequence length |" in card
+    assert "peak_vram_gib_max" in card
+    assert "1073741824" not in card
     assert "| Qwen/Qwen3-Reranker-0.6B |" not in card
 
 

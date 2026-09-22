@@ -239,7 +239,9 @@ def _scoring_section(
     summary_header = "| " + " | ".join(SCORING_SUMMARY_CARD_COLUMNS) + " |"
     summary_divider = "|" + "|".join(["---"] * len(SCORING_SUMMARY_CARD_COLUMNS)) + "|"
     summary_body = "\n".join(
-        "| " + " | ".join(str(row[column]) for column in SCORING_SUMMARY_CARD_COLUMNS) + " |"
+        "| "
+        + " | ".join(_card_summary_value(row, column) for column in SCORING_SUMMARY_CARD_COLUMNS)
+        + " |"
         for row in summary
     )
     scoring_dtype = _setting_or_varying(scoring, "scoring dtype", lambda r: r.metadata.dtype)
@@ -311,6 +313,14 @@ def _scoring_setup_row(results: Sequence[RunResult]) -> str:
     revision = _setting_or_varying(results, "revision", lambda r: r.metadata.model_revision)
     cells = (model_id, family, input_handling, score, rule, sequence, dtype, batch, revision)
     return "| " + " | ".join(str(cell) for cell in cells) + " |"
+
+
+def _card_summary_value(row: dict[str, Any], column: str) -> str:
+    """Format card-only performance values without changing the CSV schema."""
+    if column == "peak_vram_gib_max":
+        value = row.get("peak_vram_bytes_max")
+        return "n/a" if value is None else f"{float(value) / 1024**3:.2f}"
+    return str(row[column])
 
 
 def _setting_or_varying(results: Sequence[RunResult], name: str, value_of: Any) -> str:
@@ -573,7 +583,7 @@ SCORING_SUMMARY_CARD_COLUMNS = (
     "best_recall_threshold",
     "roc_auc_macro",
     "throughput_items_per_second_macro",
-    "peak_vram_bytes_max",
+    "peak_vram_gib_max",
 )
 
 
