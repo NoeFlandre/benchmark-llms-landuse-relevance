@@ -59,9 +59,7 @@ def test_scoring_keeps_the_native_scores_so_another_rule_can_be_recomputed() -> 
 
 
 def test_scoring_keeps_a_model_native_relevance_score() -> None:
-    (prediction,) = score_all(
-        _items(1), "{}", _NativeScoreScorer(1.25), batch_size=4
-    )
+    (prediction,) = score_all(_items(1), "{}", _NativeScoreScorer(1.25), batch_size=4)
 
     assert prediction.raw_output == "no=0.270000 yes=0.730000 native=1.250000"
 
@@ -71,9 +69,7 @@ def test_scoring_passes_both_rendered_prompt_and_original_sentence() -> None:
 
     score_all(_items(1), "Question: {}", scorer)
 
-    assert scorer.inputs == [
-        ScoringInput(prompt="Question: sentence 0", sentence="sentence 0")
-    ]
+    assert scorer.inputs == [ScoringInput(prompt="Question: sentence 0", sentence="sentence 0")]
 
 
 def test_a_scored_prediction_is_never_truncated_or_unparsed() -> None:
@@ -106,9 +102,7 @@ class _NativeScoreScorer:
 
     def score(self, inputs):
         return [
-            LabelScores(
-                {Label.YES: 0.73, Label.NO: 0.27}, native_score=self._native_score
-            )
+            LabelScores({Label.YES: 0.73, Label.NO: 0.27}, native_score=self._native_score)
             for _ in inputs
         ]
 

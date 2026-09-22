@@ -23,9 +23,7 @@ def _pretend_config(monkeypatch: pytest.MonkeyPatch, config: _Config) -> None:
     fake_transformers = types.ModuleType("transformers")
     fake_transformers.AutoConfig = auto_config
     fake_transformers.AutoModelForCausalLM = type("AutoModelForCausalLM", (), {})
-    fake_transformers.AutoModelForImageTextToText = type(
-        "AutoModelForImageTextToText", (), {}
-    )
+    fake_transformers.AutoModelForImageTextToText = type("AutoModelForImageTextToText", (), {})
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 
 
