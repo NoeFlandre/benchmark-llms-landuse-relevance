@@ -386,6 +386,27 @@ def test_the_card_is_minimal_but_keeps_benchmark_settings_and_sequence_length() 
     assert "Predictions and scores" not in card
 
 
+def test_the_card_keeps_a_compact_model_specific_scoring_setup() -> None:
+    card = dataset_card(
+        [
+            _result("gen/one"),
+            _scored("Alibaba-NLP/gte-multilingual-reranker-base"),
+            _scored("mixedbread-ai/mxbai-rerank-base-v2"),
+            _scored("convaiinnovations/laya-multilingual"),
+        ],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "### Scoring setup" in card
+    assert "prompt + sentence pair" in card
+    assert "official query/document turn" in card
+    assert "JSON state + one `noul` question" in card
+    assert "Laya `noul` yes probability" in card
+    assert "| sequence length |" in card
+
+
 def test_scoring_plots_are_deterministic_and_include_performance(tmp_path: Path) -> None:
     results = [_result("gen/one"), _scored("score/two"), _scored("score/one", "fr")]
 

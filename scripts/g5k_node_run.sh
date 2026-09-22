@@ -42,6 +42,9 @@ fi
 export HF_HOME="${HF_HOME:-/tmp/$USER/hf-cache}"
 export HF_HUB_DISABLE_TELEMETRY=1
 export TOKENIZERS_PARALLELISM=false
+# Laya's loader probes TensorFlow unless this is disabled; the benchmark is
+# PyTorch-only and should not spend startup time importing a second runtime.
+export USE_TF=0
 
 cd "$LRB_ROOT"
 mkdir -p "$LRB_RESULTS" "$HF_HOME"

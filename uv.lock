@@ -492,6 +492,8 @@ dependencies = [
 [package.optional-dependencies]
 inference = [
     { name = "accelerate" },
+    { name = "huggingface-hub" },
+    { name = "laya" },
     { name = "torch" },
     { name = "transformers" },
 ]
@@ -519,7 +521,9 @@ dev = [
 requires-dist = [
     { name = "accelerate", marker = "extra == 'inference'", specifier = ">=1.0" },
     { name = "gliclass", marker = "extra == 'scoring'", specifier = ">=0.1" },
+    { name = "huggingface-hub", marker = "extra == 'inference'", specifier = ">=0.35" },
     { name = "huggingface-hub", marker = "extra == 'publish'", specifier = ">=0.35" },
+    { name = "laya", marker = "extra == 'inference'", specifier = ">=0.3.5" },
     { name = "torch", marker = "extra == 'inference'", specifier = ">=2.6" },
     { name = "transformers", marker = "extra == 'inference'", specifier = ">=4.57" },
     { name = "typer", specifier = ">=0.15" },
@@ -537,6 +541,23 @@ dev = [
     { name = "radon", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.9" },
     { name = "ty", specifier = ">=0.0.1a1" },
+]
+
+[[package]]
+name = "laya"
+version = "0.3.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "transformers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f7/f1/12459ecda42123f93da36f9f1e0c9b7b9191648fa68e7e0b09d292cc6dce/laya-0.3.5.tar.gz", hash = "sha256:5e8a4c2b38dbddc0febe7443f26f74fd9d7571fb172648b1481830c667d59219", size = 69616, upload-time = "2026-09-21T18:20:10.029Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/1c/a9903d5c3c51579f45f9656f733c8a2d985b16a3cb7594edf45369d1f995/laya-0.3.5-py3-none-any.whl", hash = "sha256:4c57f64cbaf893bb5c7b4affddc2bf21a819f55df51941689f11868583be2903", size = 41658, upload-time = "2026-09-21T18:20:08.641Z" },
 ]
 
 [[package]]

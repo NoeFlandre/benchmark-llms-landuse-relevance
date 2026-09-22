@@ -14,8 +14,37 @@ from landuse_relevance_bench.adapters.results_store import (
 )
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
+from landuse_relevance_bench.domain.scorers import scorer_for
 
 CARD_COLUMNS = AGGREGATE_COLUMNS
+
+_SCORER_CARD_CONFIG = {
+    "Alibaba-NLP/gte-multilingual-reranker-base": (
+        "sequence classifier",
+        "prompt + sentence pair",
+        "sigmoid relevance logit",
+    ),
+    "mixedbread-ai/mxbai-rerank-base-v2": (
+        "causal-LM reranker",
+        "official query/document turn",
+        "sigmoid(1-logit - 0-logit - 4.5)",
+    ),
+    "convaiinnovations/laya-multilingual": (
+        "typed decision model",
+        "JSON state + one `noul` question",
+        "Laya `noul` yes probability",
+    ),
+    "Qwen/Qwen3-Reranker-0.6B": (
+        "causal-LM reranker",
+        "manual yes/no reranker turn",
+        "yes/no next-token probability",
+    ),
+    "Qwen/Qwen3-Reranker-4B": (
+        "causal-LM reranker",
+        "manual yes/no reranker turn",
+        "yes/no next-token probability",
+    ),
+}
 
 
 class DatasetHub(Protocol):
@@ -210,6 +239,9 @@ def _scoring_section(
     )
     scoring_dtype = _setting_or_varying(scoring, "scoring dtype", lambda r: r.metadata.dtype)
     scoring_seed = _setting_or_varying(scoring, "scoring seed", lambda r: r.metadata.seed)
+    setup_header = "| model | family | input | score | rule | seq. | dtype | batch | revision |"
+    setup_divider = "|" + "|".join(["---"] * 9) + "|"
+    setup_body = "\n".join(_scoring_setup_row(model_runs) for model_runs in _by_model(scoring))
     return f"""
 ## Scoring models
 
@@ -224,6 +256,12 @@ def _scoring_section(
 | seed | {scoring_seed} |
 | scoring prompt sha256 | `{prompt_sha256}` |
 | reports | `threshold_sweep.csv`, `scoring_summary.csv` |
+
+### Scoring setup
+
+{setup_header}
+{setup_divider}
+{setup_body}
 
 ### Scoring prompt
 
@@ -242,9 +280,33 @@ def _scoring_section(
 """
 
 
-def _setting_or_varying(
-    results: Sequence[RunResult], name: str, value_of: Any
-) -> str:
+def _by_model(results: Sequence[RunResult]) -> tuple[tuple[RunResult, ...], ...]:
+    """Group scoring rows by model in stable order for the compact setup table."""
+    grouped: dict[str, list[RunResult]] = {}
+    for result in results:
+        grouped.setdefault(result.metadata.model_id, []).append(result)
+    return tuple(tuple(grouped[model_id]) for model_id in sorted(grouped))
+
+
+def _scoring_setup_row(results: Sequence[RunResult]) -> str:
+    """Render the reproducibility-relevant adapter settings for one model."""
+    model_id = results[0].metadata.model_id
+    family, input_handling, score = _SCORER_CARD_CONFIG.get(
+        model_id, ("scoring adapter", "recorded prompt + sentence", "normalized yes score")
+    )
+    try:
+        rule = scorer_for(model_id).decision_rule
+    except KeyError:
+        rule = results[0].metadata.decision_rule or "recorded per run"
+    sequence = _setting_or_varying(results, "sequence length", lambda r: r.metadata.sequence_length)
+    dtype = _setting_or_varying(results, "dtype", lambda r: r.metadata.dtype)
+    batch = _setting_or_varying(results, "batch size", lambda r: r.metadata.batch_size)
+    revision = _setting_or_varying(results, "revision", lambda r: r.metadata.model_revision)
+    cells = (model_id, family, input_handling, score, rule, sequence, dtype, batch, revision)
+    return "| " + " | ".join(str(cell) for cell in cells) + " |"
+
+
+def _setting_or_varying(results: Sequence[RunResult], name: str, value_of: Any) -> str:
     """Describe a setting without rejecting a mixed, explicitly recorded roster."""
     values = sorted({value_of(result) for result in results}, key=str)
     if len(values) == 1:

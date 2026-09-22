@@ -13,6 +13,7 @@ from dataclasses import dataclass
 ARGMAX = "argmax over the native yes/no scores"
 RELEVANCE_THRESHOLD = "sigmoid of the native relevance logit at 0.5"
 MXBAI_RELEVANCE_THRESHOLD = "sigmoid(native yes-minus-no logit minus 4.5) at 0.5"
+LAYA_RELEVANCE_THRESHOLD = "Laya noul yes probability at 0.5"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,13 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "reranker",
         MXBAI_RELEVANCE_THRESHOLD,
         "Binary relevance reranker; scores the official 1/0 continuation and normalises it.",
+    ),
+    ScorerSpec(
+        "convaiinnovations/laya-multilingual",
+        322_000_000,
+        "typed-decision-model",
+        LAYA_RELEVANCE_THRESHOLD,
+        "Non-autoregressive multilingual decision model; scores a typed noul question.",
     ),
     ScorerSpec(
         "Qwen/Qwen3-Reranker-0.6B",

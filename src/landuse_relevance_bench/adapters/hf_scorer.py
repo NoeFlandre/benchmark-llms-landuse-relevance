@@ -1,14 +1,16 @@
 """Scoring the benchmark with models that never generate text.
 
-The roster contains three scoring families: Qwen's yes/no next-token rerankers,
-GTE's sequence-classification logit, and mxbai's binary ``1``/``0`` next-token
-logit difference. Each adapter returns the same normalised relevance score and also
-keeps its native score for auditability.
+The roster contains four scoring families: Qwen's yes/no next-token rerankers,
+GTE's sequence-classification logit, mxbai's binary ``1``/``0`` next-token
+logit difference, and Laya's typed ``noul`` decision probability. Each adapter
+returns the same normalised relevance score and also keeps its native score for
+auditability.
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import exp
+from pathlib import Path
 from typing import Any
 
 from landuse_relevance_bench.adapters.hf_scorer_prompt import reranker_input
@@ -39,6 +41,10 @@ class _CudaMeasurement:
     """Optional CUDA timing/memory hooks shared by all Transformer scorers."""
 
     def _measurement_device(self) -> Any:
+        agent = getattr(self, "_agent", None)
+        device = getattr(agent, "device", None)
+        if getattr(device, "type", None) == "cuda":
+            return device
         model = getattr(self, "_model", None)
         if model is None:
             model = getattr(getattr(self, "_pipeline", None), "model", None)
@@ -87,6 +93,7 @@ class RerankerScorer(_CudaMeasurement):
         cls, model_id: str, settings: ScorerSettings, revision: str | None = None
     ) -> "RerankerScorer":
         import torch
+
         transformers = _load_transformers()
 
         tokenizer: Any = transformers.AutoTokenizer.from_pretrained(model_id, revision=revision)
@@ -150,6 +157,7 @@ class GteScorer(_CudaMeasurement):
         cls, model_id: str, settings: ScorerSettings, revision: str | None = None
     ) -> "GteScorer":
         import torch
+
         transformers = _load_transformers()
 
         tokenizer: Any = transformers.AutoTokenizer.from_pretrained(model_id, revision=revision)
@@ -211,6 +219,7 @@ class MxbaiRerankerScorer(_CudaMeasurement):
         cls, model_id: str, settings: ScorerSettings, revision: str | None = None
     ) -> "MxbaiRerankerScorer":
         import torch
+
         transformers = _load_transformers()
 
         tokenizer: Any = transformers.AutoTokenizer.from_pretrained(
@@ -268,9 +277,103 @@ class MxbaiRerankerScorer(_CudaMeasurement):
             f"document: {item.sentence}\n"
             "You are a search relevance expert who evaluates how well documents match search "
             "queries. For each query-document pair, carefully analyze the semantic relationship "
-            'between them, then provide your binary relevance judgment (0 for not relevant, 1 '
+            "between them, then provide your binary relevance judgment (0 for not relevant, 1 "
             "for relevant).\nRelevance:<|im_end|>\n<|im_start|>assistant\n"
         )
+
+
+LAYA_SEQUENCE_LENGTH = 1024
+LAYA_GROUP_SIZE = 4
+LAYA_MODEL_FILES = (
+    "rl_agent_config.json",
+    "model.safetensors",
+    "tokenizer/*",
+    "encoder/*",
+)
+
+
+def _load_laya() -> Any:
+    """Load the optional Laya SDK without making the base CLI import it."""
+    importer = __import__("builtins").__import__
+    return importer("laya")
+
+
+class LayaScorer(_CudaMeasurement):
+    """Score one sentence per typed Laya ``noul`` question.
+
+    Laya's public API batches questions sharing one state. A small state group is
+    therefore used here, with explicit JSON field names in each question so the
+    sentence-to-score mapping remains deterministic.
+    """
+
+    sequence_length = LAYA_SEQUENCE_LENGTH
+
+    def __init__(self, agent: Any, settings: ScorerSettings, revision: str) -> None:
+        self._agent = agent
+        self._settings = settings
+        self._revision = revision
+
+    @classmethod
+    def load(
+        cls, model_id: str, settings: ScorerSettings, revision: str | None = None
+    ) -> "LayaScorer":
+        import torch
+        from huggingface_hub import snapshot_download
+
+        local_path = snapshot_download(
+            model_id,
+            revision=revision,
+            allow_patterns=list(LAYA_MODEL_FILES),
+        )
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        agent = _load_laya().load(local_path, device=device)
+        resolved_revision = revision or Path(local_path).name
+        return cls(agent, settings, resolved_revision)
+
+    @property
+    def revision(self) -> str:
+        return self._revision
+
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        if not inputs:
+            return []
+        scores: list[LabelScores] = []
+        for start in range(0, len(inputs), LAYA_GROUP_SIZE):
+            group = inputs[start : start + LAYA_GROUP_SIZE]
+            state = {f"sentence_{index}": item.sentence for index, item in enumerate(group)}
+            questions = {
+                f"relevance_{index}": {
+                    "type": "noul",
+                    "instructions": _laya_instruction(item.prompt, f"sentence_{index}"),
+                }
+                for index, item in enumerate(group)
+            }
+            response = self._agent.predict(state, questions)
+            answers = response["answers"]
+            for index in range(len(group)):
+                probability = _laya_probability(answers[f"relevance_{index}"])
+                scores.append(
+                    LabelScores(
+                        {Label.NO: 1.0 - probability, Label.YES: probability},
+                        native_score=probability,
+                    )
+                )
+        return scores
+
+
+def _laya_instruction(prompt: str, field: str) -> str:
+    """Keep the shared rubric while pointing Laya at one JSON state field."""
+    document_marker = "<Document>:"
+    rubric = prompt.rsplit(document_marker, 1)[0].strip()
+    return f"{rubric}\nEvaluate the document in JSON field {field}"
+
+
+def _laya_probability(answer: Any) -> float:
+    """Read and validate Laya's rounded probability for the true ``noul`` option."""
+    probability = float(answer["noul"])
+    if not 0.0 <= probability <= 1.0:
+        raise ValueError(f"Laya returned an invalid noul probability: {probability}")
+    return probability
 
 
 class GliClassScorer(_CudaMeasurement):
@@ -290,6 +393,7 @@ class GliClassScorer(_CudaMeasurement):
 
         # ty: ignore[unresolved-import]  - optional "scoring" extra, absent from the dev env
         from gliclass import GLiClassModel, ZeroShotClassificationPipeline
+
         transformers = _load_transformers()
 
         model = GLiClassModel.from_pretrained(
@@ -351,6 +455,7 @@ def scorer_class_for(model_id: str) -> type[Any]:
     adapters: dict[str, type[Any]] = {
         "Alibaba-NLP/gte-multilingual-reranker-base": GteScorer,
         "mixedbread-ai/mxbai-rerank-base-v2": MxbaiRerankerScorer,
+        "convaiinnovations/laya-multilingual": LayaScorer,
         "Qwen/Qwen3-Reranker-0.6B": RerankerScorer,
         "Qwen/Qwen3-Reranker-4B": RerankerScorer,
     }

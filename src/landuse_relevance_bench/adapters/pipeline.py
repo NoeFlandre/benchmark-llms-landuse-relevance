@@ -136,7 +136,7 @@ def execute_scoring(
             decision_rule=spec.decision_rule,
             throughput_items_per_second=throughput,
             peak_vram_bytes=_peak_vram_bytes(scorer),
-            sequence_length=SCORING_SEQUENCE_LENGTH,
+            sequence_length=int(getattr(scorer, "sequence_length", SCORING_SEQUENCE_LENGTH)),
         ),
         predictions=predictions,
         metrics=evaluate(outcomes_of(predictions)),

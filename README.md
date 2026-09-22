@@ -25,6 +25,7 @@ uv run lrb run LiquidAI/LFM2.5-350M --language en,fr
 uv run lrb run-all                     # every model
 uv run lrb scorers                     # non-generative scoring roster
 uv run lrb score Alibaba-NLP/gte-multilingual-reranker-base --out benchmark-runs/gte
+uv run lrb score convaiinnovations/laya-multilingual --out benchmark-runs/laya
 uv run lrb report                      # detailed and aggregate leaderboards
 uv run lrb publish NoeFlandre/benchmark-llms-landuse-relevance
 ```
@@ -43,6 +44,12 @@ report the best MCC, F1, balanced accuracy, precision, recall, and ROC-AUC in
 Scoring runs record inference throughput in items per second and peak allocated CUDA
 VRAM when a CUDA device is available. These values appear in the detailed
 `leaderboard.csv` and the scoring summary.
+
+The adapters preserve each checkpoint's intended interface: GTE receives a
+prompt/sentence pair and returns its sequence-classification relevance logit; mxbai
+receives its official binary query/document turn; Laya receives a JSON sentence field
+and one typed `noul` question. Laya uses the checkpoint's 1,024-token context; other
+scoring sequence lengths are recorded per run.
 
 Decoding is greedy, so a run replays exactly. The verdict is the last standalone
 `yes`/`no` in the generation — two of these models open with an analysis preamble that
@@ -94,6 +101,7 @@ also contains `data/train.csv`, a single viewer-friendly multilingual split.
 |---|---:|---|
 | `Alibaba-NLP/gte-multilingual-reranker-base` | ~0.306B | sigmoid sequence-classification relevance logit |
 | `mixedbread-ai/mxbai-rerank-base-v2` | ~0.5B | official binary 1/0 logit-difference normalisation |
+| `convaiinnovations/laya-multilingual` | ~0.322B | typed `noul` yes probability |
 | `Qwen/Qwen3-Reranker-0.6B` | ~0.596B | yes/no next-token argmax |
 | `Qwen/Qwen3-Reranker-4B` | ~4.022B | yes/no next-token argmax |
 

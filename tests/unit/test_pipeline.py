@@ -128,3 +128,15 @@ def test_scoring_records_throughput_and_peak_vram(request_for) -> None:
     assert result.metadata.sequence_length == 8192
     assert result.metadata.throughput_items_per_second > 0.0
     assert result.metadata.peak_vram_bytes == 123456
+
+
+def test_scoring_records_the_scorer_specific_sequence_length(request_for) -> None:
+    scorer = MeasuredScorer()
+    scorer.sequence_length = 1024
+    request = request_for(model_id="convaiinnovations/laya-multilingual")
+
+    from landuse_relevance_bench.adapters.pipeline import execute_scoring
+
+    result = execute_scoring(request, lambda _: (scorer, "laya-rev"))
+
+    assert result.metadata.sequence_length == 1024
