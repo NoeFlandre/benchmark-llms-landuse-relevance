@@ -304,6 +304,8 @@ def _scoring_setup_row(results: Sequence[RunResult]) -> str:
     except KeyError:
         rule = results[0].metadata.decision_rule or "recorded per run"
     sequence = _setting_or_varying(results, "sequence length", lambda r: r.metadata.sequence_length)
+    if sequence == "None":
+        sequence = "model-defined"
     dtype = _setting_or_varying(results, "dtype", lambda r: r.metadata.dtype)
     batch = _setting_or_varying(results, "batch size", lambda r: r.metadata.batch_size)
     revision = _setting_or_varying(results, "revision", lambda r: r.metadata.model_revision)

@@ -405,6 +405,25 @@ def test_the_card_keeps_a_compact_model_specific_scoring_setup() -> None:
     assert "JSON state + one `noul` question" in card
     assert "Laya `noul` yes probability" in card
     assert "| sequence length |" in card
+    assert "| Qwen/Qwen3-Reranker-0.6B |" not in card
+
+
+def test_the_card_uses_model_defined_for_legacy_missing_sequence_lengths() -> None:
+    base = _scored("Qwen/Qwen3-Reranker-0.6B")
+    scored = replace(base, metadata=replace(base.metadata, sequence_length=None))
+    card = dataset_card(
+        [_result("gen/one"), scored],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "| Qwen/Qwen3-Reranker-0.6B |" in card
+    assert (
+        "| Qwen/Qwen3-Reranker-0.6B | causal-LM reranker | manual yes/no reranker turn | "
+        "yes/no next-token probability | argmax over the native yes/no scores | "
+        "model-defined |"
+    ) in card
 
 
 def test_the_card_explicitly_selects_the_viewer_split() -> None:
