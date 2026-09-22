@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -89,8 +90,6 @@ def test_status_lists_the_two_model_families_apart(tmp_path: Path) -> None:
 
 
 def test_a_scoring_run_counts_towards_its_own_family(tmp_path: Path) -> None:
-    from dataclasses import replace
-
     from landuse_relevance_bench.adapters.results_store import write_run
 
     scored = _result(scorer_ids()[0], "en")
@@ -98,3 +97,20 @@ def test_a_scoring_run_counts_towards_its_own_family(tmp_path: Path) -> None:
     status = snapshot_status(tmp_path, benchmark_name="v3-multilingual")
 
     assert f"- `{scorer_ids()[0]}`: complete, 1/1 languages" in status.split("## Scoring models")[1]
+
+
+def test_status_accepts_an_explicit_release_roster(tmp_path: Path) -> None:
+    generative = "external/generative"
+    scoring = "convaiinnovations/laya-multilingual"
+    scored = _result(scoring, "en")
+    write_run(replace(scored, metadata=replace(scored.metadata, inference="scoring")), tmp_path)
+    write_run(_result(generative, "en"), tmp_path)
+
+    status = snapshot_status(
+        tmp_path,
+        benchmark_name="v3-multilingual",
+        expected_model_ids=(generative, scoring),
+    )
+
+    assert "- Status: complete." in status
+    assert "- Models represented: 2 of 2" in status
