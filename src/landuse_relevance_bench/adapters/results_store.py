@@ -9,6 +9,11 @@ from statistics import fmean, pstdev
 from typing import Any
 
 from landuse_relevance_bench.domain.records import RunResult
+from landuse_relevance_bench.domain.thresholds import (
+    DEFAULT_THRESHOLDS,
+    decide_at,
+    roc_auc,
+)
 
 LEADERBOARD_COLUMNS = (
     "model_id",
@@ -131,6 +136,67 @@ def write_leaderboard_csv(results: Sequence[RunResult], path: Path) -> Path:
         writer = csv.DictWriter(handle, fieldnames=list(LEADERBOARD_COLUMNS))
         writer.writeheader()
         writer.writerows(leaderboard_rows(results))
+    return path
+
+
+THRESHOLD_SWEEP_COLUMNS = (
+    "model_id",
+    "threshold",
+    "language_count",
+    "n_items_total",
+    "accuracy_macro",
+    "balanced_accuracy_macro",
+    "f1_macro",
+    "precision_macro",
+    "recall_macro",
+    "matthews_corrcoef_macro",
+    "roc_auc_macro",
+)
+
+
+def threshold_sweep_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
+    """Re-decide every scoring run at each boundary and average over languages.
+
+    Averaged the same way as the published leaderboard, so a row here can be read
+    against a row there. ``roc_auc_macro`` does not depend on the boundary and is
+    repeated on every row of a model for convenience.
+    """
+    scoring: dict[str, list[RunResult]] = {}
+    for result in results:
+        if not result.metadata.is_generative:
+            scoring.setdefault(result.metadata.model_id, []).append(result)
+
+    rows = []
+    for model_id, runs in sorted(scoring.items()):
+        auc = round(fmean(roc_auc(run.predictions) for run in runs), 4)
+        for threshold in DEFAULT_THRESHOLDS:
+            scored = [decide_at(run.predictions, threshold) for run in runs]
+            row: dict[str, Any] = {
+                "model_id": model_id,
+                "threshold": threshold,
+                "language_count": len(runs),
+                "n_items_total": sum(m.n_items for m in scored),
+                "roc_auc_macro": auc,
+            }
+            for metric_name in CLASSIFICATION_METRICS:
+                if metric_name == "unparsed_rate":
+                    continue
+                row[f"{metric_name}_macro"] = round(
+                    fmean(getattr(m, metric_name) for m in scored), 4
+                )
+            rows.append(row)
+    return rows
+
+
+def write_threshold_sweep_csv(results: Sequence[RunResult], path: Path) -> Path:
+    """Write the sweep beside the leaderboard; empty of rows when nothing scores."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=list(THRESHOLD_SWEEP_COLUMNS), lineterminator="\n"
+        )
+        writer.writeheader()
+        writer.writerows(threshold_sweep_rows(results))
     return path
 
 

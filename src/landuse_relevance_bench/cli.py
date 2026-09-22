@@ -24,6 +24,7 @@ from landuse_relevance_bench.adapters.results_store import (
     run_filename,
     write_aggregates_csv,
     write_leaderboard_csv,
+    write_threshold_sweep_csv,
 )
 from landuse_relevance_bench.adapters.translations import (
     TranslationDataError,
@@ -389,6 +390,9 @@ def publish(
         raise typer.BadParameter(f"no run results found in {results_dir}")
     write_leaderboard_csv(runs, results_dir / "leaderboard.csv")
     write_aggregates_csv(runs, results_dir / "aggregates.csv")
+    # A reranker's score is not calibrated to a 0.5 boundary, so publish what the
+    # boundary does to it alongside the headline row.
+    write_threshold_sweep_csv(runs, results_dir / "threshold_sweep.csv")
     try:
         prompt_text = load_prompt(prompt)
         scorer_prompt_text = load_prompt(scorer_prompt) if scorer_prompt.is_file() else ""

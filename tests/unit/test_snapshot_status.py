@@ -86,3 +86,15 @@ def test_status_lists_the_two_model_families_apart(tmp_path: Path) -> None:
     assert f"`{model_ids()[0]}`" in generative and f"`{model_ids()[0]}`" not in scoring
     assert f"`{scorer_ids()[0]}`" in scoring
     assert f"generative, {len(scorer_ids())} scoring" in status
+
+
+def test_a_scoring_run_counts_towards_its_own_family(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from landuse_relevance_bench.adapters.results_store import write_run
+
+    scored = _result(scorer_ids()[0], "en")
+    write_run(replace(scored, metadata=replace(scored.metadata, inference="scoring")), tmp_path)
+    status = snapshot_status(tmp_path, benchmark_name="v3-multilingual")
+
+    assert f"- `{scorer_ids()[0]}`: complete, 1/1 languages" in status.split("## Scoring models")[1]

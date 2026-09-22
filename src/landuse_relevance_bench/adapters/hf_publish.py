@@ -196,6 +196,18 @@ Because a scoring model cannot produce unparseable or unfinished text,
 `unparsed_rate_macro` is zero for every row below by construction. That is a property
 of the method, not a comparison won against the generative models above.
 
+Read these rows with their decision rule in mind. A reranker's score is trained to
+rank documents for retrieval, where almost nothing is relevant, so it is not calibrated
+to a 0.5 boundary on a roughly balanced task: taking the argmax makes it answer `no`
+almost always, which lowers F1 far more than it reflects how well the score separates
+the two classes. The published per-item scores are what to use for that question, and
+they support recomputing any other rule without re-running the models.
+
+`threshold_sweep.csv` reports exactly that: every metric for each model at a range of
+boundaries, plus `roc_auc_macro`, which does not depend on a boundary at all. Read the
+best row there as an upper bound rather than a score, because the boundary that
+produces it was chosen on this same benchmark.
+
 - dtype `{_uniform(scoring, "scoring dtype", lambda r: r.metadata.dtype)}`, {batch_line},
   seed {_uniform(scoring, "scoring seed", lambda r: r.metadata.seed)}.
 - Scoring prompt sha256 `{prompt_sha256}`.

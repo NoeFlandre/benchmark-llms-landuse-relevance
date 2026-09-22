@@ -304,3 +304,16 @@ def test_the_card_refuses_a_scoring_prompt_the_runs_did_not_use() -> None:
             prompt_text=PROMPT,
             scorer_prompt_text="a different reranker prompt {}",
         )
+
+
+def test_the_card_warns_that_a_reranker_score_is_not_calibrated_to_a_boundary() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    scoring = card.split("## Scoring models")[1]
+
+    assert "not calibrated" in scoring
+    assert "rank documents for retrieval" in scoring
