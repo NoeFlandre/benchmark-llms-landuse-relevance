@@ -36,6 +36,10 @@ class MeasuredScorer:
         return [LabelScores({Label.YES: 0.9, Label.NO: 0.1}) for _ in inputs]
 
 
+class RuntimeDtypeScorer(MeasuredScorer):
+    runtime_dtype = "float16"
+
+
 @pytest.fixture
 def request_for(tmp_path: Path, benchmark_path: Path, prompt_path: Path):
     def build(**overrides: Any) -> RunRequest:
@@ -140,3 +144,14 @@ def test_scoring_records_the_scorer_specific_sequence_length(request_for) -> Non
     result = execute_scoring(request, lambda _: (scorer, "laya-rev"))
 
     assert result.metadata.sequence_length == 1024
+
+
+def test_scoring_records_a_scorer_runtime_dtype_when_provided(request_for) -> None:
+    scorer = RuntimeDtypeScorer()
+    request = request_for(model_id="convaiinnovations/laya-multilingual")
+
+    from landuse_relevance_bench.adapters.pipeline import execute_scoring
+
+    result = execute_scoring(request, lambda _: (scorer, "laya-rev"))
+
+    assert result.metadata.dtype == "float16"

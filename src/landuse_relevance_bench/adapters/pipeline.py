@@ -115,6 +115,7 @@ def execute_scoring(
         _end_measurement(scorer)
     duration = time.monotonic() - started
     throughput = len(items) / duration if duration > 0.0 else None
+    runtime_dtype = str(getattr(scorer, "runtime_dtype", request.dtype))
 
     result = RunResult(
         metadata=RunMetadata(
@@ -128,7 +129,7 @@ def execute_scoring(
             batch_size=request.batch_size,
             seed=request.seed,
             decoding="none",
-            dtype=request.dtype,
+            dtype=runtime_dtype,
             started_at=started_at,
             duration_seconds=round(duration, 3),
             source_commit=source_commit,

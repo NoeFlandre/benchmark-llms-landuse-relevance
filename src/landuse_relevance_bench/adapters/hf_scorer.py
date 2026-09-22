@@ -334,6 +334,14 @@ class LayaScorer(_CudaMeasurement):
     def revision(self) -> str:
         return self._revision
 
+    @property
+    def runtime_dtype(self) -> str:
+        """Expose the dtype selected by Laya's device-aware runtime."""
+        value = getattr(self._agent, "dtype", None)
+        if value is None:
+            return "sdk-default"
+        return str(value).removeprefix("torch.")
+
     def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         if not inputs:
             return []

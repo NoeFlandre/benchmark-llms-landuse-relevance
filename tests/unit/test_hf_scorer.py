@@ -31,6 +31,7 @@ class FakeLayaAgent:
     def __init__(self) -> None:
         self.calls: list[tuple[dict[str, str], dict[str, dict[str, str]]]] = []
         self.device = type("Device", (), {"type": "cpu"})()
+        self.dtype = "torch.float16"
 
     def predict(self, state, questions):
         self.calls.append((state, questions))
@@ -70,3 +71,4 @@ def test_laya_uses_typed_questions_and_keeps_scores_aligned() -> None:
     assert scores[0].scores[Label.NO] == 0.25
     assert scores[0].native_score == 0.75
     assert scores[1].verdict is Label.NO
+    assert scorer.runtime_dtype == "float16"
