@@ -402,7 +402,7 @@ def test_the_card_keeps_a_compact_model_specific_scoring_setup() -> None:
     assert "### Scoring setup" in card
     assert "prompt + sentence pair" in card
     assert "official query/document turn" in card
-    assert "JSON state + one `noul` question" in card
+    assert "JSON state + 4 `noul` questions/call" in card
     assert "Laya `noul` yes probability" in card
     assert "| sequence length |" in card
     assert "| Qwen/Qwen3-Reranker-0.6B |" not in card

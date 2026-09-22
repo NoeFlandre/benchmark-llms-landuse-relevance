@@ -31,7 +31,7 @@ _SCORER_CARD_CONFIG = {
     ),
     "convaiinnovations/laya-multilingual": (
         "typed decision model",
-        "JSON state + one `noul` question",
+        "JSON state + 4 `noul` questions/call",
         "Laya `noul` yes probability",
     ),
     "Qwen/Qwen3-Reranker-0.6B": (
