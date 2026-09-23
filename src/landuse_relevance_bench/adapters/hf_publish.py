@@ -1,6 +1,5 @@
 """Publishing run results to a Hugging Face dataset repository."""
 
-import html
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -24,6 +23,10 @@ CARD_COLUMNS = (
     "precision_macro",
     "recall_macro",
     "matthews_corrcoef_macro",
+)
+_LEGACY_PLOT_FILES = (
+    "plots/quality_metrics.svg",
+    "plots/performance.svg",
 )
 
 _SCORER_CARD_CONFIG = {
@@ -85,7 +88,6 @@ def dataset_card(
     prompt_text: str,
     scorer_prompt_text: str = "",
     viewer_file: str = "",
-    plot_files: Sequence[str] = (),
 ) -> str:
     """Build a terse card whose scores are recomputed from every prediction."""
     if not results:
@@ -128,16 +130,23 @@ def dataset_card(
     divider = "|" + "|".join(["---"] * len(CARD_COLUMNS)) + "|"
 
     def table(subset: Sequence[RunResult]) -> str:
+        rows = aggregate_rows(subset)
+        metric_columns = tuple(
+            column for column in CARD_COLUMNS if column not in {"model_id", "language_count"}
+        )
+        rankings = _metric_rankings(rows, metric_columns)
         return "\n".join(
-            "| " + " | ".join(str(row[column]) for column in CARD_COLUMNS) + " |"
-            for row in aggregate_rows(subset)
+            "| "
+            + " | ".join(
+                _ranked_cell(row, column, str(row[column]), rankings) for column in CARD_COLUMNS
+            )
+            + " |"
+            for row in rows
         )
 
     body = table(generative)
     scoring_section = _scoring_section(scoring, prompt_text=scorer_prompt_text) if scoring else ""
-    plots_section = _plots_section(plot_files)
-    sections = "\n\n".join(section for section in (scoring_section, plots_section) if section)
-    sections_block = f"\n\n{sections}" if sections else ""
+    sections_block = f"\n\n{scoring_section}" if scoring_section else ""
     return f"""---
 license: mit
 configs:
@@ -178,24 +187,47 @@ Replace `{{}}` with the target sentence.
 ## Aggregate scores
 
 Per-model macro averages across languages. Full metrics: [`aggregates.csv`](aggregates.csv).
+Bold = best; underline = second best in each metric column.
 
 {header}
 {divider}
 {body}{sections_block}"""
 
 
-def _plots_section(plot_files: Sequence[str]) -> str:
-    """Render stable relative links to the plots placed beside the card."""
-    if not plot_files:
-        return ""
-    alt_text = {
-        "quality_metrics.svg": "Best scoring metrics",
-        "performance.svg": "Inference performance",
-    }
-    links = "\n\n".join(
-        f"![{alt_text.get(Path(file).name, Path(file).stem)}]({file})" for file in plot_files
-    )
-    return f"## Plots\n\n{links}"
+def _metric_rankings(
+    rows: Sequence[dict[str, Any]],
+    columns: Sequence[str],
+    *,
+    lower_is_better: frozenset[str] = frozenset(),
+) -> dict[str, tuple[float, float | None]]:
+    """Return the best and next distinct value for each metric column."""
+    rankings = {}
+    for column in columns:
+        values = sorted(
+            {float(row[column]) for row in rows if row.get(column) is not None},
+            reverse=column not in lower_is_better,
+        )
+        if values:
+            rankings[column] = (values[0], values[1] if len(values) > 1 else None)
+    return rankings
+
+
+def _ranked_cell(
+    row: dict[str, Any],
+    column: str,
+    display: str,
+    rankings: dict[str, tuple[float, float | None]],
+) -> str:
+    """Emphasize tied best values and the runner-up without changing the data."""
+    if column not in rankings or row.get(column) is None:
+        return display
+    best, second = rankings[column]
+    value = float(row[column])
+    if value == best:
+        return f"**{display}**"
+    if second is not None and value == second:
+        return f"<u>{display}</u>"
+    return display
 
 
 def _scoring_section(
@@ -205,12 +237,25 @@ def _scoring_section(
 ) -> str:
     """Render compact public-facing scoring details and tables."""
     summary = scoring_summary_rows(scoring)
+    metric_columns = tuple(
+        value_column
+        for value_column, _, _ in SCORING_SUMMARY_CARD_COLUMNS
+        if value_column not in {"model_id", "language_count"}
+    )
+    rankings = _metric_rankings(
+        summary, metric_columns, lower_is_better=frozenset({"peak_vram_bytes_max"})
+    )
     summary_header = "| " + " | ".join(label for _, label, _ in SCORING_SUMMARY_CARD_COLUMNS) + " |"
     summary_divider = "|" + "|".join(["---"] * len(SCORING_SUMMARY_CARD_COLUMNS)) + "|"
     summary_body = "\n".join(
         "| "
         + " | ".join(
-            _card_summary_value(row, value_column, threshold_column)
+            _ranked_cell(
+                row,
+                value_column,
+                _card_summary_value(row, value_column, threshold_column),
+                rankings,
+            )
             for value_column, _, threshold_column in SCORING_SUMMARY_CARD_COLUMNS
         )
         + " |"
@@ -318,183 +363,6 @@ def _setting_or_varying(results: Sequence[RunResult], name: str, value_of: Any) 
     return f"varies across runs ({name} is recorded per run)"
 
 
-def write_scoring_plots(results: Sequence[RunResult], directory: Path) -> tuple[Path, ...]:
-    """Write deterministic SVG summaries for scoring quality and performance."""
-    summary = scoring_summary_rows(results)
-    if not summary:
-        return ()
-    directory.mkdir(parents=True, exist_ok=True)
-    quality = directory / "quality_metrics.svg"
-    performance = directory / "performance.svg"
-    quality.write_text(_quality_svg(summary), encoding="utf-8")
-    performance.write_text(_performance_svg(summary), encoding="utf-8")
-    return quality, performance
-
-
-def _quality_svg(summary: Sequence[dict[str, Any]]) -> str:
-    """Build a compact horizontal bar chart with fixed geometry and ordering."""
-    rows = sorted(summary, key=lambda row: str(row["model_id"]))
-    metrics = (
-        ("MCC", "best_mcc", -1.0, 1.0),
-        ("F1", "best_f1", 0.0, 1.0),
-        ("Balanced accuracy", "best_balanced_accuracy", 0.0, 1.0),
-        ("Precision", "best_precision", 0.0, 1.0),
-        ("Recall", "best_recall", 0.0, 1.0),
-        ("ROC-AUC", "roc_auc_macro", 0.0, 1.0),
-    )
-    colors = ("#2563eb", "#ea580c", "#059669", "#7c3aed", "#ca8a04")
-    width, left, right, top, row_height, bottom = 960, 220, 28, 76, 62, 34
-    height = top + row_height * len(metrics) + bottom
-    plot_width = width - left - right
-    fragments = [
-        _svg_open(width, height, "Best thresholded scoring metrics"),
-        _svg_text("Best thresholded scoring metrics", 24, 32, size=20, weight="bold"),
-        _svg_text("Higher is better; MCC uses a -1 to 1 scale.", 24, 54, size=12),
-    ]
-    legend_x = left
-    for index, row in enumerate(rows):
-        color = colors[index % len(colors)]
-        label = str(row["model_id"])
-        fragments.append(f'<rect x="{legend_x}" y="38" width="12" height="12" fill="{color}"/>')
-        fragments.append(_svg_text(label, legend_x + 18, 49, size=12))
-        legend_x += 18 + max(90, len(label) * 7)
-    for metric_index, (label, key, minimum, maximum) in enumerate(metrics):
-        y = top + metric_index * row_height
-        fragments.append(_svg_text(label, 24, y + 18, size=13, weight="bold"))
-        for tick in _ticks(minimum, maximum):
-            x = left + _scale(tick, minimum, maximum) * plot_width
-            fragments.append(
-                f'<line x1="{x:.2f}" y1="{y + 24}" x2="{x:.2f}" '
-                f'y2="{y + row_height - 8}" stroke="#e5e7eb"/>'
-            )
-            fragments.append(
-                _svg_text(_format_number(tick), x, y + row_height - 2, size=10, anchor="middle")
-            )
-        for model_index, row in enumerate(rows):
-            value = _as_float(row.get(key))
-            bar_y = y + 29 + model_index * 14
-            if value is None:
-                fragments.append(_svg_text("n/a", left, bar_y + 10, size=10))
-                continue
-            clamped = min(maximum, max(minimum, value))
-            x_zero = left + _scale(0.0, minimum, maximum) * plot_width
-            x_value = left + _scale(clamped, minimum, maximum) * plot_width
-            fragments.append(
-                f'<rect x="{min(x_zero, x_value):.2f}" y="{bar_y}" '
-                f'width="{abs(x_value - x_zero):.2f}" height="10" '
-                f'fill="{colors[model_index % len(colors)]}" rx="2"/>'
-            )
-            value_x = min(plot_width + left - 2, max(left + 2, x_value + 5))
-            fragments.append(_svg_text(_format_number(value), value_x, bar_y + 9, size=10))
-    fragments.append("</svg>")
-    return "".join(fragments) + "\n"
-
-
-def _performance_svg(summary: Sequence[dict[str, Any]]) -> str:
-    """Build deterministic throughput and VRAM panels with independent scales."""
-    rows = sorted(summary, key=lambda row: str(row["model_id"]))
-    width, left, right, top = 960, 220, 28, 74
-    panel_height, panel_gap, bottom = 112, 32, 30
-    height = top + 2 * panel_height + panel_gap + bottom
-    plot_width = width - left - right
-    panels = (
-        ("Throughput (items / s)", "throughput_items_per_second_macro", 1.0),
-        ("Peak VRAM (GiB)", "peak_vram_bytes_max", 1024**3),
-    )
-    colors = ("#2563eb", "#ea580c", "#059669", "#7c3aed", "#ca8a04")
-    fragments = [
-        _svg_open(width, height, "Inference performance"),
-        _svg_text("Inference performance", 24, 32, size=20, weight="bold"),
-        _svg_text("Macro throughput and maximum allocated VRAM.", 24, 54, size=12),
-    ]
-    for panel_index, (label, key, divisor) in enumerate(panels):
-        y = top + panel_index * (panel_height + panel_gap)
-        numeric_values = [_as_float(row.get(key)) for row in rows]
-        values = [value / divisor for value in numeric_values if value is not None]
-        maximum = max(max(values, default=1.0), 1.0)
-        fragments.append(_svg_text(label, 24, y + 16, size=13, weight="bold"))
-        for tick in _ticks(0.0, maximum, count=3):
-            x = left + _scale(tick, 0.0, maximum) * plot_width
-            fragments.append(
-                f'<line x1="{x:.2f}" y1="{y + 22}" x2="{x:.2f}" '
-                f'y2="{y + panel_height - 8}" stroke="#e5e7eb"/>'
-            )
-            fragments.append(
-                _svg_text(_format_number(tick), x, y + panel_height - 2, size=10, anchor="middle")
-            )
-        for row_index, row in enumerate(rows):
-            raw_value = _as_float(row.get(key))
-            value = None if raw_value is None else raw_value / divisor
-            bar_y = y + 28 + row_index * 16
-            if value is None:
-                fragments.append(_svg_text(f"{row['model_id']}: n/a", left, bar_y + 10, size=10))
-                continue
-            bar_width = _scale(value, 0.0, maximum) * plot_width
-            fragments.append(
-                f'<rect x="{left}" y="{bar_y}" width="{bar_width:.2f}" height="11" '
-                f'fill="{colors[row_index % len(colors)]}" rx="2"/>'
-            )
-            fragments.append(
-                _svg_text(
-                    f"{row['model_id']}  {_format_number(value)}",
-                    min(width - right, left + bar_width + 6),
-                    bar_y + 10,
-                    size=10,
-                )
-            )
-    fragments.append("</svg>")
-    return "".join(fragments) + "\n"
-
-
-def _svg_open(width: int, height: int, title: str) -> str:
-    escaped = html.escape(title, quote=True)
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-        f'viewBox="0 0 {width} {height}" role="img" aria-labelledby="title">'
-        f'<title id="title">{escaped}</title><rect width="100%" height="100%" fill="white"/>'
-    )
-
-
-def _svg_text(
-    value: str,
-    x: float,
-    y: float,
-    *,
-    size: int,
-    weight: str = "normal",
-    anchor: str = "start",
-) -> str:
-    escaped = html.escape(str(value), quote=True)
-    return (
-        f'<text x="{x:.2f}" y="{y:.2f}" font-family="Arial, sans-serif" '
-        f'font-size="{size}px" font-weight="{weight}" text-anchor="{anchor}" '
-        f'fill="#111827">{escaped}</text>'
-    )
-
-
-def _as_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    return float(value)
-
-
-def _scale(value: float, minimum: float, maximum: float) -> float:
-    if maximum <= minimum:
-        return 0.0
-    return (value - minimum) / (maximum - minimum)
-
-
-def _ticks(minimum: float, maximum: float, *, count: int = 5) -> tuple[float, ...]:
-    if count <= 1:
-        return (minimum,)
-    step = (maximum - minimum) / (count - 1)
-    return tuple(minimum + step * index for index in range(count))
-
-
-def _format_number(value: float) -> str:
-    return f"{value:.3f}".rstrip("0").rstrip(".")
-
-
 def publish_results(
     repo_id: str,
     results_dir: Path,
@@ -518,8 +386,7 @@ def publish_results(
     if data_root is not None:
         write_viewer_dataset(data_root, results_dir / "data" / "train.csv")
         viewer_file = "data/train.csv"
-    plot_paths = write_scoring_plots(results, results_dir / "plots")
-    plot_files = tuple(path.relative_to(results_dir).as_posix() for path in plot_paths)
+    _remove_legacy_plots(results_dir)
     (results_dir / "README.md").write_text(
         dataset_card(
             results,
@@ -527,7 +394,6 @@ def publish_results(
             prompt_text=prompt_text,
             scorer_prompt_text=scorer_prompt_text,
             viewer_file=viewer_file,
-            plot_files=plot_files,
         ),
         encoding="utf-8",
     )
@@ -537,8 +403,20 @@ def publish_results(
         repo_type="dataset",
         folder_path=str(results_dir),
         commit_message=commit_message,
+        delete_patterns=list(_LEGACY_PLOT_FILES),
     )
     return f"https://huggingface.co/datasets/{repo_id}"
+
+
+def _remove_legacy_plots(results_dir: Path) -> None:
+    """Remove only the two generated plots that older publishers staged."""
+    for relative_path in _LEGACY_PLOT_FILES:
+        path = results_dir / relative_path
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+    plot_dir = results_dir / "plots"
+    if plot_dir.is_dir() and not any(plot_dir.iterdir()):
+        plot_dir.rmdir()
 
 
 def _default_api() -> DatasetHub:

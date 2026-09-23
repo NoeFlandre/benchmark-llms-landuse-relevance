@@ -10,7 +10,6 @@ from landuse_relevance_bench.adapters.hf_publish import (
     dataset_card,
     publish_results,
     read_published_runs,
-    write_scoring_plots,
     write_viewer_dataset,
 )
 from landuse_relevance_bench.domain.labels import Label
@@ -44,6 +43,49 @@ def _result(model_id: str = "LiquidAI/LFM2.5-350M", language: str = "en") -> Run
     )
 
 
+def _result_with_outcomes(model_id: str, outcomes: tuple[tuple[Label, Label], ...]) -> RunResult:
+    predictions = tuple(
+        Prediction(
+            item_id=f"{index:016x}",
+            expected=expected,
+            predicted=predicted,
+            raw_output=predicted.value,
+        )
+        for index, (expected, predicted) in enumerate(outcomes)
+    )
+    return replace(
+        _result(model_id),
+        predictions=predictions,
+        metrics=evaluate([(expected, predicted) for expected, predicted in outcomes]),
+    )
+
+
+def _scoring_result(model_id: str, scores: tuple[float, ...], *, vram_gib: int) -> RunResult:
+    expected = (Label.YES, Label.YES, Label.NO, Label.NO)
+    predictions = tuple(
+        Prediction(
+            item_id=f"{index:016x}",
+            expected=label,
+            predicted=Label.YES if score >= 0.5 else Label.NO,
+            raw_output=f"no={1 - score:.6f} yes={score:.6f}",
+        )
+        for index, (label, score) in enumerate(zip(expected, scores, strict=True))
+    )
+    result = _scored(model_id)
+    return replace(
+        result,
+        predictions=predictions,
+        metrics=evaluate(
+            [(prediction.expected, prediction.predicted) for prediction in predictions]
+        ),
+        metadata=replace(
+            result.metadata,
+            throughput_items_per_second=float(4 - vram_gib),
+            peak_vram_bytes=vram_gib * 1024**3,
+        ),
+    )
+
+
 class FakeApi:
     def __init__(self) -> None:
         self.created: list[dict] = []
@@ -72,6 +114,39 @@ def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
     assert card.count("| b/two |") == 1
     assert "| n_items |" not in card
     assert "benchmark.csv" in card
+
+
+def test_the_card_emphasizes_best_and_second_best_aggregate_metrics() -> None:
+    card = dataset_card(
+        [
+            _result_with_outcomes("a/best", ((Label.YES, Label.YES), (Label.NO, Label.NO))),
+            _result_with_outcomes("b/second", ((Label.YES, Label.YES), (Label.NO, Label.YES))),
+            _result_with_outcomes("c/last", ((Label.YES, Label.NO), (Label.NO, Label.YES))),
+        ],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+    )
+    aggregate = card.split("## Aggregate scores")[1]
+    header = next(line for line in aggregate.splitlines() if line.startswith("| model_id"))
+    best = next(line for line in aggregate.splitlines() if line.startswith("| a/best |"))
+    second = next(line for line in aggregate.splitlines() if line.startswith("| b/second |"))
+    last = next(line for line in aggregate.splitlines() if line.startswith("| c/last |"))
+    columns = [cell.strip() for cell in header.strip("|").split("|")]
+    best_cells = dict(
+        zip(columns, (cell.strip() for cell in best.strip("|").split("|")), strict=True)
+    )
+    second_cells = dict(
+        zip(columns, (cell.strip() for cell in second.strip("|").split("|")), strict=True)
+    )
+    last_cells = dict(
+        zip(columns, (cell.strip() for cell in last.strip("|").split("|")), strict=True)
+    )
+
+    assert best_cells["accuracy_macro"] == "**1.0**"
+    assert second_cells["accuracy_macro"] == "<u>0.5</u>"
+    assert best_cells["matthews_corrcoef_macro"] == "**1.0**"
+    assert second_cells["recall_macro"] == "**1.0**"
+    assert last_cells["recall_macro"] == "<u>0.0</u>"
 
 
 def test_the_card_keeps_the_prompt_without_repeating_its_hash() -> None:
@@ -161,6 +236,25 @@ def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(
     assert api.created[0]["repo_type"] == "dataset"
     assert api.uploaded[0]["folder_path"] == str(tmp_path)
     assert url.endswith("me/bench")
+
+
+def test_publishing_removes_legacy_plots_locally_and_remotely(tmp_path: Path) -> None:
+    plots = tmp_path / "plots"
+    plots.mkdir()
+    (plots / "quality_metrics.svg").write_text("old quality plot", encoding="utf-8")
+    (plots / "performance.svg").write_text("old performance plot", encoding="utf-8")
+    api = FakeApi()
+
+    publish_results("me/bench", tmp_path, [_result()], api=api, prompt_text=PROMPT)
+
+    assert not plots.exists()
+    assert api.uploaded[0]["delete_patterns"] == [
+        "plots/quality_metrics.svg",
+        "plots/performance.svg",
+    ]
+    card = (tmp_path / "README.md").read_text(encoding="utf-8")
+    assert "## Plots" not in card
+    assert "![" not in card
 
 
 def test_publishing_writes_the_card_into_the_uploaded_folder(tmp_path: Path) -> None:
@@ -298,6 +392,46 @@ def test_scoring_models_are_reported_in_their_own_section() -> None:
     assert "| gen/one |" in generative and "| gen/one |" not in scoring
     assert "| score/two |" in scoring and "| score/two |" not in generative
     assert "argmax over the native yes/no scores" in scoring
+
+
+def test_scoring_summary_emphasizes_best_values_and_lower_vram() -> None:
+    card = dataset_card(
+        [
+            _result_with_outcomes(
+                "gen/one",
+                (
+                    (Label.YES, Label.YES),
+                    (Label.YES, Label.YES),
+                    (Label.NO, Label.NO),
+                    (Label.NO, Label.NO),
+                ),
+            ),
+            _scoring_result("score/best", (0.9, 0.8, 0.2, 0.1), vram_gib=1),
+            _scoring_result("score/second", (0.9, 0.4, 0.7, 0.2), vram_gib=2),
+            _scoring_result("score/last", (0.2, 0.1, 0.9, 0.8), vram_gib=3),
+        ],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    summary = card.split("### Best thresholded scoring metrics")[1]
+    header = next(line for line in summary.splitlines() if line.startswith("| model |"))
+    best = next(line for line in summary.splitlines() if line.startswith("| score/best |"))
+    second = next(line for line in summary.splitlines() if line.startswith("| score/second |"))
+    columns = [cell.strip() for cell in header.strip("|").split("|")]
+    best_cells = dict(
+        zip(columns, (cell.strip() for cell in best.strip("|").split("|")), strict=True)
+    )
+    second_cells = dict(
+        zip(columns, (cell.strip() for cell in second.strip("|").split("|")), strict=True)
+    )
+
+    assert best_cells["F1 @ threshold"].startswith("**")
+    assert second_cells["F1 @ threshold"].startswith("<u>")
+    assert best_cells["items/s"] == "**3.00**"
+    assert second_cells["items/s"] == "<u>2.00</u>"
+    assert best_cells["peak VRAM (GiB)"] == "**1.00**"
+    assert second_cells["peak VRAM (GiB)"] == "<u>2.00</u>"
 
 
 def test_the_card_says_why_scoring_models_never_look_unparsed() -> None:
@@ -494,7 +628,7 @@ def test_scoring_summary_pairs_each_best_metric_with_its_threshold() -> None:
     assert "| score/two |" in summary
     score_row = next(line for line in summary.splitlines() if line.startswith("| score/two |"))
     assert score_row.count(" @ ") == 5
-    assert "| 10.00 | 1.00 |" in score_row
+    assert "| **10.00** | **1.00** |" in score_row
     assert "best_mcc_threshold" not in header
     assert "threshold_sweep.csv" in card
 
@@ -576,41 +710,24 @@ def test_the_card_uses_one_compact_line_for_shared_benchmark_settings() -> None:
     assert "batch 16" in benchmark
 
 
-def test_scoring_plots_are_deterministic_and_include_performance(tmp_path: Path) -> None:
-    results = [_result("gen/one"), _scored("score/two"), _scored("score/one", "fr")]
-
-    first = write_scoring_plots(results, tmp_path / "first")
-    second = write_scoring_plots(results, tmp_path / "second")
-
-    assert [path.name for path in first] == ["quality_metrics.svg", "performance.svg"]
-    assert [path.read_text(encoding="utf-8") for path in first] == [
-        path.read_text(encoding="utf-8") for path in second
-    ]
-    assert "score/one" in first[0].read_text(encoding="utf-8")
-    assert "items / s" in second[1].read_text(encoding="utf-8")
-
-
-def test_the_card_links_to_deterministic_plots() -> None:
+def test_the_card_contains_no_plot_content() -> None:
     card = dataset_card(
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
         scorer_prompt_text=SCORER_PROMPT,
-        plot_files=("plots/quality_metrics.svg", "plots/performance.svg"),
     )
 
-    assert "## Plots" in card
-    assert "![Best scoring metrics](plots/quality_metrics.svg)" in card
-    assert "![Inference performance](plots/performance.svg)" in card
+    assert "## Plots" not in card
+    assert "![" not in card
 
 
-def test_the_card_has_neat_spacing_between_sections_and_plots() -> None:
+def test_the_card_has_neat_spacing_between_sections() -> None:
     card = dataset_card(
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
         scorer_prompt_text=SCORER_PROMPT,
-        plot_files=("plots/quality_metrics.svg", "plots/performance.svg"),
     )
 
     assert "\n\n\n" not in card
