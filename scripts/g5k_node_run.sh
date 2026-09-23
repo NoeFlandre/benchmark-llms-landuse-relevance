@@ -97,6 +97,9 @@ if [[ "$LRB_MODEL_ID" == "$GGUF_MODEL_ID" ]]; then
     echo "no CUDA toolkit (nvcc) available to build llama.cpp" >&2
     exit 1
   fi
+  # The module puts nvcc on PATH but not the runtime libraries libllama.so links to.
+  cuda_root="$(dirname "$(dirname "$(command -v nvcc)")")"
+  export LD_LIBRARY_PATH="$cuda_root/lib64:$cuda_root/lib:${LD_LIBRARY_PATH:-}"
   CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=native" uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
     --no-binary llama-cpp-python "llama-cpp-python==$LLAMA_CPP_PYTHON_VERSION" jinja2
   echo "== runtime: llama-cpp-python $LLAMA_CPP_PYTHON_VERSION (CUDA build)"
