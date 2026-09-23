@@ -25,6 +25,8 @@ LRB_SHARD_INDEX="${LRB_SHARD_INDEX:-0}"
 LRB_SHARD_COUNT="${LRB_SHARD_COUNT:-1}"
 LRB_MODEL_ID="${LRB_MODEL_ID:-}"
 LRB_DRY_RUN="${LRB_DRY_RUN:-0}"
+GTE_MODEL_ID="Alibaba-NLP/gte-multilingual-reranker-base"
+GTE_TRANSFORMERS_VERSION="5.11.0"
 
 if [[ "${1:-}" == "--dry-run" ]]; then
   LRB_DRY_RUN=1
@@ -49,10 +51,29 @@ export USE_TF=0
 cd "$LRB_ROOT"
 mkdir -p "$LRB_RESULTS" "$HF_HOME"
 
+# GTE's remote model code calls get_extended_attention_mask, absent from the
+# locked Transformers 5.17 runtime. Keep its compatible runtime isolated.
+if [[ "$LRB_MODEL_ID" == "$GTE_MODEL_ID" ]]; then
+  export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gte-${OAR_JOB_ID:-manual}"
+fi
+
 echo "== node: $(hostname)  job: ${OAR_JOB_ID:-none}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 
 uv sync --extra inference --frozen --no-dev
+if [[ "$LRB_MODEL_ID" == "$GTE_MODEL_ID" ]]; then
+  uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    "transformers==$GTE_TRANSFORMERS_VERSION"
+  installed_transformers_version="$(
+    "$UV_PROJECT_ENVIRONMENT/bin/python" -c \
+      'from importlib.metadata import version; print(version("transformers"))'
+  )"
+  if [[ "$installed_transformers_version" != "$GTE_TRANSFORMERS_VERSION" ]]; then
+    echo "expected Transformers $GTE_TRANSFORMERS_VERSION, found $installed_transformers_version" >&2
+    exit 1
+  fi
+  echo "== runtime: Transformers $installed_transformers_version (GTE compatibility)"
+fi
 
 mapfile -t language_rows < <(uv run --no-sync lrb languages --data-root "$LRB_DATA_ROOT")
 if (( ${#language_rows[@]} == 0 )); then
