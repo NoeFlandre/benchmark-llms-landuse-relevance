@@ -74,9 +74,11 @@ def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
     assert "benchmark.csv" in card
 
 
-def test_the_card_declares_the_prompt_and_benchmark_digests() -> None:
+def test_the_card_keeps_the_prompt_without_repeating_its_hash() -> None:
     card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
-    assert PROMPT_SHA256 in card
+
+    assert PROMPT in card
+    assert PROMPT_SHA256 not in card
 
 
 def test_published_runs_reads_nested_result_folders_in_stable_order(tmp_path: Path) -> None:
@@ -202,13 +204,13 @@ def test_card_is_terse_and_has_no_companion_prose() -> None:
 
 def test_the_card_documents_the_prompt_and_run_settings() -> None:
     card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
-    section = card.split("## Benchmark")[1].split("## Aggregate scores")[0]
+    section = card.split("## Task and prompt")[1].split("## Aggregate scores")[0]
 
     assert PROMPT in section
-    assert "greedy decoding" in section
+    assert "greedy" in section
     assert "`max_new_tokens=8`" in section
-    assert "| dtype | `bfloat16` |" in section
-    assert "batch size 16" in section
+    assert "bfloat16" in section
+    assert "batch 16" in section
     assert "seed 0" in section
 
 
@@ -225,17 +227,17 @@ def test_the_card_refuses_runs_that_disagree_on_their_settings() -> None:
         dataset_card([result, other], benchmark_name="benchmark.csv", prompt_text=PROMPT)
 
 
-def test_the_card_states_the_per_language_benchmark_digests_are_recorded() -> None:
+def test_the_card_omits_internal_hash_notes() -> None:
     card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
 
     assert "b" * 64 not in card
-    assert "| benchmark hashes | recorded per language run |" in card
+    assert "benchmark hashes" not in card
 
 
 def test_the_card_states_the_batch_size_when_the_sweep_agrees_on_one() -> None:
     card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
 
-    assert "batch size 16" in card
+    assert "batch 16" in card
 
 
 def test_the_card_points_at_the_runs_when_batch_sizes_differ() -> None:
@@ -244,8 +246,8 @@ def test_the_card_points_at_the_runs_when_batch_sizes_differ() -> None:
     unbatched = replace(hybrid, metadata=replace(hybrid.metadata, batch_size=1))
     card = dataset_card([batched, unbatched], benchmark_name="benchmark.csv", prompt_text=PROMPT)
 
-    assert "batch size varying by model, recorded per run" in card
-    assert "batch size 16" not in card
+    assert "batch varies by model" in card
+    assert "batch 16" not in card
 
 
 def test_the_card_still_refuses_settings_that_shape_a_verdict() -> None:
@@ -346,7 +348,7 @@ def test_the_card_shows_the_reranker_input_it_was_actually_given() -> None:
     scoring = card.split("## Scoring models")[1]
 
     assert SCORER_PROMPT in scoring
-    assert SCORER_PROMPT_SHA256 in scoring
+    assert SCORER_PROMPT_SHA256 not in scoring
     assert "Judge whether the Document meets the requirements" not in scoring
     assert "Scoring prompt" in scoring
     assert PROMPT not in scoring
@@ -384,10 +386,13 @@ def test_the_card_is_minimal_but_keeps_benchmark_settings_and_sequence_length() 
     )
 
     assert "85" not in card
-    assert "items per language" in card
+    assert "item/language" in card
     assert "sequence length" in card.lower()
     assert "max_new_tokens=8" in card
     assert "Predictions and scores" not in card
+    assert "| setting | value |" not in card
+    assert "result layout" not in card
+    assert "dataset viewer |" not in card
 
 
 def test_the_card_keeps_a_compact_model_specific_scoring_setup() -> None:
@@ -454,7 +459,7 @@ def test_public_card_omits_redundant_scoring_table_and_aggregate_columns() -> No
     assert "f1_min" not in aggregate
     assert "unparsed_rate_macro" not in aggregate
     assert "| model_id | language_count |" not in scoring
-    assert "thresholds and their metrics" in scoring
+    assert "thresholds are selected on this benchmark" in scoring
 
 
 def test_the_card_uses_model_defined_for_legacy_missing_sequence_lengths() -> None:
@@ -485,6 +490,35 @@ def test_the_card_explicitly_selects_the_viewer_split() -> None:
 
     assert "configs:" in card
     assert "path: data/train.csv" in card
+    assert "data_dir:" not in card
+
+
+def test_the_card_uses_an_explicit_viewer_file_path() -> None:
+    card = dataset_card(
+        [_result("gen/one")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        viewer_file="data/train.csv",
+    )
+    metadata = card.split("---", 2)[1]
+
+    assert "data_dir:" not in metadata
+    assert "path: data/train.csv" in metadata
+    assert "path: train.csv" not in metadata
+
+
+def test_the_card_uses_one_compact_line_for_shared_benchmark_settings() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+    benchmark = card.split("## Task and prompt")[1].split("## Aggregate scores")[0]
+
+    assert "| setting | value |" not in benchmark
+    assert "1 language x 1 item/language" in card
+    assert "`yes`/`no`" in card
+    assert "English" in benchmark
+    assert "greedy" in benchmark
+    assert "max_new_tokens=8" in benchmark
+    assert "bfloat16" in benchmark
+    assert "batch 16" in benchmark
 
 
 def test_scoring_plots_are_deterministic_and_include_performance(tmp_path: Path) -> None:
@@ -513,3 +547,15 @@ def test_the_card_links_to_deterministic_plots() -> None:
     assert "## Plots" in card
     assert "![Best scoring metrics](plots/quality_metrics.svg)" in card
     assert "![Inference performance](plots/performance.svg)" in card
+
+
+def test_the_card_has_neat_spacing_between_sections_and_plots() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+        plot_files=("plots/quality_metrics.svg", "plots/performance.svg"),
+    )
+
+    assert "\n\n\n" not in card

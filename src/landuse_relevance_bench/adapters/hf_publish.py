@@ -117,12 +117,13 @@ def dataset_card(
     max_new_tokens = _uniform(generative, "token budget", lambda r: r.metadata.max_new_tokens)
     batch_sizes = sorted({result.metadata.batch_size for result in generative})
     batch_size_line = (
-        f"batch size {batch_sizes[0]}"
-        if len(batch_sizes) == 1
-        else "batch size varying by model, recorded per run"
+        f"batch {batch_sizes[0]}" if len(batch_sizes) == 1 else "batch varies by model"
     )
     n_items = _uniform(results, "items per language", lambda r: r.metrics.n_items)
     languages = sorted({result.metadata.language for result in results})
+    language_label = "language" if len(languages) == 1 else "languages"
+    item_label = "item" if n_items == 1 else "items"
+    viewer_path = Path(viewer_file or "data/train.csv")
     header = "| " + " | ".join(CARD_COLUMNS) + " |"
     divider = "|" + "|".join(["---"] * len(CARD_COLUMNS)) + "|"
 
@@ -133,23 +134,17 @@ def dataset_card(
         )
 
     body = table(generative)
-    scoring_section = (
-        ""
-        if not scoring
-        else _scoring_section(
-            scoring,
-            prompt_text=scorer_prompt_text,
-            prompt_sha256=scorer_prompt_sha256,
-        )
-    )
+    scoring_section = _scoring_section(scoring, prompt_text=scorer_prompt_text) if scoring else ""
     plots_section = _plots_section(plot_files)
+    sections = "\n\n".join(section for section in (scoring_section, plots_section) if section)
+    sections_block = f"\n\n{sections}" if sections else ""
     return f"""---
 license: mit
 configs:
 - config_name: default
   data_files:
   - split: train
-    path: data/train.csv
+    path: {viewer_path.as_posix()}
 task_categories:
 - text-classification
 tags:
@@ -161,45 +156,32 @@ tags:
 
 # Land-use relevance benchmark
 
-`{benchmark_name}` · model-level macro averages over completed language checkpoints.
+`{benchmark_name}` · {len(languages)} {language_label} x {n_items} {item_label}/language ·
+{len(languages) * n_items:,} items · binary `yes`/`no` labels.
 
-- Code: https://github.com/NoeFlandre/benchmark-llms-landuse-relevance
+[Code](https://github.com/NoeFlandre/benchmark-llms-landuse-relevance)
 
-## Benchmark
+## Task and prompt
 
-Binary sentence classification of land-use, land-cover, and geographic-environment
-signal observable from remote sensing.
+Does a sentence describe a place's land or environment in ways visible to satellites?
 
-| setting | value |
-|---|---|
-| languages | {len(languages)} |
-| items per language | {n_items} |
-| labels | `yes`, `no` |
-| positive class | `yes` |
-| prompt language | English |
-| generation | {decoding} decoding; seed {seed}; `max_new_tokens={max_new_tokens}` |
-| dtype | `{dtype}` |
-| batch size | {batch_size_line} |
-| result layout | one JSON per model/language |
-| dataset viewer | `{viewer_file or "not included"}` |
-| prompt sha256 | `{prompt_sha256}` |
-| benchmark hashes | recorded per language run |
+English prompt · {decoding} decoding · seed {seed} · `max_new_tokens={max_new_tokens}` ·
+`{dtype}` · {batch_size_line}.
 
-### Prompt
+### Prompt text
 
-Used verbatim; `{{}}` is replaced by the target sentence.
+Replace `{{}}` with the target sentence.
 
 ```text
 {prompt_text}```
 
 ## Aggregate scores
 
-Macro averages by language. Full aggregate metrics: [`aggregates.csv`](aggregates.csv).
+Per-model macro averages across languages. Full metrics: [`aggregates.csv`](aggregates.csv).
 
 {header}
 {divider}
-{body}
-{scoring_section}{plots_section}"""
+{body}{sections_block}"""
 
 
 def _plots_section(plot_files: Sequence[str]) -> str:
@@ -213,14 +195,13 @@ def _plots_section(plot_files: Sequence[str]) -> str:
     links = "\n\n".join(
         f"![{alt_text.get(Path(file).name, Path(file).stem)}]({file})" for file in plot_files
     )
-    return f"\n\n## Plots\n\n{links}"
+    return f"## Plots\n\n{links}"
 
 
 def _scoring_section(
     scoring: Sequence[RunResult],
     *,
     prompt_text: str,
-    prompt_sha256: str,
 ) -> str:
     """Render compact public-facing scoring details and tables."""
     summary = scoring_summary_rows(scoring)
@@ -241,12 +222,10 @@ def _scoring_section(
     )
     setup_divider = "|" + "|".join(["---"] * 6) + "|"
     setup_body = "\n".join(_scoring_setup_row(model_runs) for model_runs in _by_model(scoring))
-    return f"""
-## Scoring models
+    return f"""## Scoring models
 
-Each model returns a normalized `yes` relevance score in [0, 1]. Best values below use
-thresholds selected on this benchmark, so read them as an upper bound. All tested
-thresholds and their metrics are in [`threshold_sweep.csv`](threshold_sweep.csv).
+Scores are normalized to [0, 1]. Best thresholds are selected on this benchmark (an upper
+bound); ROC-AUC needs no threshold. Full sweep: [`threshold_sweep.csv`](threshold_sweep.csv).
 
 ### Scoring setup
 
@@ -263,11 +242,7 @@ thresholds and their metrics are in [`threshold_sweep.csv`](threshold_sweep.csv)
 
 {summary_header}
 {summary_divider}
-{summary_body}
-
-Each metric is shown at its own best threshold; ROC-AUC is threshold-independent.
-Scoring prompt SHA-256: `{prompt_sha256}`.
-"""
+{summary_body}"""
 
 
 def _by_model(results: Sequence[RunResult]) -> tuple[tuple[RunResult, ...], ...]:
