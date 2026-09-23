@@ -11,6 +11,7 @@
 #   LRB_SHARD_INDEX shard index among deterministic pairs (default: 0)
 #   LRB_SHARD_COUNT number of deterministic pair shards   (default: 1)
 #   LRB_MODEL_ID    optional single model to run instead of the full roster
+#   LRB_LANGUAGES   optional comma-separated language subset (validation runs)
 #   LRB_DRY_RUN     print sizing information and exit     (default: 0)
 #   HF_HOME         Hugging Face cache                  (default: node-local /tmp scratch)
 set -euo pipefail
@@ -25,6 +26,7 @@ LRB_SHARD_INDEX="${LRB_SHARD_INDEX:-0}"
 LRB_SHARD_COUNT="${LRB_SHARD_COUNT:-1}"
 LRB_MODEL_ID="${LRB_MODEL_ID:-}"
 LRB_DRY_RUN="${LRB_DRY_RUN:-0}"
+LRB_LANGUAGES="${LRB_LANGUAGES:-}"
 GTE_MODEL_ID="Alibaba-NLP/gte-multilingual-reranker-base"
 GTE_TRANSFORMERS_VERSION="5.11.0"
 GLINER2_MODEL_ID="fastino/gliner2.5-multi-v1"
@@ -171,6 +173,7 @@ fi
 if (( is_scoring == 1 )); then
   # Each scorer declares its own prompt file; override only when asked to.
   uv run --no-sync lrb score "$LRB_MODEL_ID" \
+    ${LRB_LANGUAGES:+--language "$LRB_LANGUAGES"} \
     --data-root "$LRB_DATA_ROOT" \
     ${LRB_SCORER_PROMPT:+--prompt "$LRB_SCORER_PROMPT"} \
     --out "$LRB_RESULTS" \
@@ -179,6 +182,7 @@ if (( is_scoring == 1 )); then
     --shard-count "$LRB_SHARD_COUNT"
 elif [[ -n "$LRB_MODEL_ID" ]]; then
   uv run --no-sync lrb run "$LRB_MODEL_ID" \
+    ${LRB_LANGUAGES:+--language "$LRB_LANGUAGES"} \
     --data-root "$LRB_DATA_ROOT" \
     --prompt data/prompt.txt \
     --out "$LRB_RESULTS" \
