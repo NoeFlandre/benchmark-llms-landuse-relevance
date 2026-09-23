@@ -421,6 +421,41 @@ def test_the_card_keeps_a_compact_model_specific_scoring_setup() -> None:
     assert "| Qwen/Qwen3-Reranker-0.6B |" not in card
 
 
+def test_scoring_setup_does_not_repeat_the_score_formula_as_its_cutoff() -> None:
+    card = dataset_card(
+        [
+            _result("gen/one"),
+            _scored("Alibaba-NLP/gte-multilingual-reranker-base"),
+            _scored("mixedbread-ai/mxbai-rerank-base-v2"),
+            _scored("convaiinnovations/laya-multilingual"),
+        ],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    setup_rows = {
+        model_id: next(line for line in card.splitlines() if line.startswith(f"| {model_id} |"))
+        for model_id in (
+            "Alibaba-NLP/gte-multilingual-reranker-base",
+            "mixedbread-ai/mxbai-rerank-base-v2",
+            "convaiinnovations/laya-multilingual",
+        )
+    }
+
+    assert (
+        "sigmoid relevance logit; yes if score ≥ 0.5"
+        in setup_rows["Alibaba-NLP/gte-multilingual-reranker-base"]
+    )
+    assert (
+        "sigmoid(1-logit - 0-logit - 4.5); yes if score ≥ 0.5"
+        in setup_rows["mixedbread-ai/mxbai-rerank-base-v2"]
+    )
+    assert (
+        "Laya `noul` yes probability; yes if score ≥ 0.5"
+        in setup_rows["convaiinnovations/laya-multilingual"]
+    )
+
+
 def test_scoring_setup_describes_settings_that_vary_between_runs() -> None:
     float16_run = _scored("convaiinnovations/laya-multilingual", language="en")
     float16_run = replace(float16_run, metadata=replace(float16_run.metadata, dtype="float16"))

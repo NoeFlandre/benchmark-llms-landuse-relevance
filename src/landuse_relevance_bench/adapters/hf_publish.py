@@ -263,6 +263,8 @@ def _scoring_setup_row(results: Sequence[RunResult]) -> str:
         rule = scorer_for(model_id).decision_rule
     except KeyError:
         rule = results[0].metadata.decision_rule or "recorded per run"
+    if rule.endswith(" at 0.5"):
+        rule = "yes if score ≥ 0.5"
     sequence = _setting_or_varying(results, "sequence length", lambda r: r.metadata.sequence_length)
     if sequence == "None":
         sequence = "model-defined"
