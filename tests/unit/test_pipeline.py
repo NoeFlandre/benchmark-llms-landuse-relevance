@@ -24,7 +24,8 @@ class StubGenerator:
 
 
 class MeasuredScorer:
-    peak_vram_bytes = 123456
+    peak_vram_bytes: int = 123456
+    sequence_length: int = 8192
 
     def begin_measurement(self) -> None:
         self.started = True
@@ -130,6 +131,7 @@ def test_scoring_records_throughput_and_peak_vram(request_for) -> None:
     assert scorer.started and scorer.finished
     assert result.metadata.model_revision == "gte-rev"
     assert result.metadata.sequence_length == 8192
+    assert result.metadata.throughput_items_per_second is not None
     assert result.metadata.throughput_items_per_second > 0.0
     assert result.metadata.peak_vram_bytes == 123456
 

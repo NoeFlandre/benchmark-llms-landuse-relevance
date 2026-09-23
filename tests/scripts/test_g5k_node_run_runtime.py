@@ -57,20 +57,22 @@ exit 2
     )
     uv.chmod(0o755)
 
-    environment = {
-        **os.environ,
-        "HOME": str(home),
-        "USER": "benchmark-test",
-        "HF_HOME": str(tmp_path / "hf-cache"),
-        "LRB_ROOT": str(root),
-        "LRB_DATA_ROOT": str(root / "data/translations"),
-        "LRB_RESULTS": str(tmp_path / "results"),
-        "LRB_MODEL_ID": model_id,
-        "OAR_JOB_ID": "job-42",
-        "TEST_MODEL_ID": model_id,
-        "TEST_UV_LOG": str(log_path),
-        "BASH_ENV": str(bash_env),
-    }
+    environment: dict[str, str] = dict(os.environ)
+    environment.update(
+        {
+            "HOME": str(home),
+            "USER": "benchmark-test",
+            "HF_HOME": str(tmp_path / "hf-cache"),
+            "LRB_ROOT": str(root),
+            "LRB_DATA_ROOT": str(root / "data/translations"),
+            "LRB_RESULTS": str(tmp_path / "results"),
+            "LRB_MODEL_ID": model_id,
+            "OAR_JOB_ID": "job-42",
+            "TEST_MODEL_ID": model_id,
+            "TEST_UV_LOG": str(log_path),
+            "BASH_ENV": str(bash_env),
+        }
+    )
     environment.pop("UV_PROJECT_ENVIRONMENT", None)
     completed = subprocess.run(
         ["bash", str(scripts / "g5k_node_run.sh"), "--dry-run"],

@@ -5,6 +5,7 @@ boundary. Published runs keep the native score for every item, so the effect of 
 boundary can be measured after the fact, without re-running a model.
 """
 
+from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -100,23 +101,28 @@ def roc_auc(predictions: Sequence[Prediction]) -> float:
     than how well a particular boundary happens to suit this benchmark.
     """
     scores = yes_scores(predictions)
-    positives = [s for p, s in zip(predictions, scores, strict=True) if p.expected is Label.YES]
-    negatives = [s for p, s in zip(predictions, scores, strict=True) if p.expected is Label.NO]
-    if not positives or not negatives:
+    positive_scores, negative_scores = _scores_by_class(predictions, scores)
+    if not positive_scores or not negative_scores:
         raise ValueError("ROC AUC needs at least one item of each class")
-    ordered = sorted(negatives)
-    total = 0.0
-    for score in positives:
-        total += _rank_below(ordered, score) + 0.5 * ordered.count(score)
-    return total / (len(positives) * len(negatives))
+    ordered_negatives = sorted(negative_scores)
+    favorable_pairs = sum(_wins_and_ties(ordered_negatives, score) for score in positive_scores)
+    return favorable_pairs / (len(positive_scores) * len(negative_scores))
 
 
-def _rank_below(ordered: Sequence[float], score: float) -> int:
-    low, high = 0, len(ordered)
-    while low < high:
-        middle = (low + high) // 2
-        if ordered[middle] < score:
-            low = middle + 1
+def _scores_by_class(
+    predictions: Sequence[Prediction], scores: Sequence[float]
+) -> tuple[list[float], list[float]]:
+    positive_scores: list[float] = []
+    negative_scores: list[float] = []
+    for prediction, score in zip(predictions, scores, strict=True):
+        if prediction.expected is Label.YES:
+            positive_scores.append(score)
         else:
-            high = middle
-    return low
+            negative_scores.append(score)
+    return positive_scores, negative_scores
+
+
+def _wins_and_ties(ordered_negatives: Sequence[float], score: float) -> float:
+    below = bisect_left(ordered_negatives, score)
+    tied = bisect_right(ordered_negatives, score) - below
+    return below + 0.5 * tied

@@ -21,9 +21,11 @@ def _pretend_config(monkeypatch: pytest.MonkeyPatch, config: _Config) -> None:
 
     auto_config = type("AutoConfig", (), {"from_pretrained": staticmethod(from_pretrained)})
     fake_transformers = types.ModuleType("transformers")
-    fake_transformers.AutoConfig = auto_config
-    fake_transformers.AutoModelForCausalLM = type("AutoModelForCausalLM", (), {})
-    fake_transformers.AutoModelForImageTextToText = type("AutoModelForImageTextToText", (), {})
+    fake_transformers.__dict__["AutoConfig"] = auto_config
+    fake_transformers.__dict__["AutoModelForCausalLM"] = type("AutoModelForCausalLM", (), {})
+    fake_transformers.__dict__["AutoModelForImageTextToText"] = type(
+        "AutoModelForImageTextToText", (), {}
+    )
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 
 

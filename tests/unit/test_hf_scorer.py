@@ -6,6 +6,7 @@ from landuse_relevance_bench.adapters.hf_scorer import (
     GteScorer,
     LayaScorer,
     MxbaiRerankerScorer,
+    ScorerSettings,
     mxbai_normalize,
     scorer_class_for,
 )
@@ -45,7 +46,7 @@ class FakeLayaAgent:
 
 def test_laya_uses_typed_questions_and_keeps_scores_aligned() -> None:
     agent = FakeLayaAgent()
-    scorer = LayaScorer(agent, type("Settings", (), {"dtype": "bfloat16"})(), "laya-rev")
+    scorer = LayaScorer(agent, ScorerSettings(dtype="bfloat16"), "laya-rev")
     inputs = [
         ScoringInput(
             "<Instruct>: classify the document.\n<Query>: is it relevant?\n<Document>: forest",

@@ -1,5 +1,7 @@
 """Turning a non-generative model's native scores into benchmark predictions."""
 
+from collections.abc import Sequence
+
 import pytest
 
 from landuse_relevance_bench.domain.dataset import BenchmarkItem
@@ -14,9 +16,9 @@ class _Scorer:
         self._scores = list(scores)
         self.batches: list[int] = []
 
-    def score(self, prompts):
-        self.batches.append(len(prompts))
-        taken, self._scores = self._scores[: len(prompts)], self._scores[len(prompts) :]
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        self.batches.append(len(inputs))
+        taken, self._scores = self._scores[: len(inputs)], self._scores[len(inputs) :]
         return [LabelScores(s) for s in taken]
 
 
@@ -86,6 +88,11 @@ def test_scoring_refuses_a_scorer_that_drops_items() -> None:
         score_all(_items(2), "{}", _Scorer({Label.YES: 1.0}), batch_size=2)
 
 
+def test_scoring_rejects_a_nonpositive_batch_size() -> None:
+    with pytest.raises(ValueError, match="batch_size must be at least 1"):
+        score_all(_items(1), "{}", _Scorer(), batch_size=0)
+
+
 def test_the_scoring_roster_is_separate_from_the_generative_one() -> None:
     from landuse_relevance_bench.domain.roster import model_ids
 
@@ -100,7 +107,7 @@ class _NativeScoreScorer:
     def __init__(self, native_score: float) -> None:
         self._native_score = native_score
 
-    def score(self, inputs):
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         return [
             LabelScores({Label.YES: 0.73, Label.NO: 0.27}, native_score=self._native_score)
             for _ in inputs
@@ -109,8 +116,8 @@ class _NativeScoreScorer:
 
 class _InputCaptureScorer:
     def __init__(self) -> None:
-        self.inputs = []
+        self.inputs: list[ScoringInput] = []
 
-    def score(self, inputs):
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         self.inputs.extend(inputs)
         return [LabelScores({Label.YES: 1.0, Label.NO: 0.0}) for _ in inputs]

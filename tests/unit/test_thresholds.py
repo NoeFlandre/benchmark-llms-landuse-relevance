@@ -41,6 +41,11 @@ def test_unreadable_scores_are_refused_rather_than_guessed() -> None:
         parse_scores("no=high yes=0.5")
 
 
+def test_a_native_score_without_label_scores_is_refused() -> None:
+    with pytest.raises(ScoreFormatError, match="no scores"):
+        parse_scores("native=1.25")
+
+
 def test_a_lower_boundary_calls_more_items_yes() -> None:
     predictions = [_scored(Label.YES, 0.02), _scored(Label.NO, 0.001)]
 
@@ -49,6 +54,11 @@ def test_a_lower_boundary_calls_more_items_yes() -> None:
 
     assert strict.confusion.true_positive == 0
     assert lenient.confusion.true_positive == 1
+
+
+def test_an_empty_set_cannot_be_redecided() -> None:
+    with pytest.raises(ValueError, match="empty set of predictions"):
+        decide_at([], 0.5)
 
 
 def test_the_sweep_reports_one_point_per_threshold_in_order() -> None:
@@ -70,6 +80,17 @@ def test_auc_is_a_half_when_the_score_carries_no_signal() -> None:
     predictions = [_scored(Label.YES, 0.4), _scored(Label.NO, 0.4)]
 
     assert roc_auc(predictions) == 0.5
+
+
+def test_auc_gives_half_credit_to_each_cross_class_tie() -> None:
+    predictions = [
+        _scored(Label.YES, 0.9),
+        _scored(Label.YES, 0.8),
+        _scored(Label.NO, 0.8),
+        _scored(Label.NO, 0.1),
+    ]
+
+    assert roc_auc(predictions) == 0.875
 
 
 def test_auc_does_not_move_when_every_verdict_is_the_same() -> None:
