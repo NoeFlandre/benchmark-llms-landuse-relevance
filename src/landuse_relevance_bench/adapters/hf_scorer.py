@@ -398,8 +398,6 @@ class GliClassScorer(_CudaMeasurement):
         cls, model_id: str, settings: ScorerSettings, revision: str | None = None
     ) -> "GliClassScorer":
         import torch
-
-        # ty: ignore[unresolved-import]  - optional "scoring" extra, absent from the dev env
         from gliclass import GLiClassModel, ZeroShotClassificationPipeline
 
         transformers = _load_transformers()
