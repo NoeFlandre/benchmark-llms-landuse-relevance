@@ -421,6 +421,26 @@ def test_the_card_keeps_a_compact_model_specific_scoring_setup() -> None:
     assert "| Qwen/Qwen3-Reranker-0.6B |" not in card
 
 
+def test_scoring_setup_describes_settings_that_vary_between_runs() -> None:
+    float16_run = _scored("convaiinnovations/laya-multilingual", language="en")
+    float16_run = replace(float16_run, metadata=replace(float16_run.metadata, dtype="float16"))
+    bfloat16_run = _scored("convaiinnovations/laya-multilingual", language="fr")
+    card = dataset_card(
+        [_result("gen/one"), float16_run, bfloat16_run],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    laya_setup = next(
+        line
+        for line in card.splitlines()
+        if line.startswith("| convaiinnovations/laya-multilingual |")
+    )
+
+    assert "varies across runs (dtype is recorded per run)" in laya_setup
+    assert "varies by model" not in laya_setup
+
+
 def test_scoring_summary_pairs_each_best_metric_with_its_threshold() -> None:
     card = dataset_card(
         [_result("gen/one"), _scored("score/two")],

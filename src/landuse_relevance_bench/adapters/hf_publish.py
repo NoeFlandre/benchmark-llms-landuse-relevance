@@ -313,7 +313,7 @@ def _setting_or_varying(results: Sequence[RunResult], name: str, value_of: Any) 
     values = sorted({value_of(result) for result in results}, key=str)
     if len(values) == 1:
         return str(values[0])
-    return f"varies by model ({name} is recorded per run)"
+    return f"varies across runs ({name} is recorded per run)"
 
 
 def write_scoring_plots(results: Sequence[RunResult], directory: Path) -> tuple[Path, ...]:
