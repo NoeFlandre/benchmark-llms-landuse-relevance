@@ -7,7 +7,6 @@ from typing import Any, Protocol, cast
 
 from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.results_store import (
-    AGGREGATE_COLUMNS,
     aggregate_rows,
     read_runs,
     scoring_summary_rows,
@@ -16,7 +15,16 @@ from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
 from landuse_relevance_bench.domain.scorers import scorer_for
 
-CARD_COLUMNS = AGGREGATE_COLUMNS
+CARD_COLUMNS = (
+    "model_id",
+    "language_count",
+    "accuracy_macro",
+    "balanced_accuracy_macro",
+    "f1_macro",
+    "precision_macro",
+    "recall_macro",
+    "matthews_corrcoef_macro",
+)
 
 _SCORER_CARD_CONFIG = {
     "Alibaba-NLP/gte-multilingual-reranker-base": (
@@ -130,9 +138,6 @@ def dataset_card(
         if not scoring
         else _scoring_section(
             scoring,
-            header=header,
-            divider=divider,
-            table=table,
             prompt_text=scorer_prompt_text,
             prompt_sha256=scorer_prompt_sha256,
         )
@@ -189,6 +194,8 @@ Used verbatim; `{{}}` is replaced by the target sentence.
 
 ## Aggregate scores
 
+Macro averages by language. Full aggregate metrics: [`aggregates.csv`](aggregates.csv).
+
 {header}
 {divider}
 {body}
@@ -212,57 +219,34 @@ def _plots_section(plot_files: Sequence[str]) -> str:
 def _scoring_section(
     scoring: Sequence[RunResult],
     *,
-    header: str,
-    divider: str,
-    table: Any,
     prompt_text: str,
     prompt_sha256: str,
 ) -> str:
     """Render compact public-facing scoring details and tables."""
-    rules = sorted({result.metadata.decision_rule or "unrecorded" for result in scoring})
-    joined = "; ".join(rules)
-    batch_sizes = sorted({result.metadata.batch_size for result in scoring})
-    batch_line = (
-        f"batch size {batch_sizes[0]}"
-        if len(batch_sizes) == 1
-        else "batch size varying by model, recorded per run"
-    )
-    sequence_lengths = sorted(
-        {result.metadata.sequence_length for result in scoring if result.metadata.sequence_length}
-    )
-    sequence_line = (
-        ", ".join(str(length) for length in sequence_lengths) + " tokens"
-        if sequence_lengths
-        else "model-defined"
-    )
     summary = scoring_summary_rows(scoring)
-    summary_header = "| " + " | ".join(SCORING_SUMMARY_CARD_COLUMNS) + " |"
+    summary_header = "| " + " | ".join(label for _, label, _ in SCORING_SUMMARY_CARD_COLUMNS) + " |"
     summary_divider = "|" + "|".join(["---"] * len(SCORING_SUMMARY_CARD_COLUMNS)) + "|"
     summary_body = "\n".join(
         "| "
-        + " | ".join(_card_summary_value(row, column) for column in SCORING_SUMMARY_CARD_COLUMNS)
+        + " | ".join(
+            _card_summary_value(row, value_column, threshold_column)
+            for value_column, _, threshold_column in SCORING_SUMMARY_CARD_COLUMNS
+        )
         + " |"
         for row in summary
     )
-    scoring_dtype = _setting_or_varying(scoring, "scoring dtype", lambda r: r.metadata.dtype)
-    scoring_seed = _setting_or_varying(scoring, "scoring seed", lambda r: r.metadata.seed)
-    setup_header = "| model | family | input | score | rule | seq. | dtype | batch | revision |"
-    setup_divider = "|" + "|".join(["---"] * 9) + "|"
+    setup_header = (
+        "| model | handling | relevance score / decision rule | sequence length (tokens) | "
+        "dtype / batch / seed | revision |"
+    )
+    setup_divider = "|" + "|".join(["---"] * 6) + "|"
     setup_body = "\n".join(_scoring_setup_row(model_runs) for model_runs in _by_model(scoring))
     return f"""
 ## Scoring models
 
-| setting | value |
-|---|---|
-| normalized output | `yes` relevance score in [0, 1] |
-| native output | retained per prediction when available |
-| decision rule | {joined} |
-| sequence length | {sequence_line} |
-| dtype | `{scoring_dtype}` |
-| batch size | {batch_line} |
-| seed | {scoring_seed} |
-| scoring prompt sha256 | `{prompt_sha256}` |
-| reports | `threshold_sweep.csv`, `scoring_summary.csv` |
+Each model returns a normalized `yes` relevance score in [0, 1]. Best values below use
+thresholds selected on this benchmark, so read them as an upper bound. All tested
+thresholds and their metrics are in [`threshold_sweep.csv`](threshold_sweep.csv).
 
 ### Scoring setup
 
@@ -275,15 +259,14 @@ def _scoring_section(
 ```text
 {prompt_text}```
 
-{header}
-{divider}
-{table(scoring)}
-
 ### Best thresholded scoring metrics
 
 {summary_header}
 {summary_divider}
 {summary_body}
+
+Each metric is shown at its own best threshold; ROC-AUC is threshold-independent.
+Scoring prompt SHA-256: `{prompt_sha256}`.
 """
 
 
@@ -310,17 +293,44 @@ def _scoring_setup_row(results: Sequence[RunResult]) -> str:
         sequence = "model-defined"
     dtype = _setting_or_varying(results, "dtype", lambda r: r.metadata.dtype)
     batch = _setting_or_varying(results, "batch size", lambda r: r.metadata.batch_size)
+    seed = _setting_or_varying(results, "seed", lambda r: r.metadata.seed)
     revision = _setting_or_varying(results, "revision", lambda r: r.metadata.model_revision)
-    cells = (model_id, family, input_handling, score, rule, sequence, dtype, batch, revision)
+    cells = (
+        model_id,
+        f"{family}: {input_handling}",
+        f"{score}; {rule}",
+        sequence,
+        f"{dtype}; batch {batch}; seed {seed}",
+        revision,
+    )
     return "| " + " | ".join(str(cell) for cell in cells) + " |"
 
 
-def _card_summary_value(row: dict[str, Any], column: str) -> str:
-    """Format card-only performance values without changing the CSV schema."""
-    if column == "peak_vram_gib_max":
-        value = row.get("peak_vram_bytes_max")
-        return "n/a" if value is None else f"{float(value) / 1024**3:.2f}"
-    return str(row[column])
+def _card_summary_value(
+    row: dict[str, Any], value_column: str, threshold_column: str | None
+) -> str:
+    """Format compact card values without changing the downloadable CSV schema."""
+    value = row.get(value_column)
+    if value is None:
+        return "n/a"
+    if threshold_column is not None:
+        threshold = row[threshold_column]
+        return f"{_format_card_float(float(value))} @ {_format_card_threshold(float(threshold))}"
+    if value_column == "peak_vram_bytes_max":
+        return f"{float(value) / 1024**3:.2f}"
+    if value_column == "throughput_items_per_second_macro":
+        return f"{float(value):.2f}"
+    return str(value) if isinstance(value, str | int) else _format_card_float(float(value))
+
+
+def _format_card_float(value: float) -> str:
+    """Format a score to four useful decimals, omitting redundant zeroes."""
+    return f"{value:.4f}".rstrip("0").rstrip(".")
+
+
+def _format_card_threshold(value: float) -> str:
+    """Keep small score boundaries readable without losing significant digits."""
+    return f"{value:.6g}"
 
 
 def _setting_or_varying(results: Sequence[RunResult], name: str, value_of: Any) -> str:
@@ -570,20 +580,20 @@ def _reject_archive_paths(results_dir: Path) -> None:
 
 
 SCORING_SUMMARY_CARD_COLUMNS = (
-    "model_id",
-    "best_mcc",
-    "best_mcc_threshold",
-    "best_f1",
-    "best_f1_threshold",
-    "best_balanced_accuracy",
-    "best_balanced_accuracy_threshold",
-    "best_precision",
-    "best_precision_threshold",
-    "best_recall",
-    "best_recall_threshold",
-    "roc_auc_macro",
-    "throughput_items_per_second_macro",
-    "peak_vram_gib_max",
+    ("model_id", "model", None),
+    ("language_count", "languages", None),
+    ("best_mcc", "MCC @ threshold", "best_mcc_threshold"),
+    ("best_f1", "F1 @ threshold", "best_f1_threshold"),
+    (
+        "best_balanced_accuracy",
+        "balanced accuracy @ threshold",
+        "best_balanced_accuracy_threshold",
+    ),
+    ("best_precision", "precision @ threshold", "best_precision_threshold"),
+    ("best_recall", "recall @ threshold", "best_recall_threshold"),
+    ("roc_auc_macro", "ROC-AUC", None),
+    ("throughput_items_per_second_macro", "items/s", None),
+    ("peak_vram_bytes_max", "peak VRAM (GiB)", None),
 )
 
 

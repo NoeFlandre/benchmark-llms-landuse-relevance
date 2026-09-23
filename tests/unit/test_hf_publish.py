@@ -64,9 +64,9 @@ def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
         prompt_text=PROMPT,
     )
     assert card.startswith("---")
-    assert "| model_id | language_count | n_items_total |" in card
-    assert "| a/one | 2 | 2 |" in card
-    assert "| b/two | 1 | 1 |" in card
+    assert "| model_id | language_count | accuracy_macro |" in card
+    assert "| a/one | 2 |" in card
+    assert "| b/two | 1 |" in card
     assert "| language |" not in card
     assert card.count("| a/one |") == 1
     assert card.count("| b/two |") == 1
@@ -182,7 +182,11 @@ def test_publishing_refuses_to_upload_an_archive_path(tmp_path: Path) -> None:
 
 def test_the_card_contains_only_aggregate_metrics() -> None:
     card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
-    table_header = card.split("## Aggregate scores")[1].splitlines()[2]
+    table_header = next(
+        line
+        for line in card.split("## Aggregate scores")[1].splitlines()
+        if line.startswith("| model_id")
+    )
 
     assert "truncated" not in table_header
     assert "language_count" in table_header
@@ -404,10 +408,53 @@ def test_the_card_keeps_a_compact_model_specific_scoring_setup() -> None:
     assert "official query/document turn" in card
     assert "JSON state + 4 `noul` questions/call" in card
     assert "Laya `noul` yes probability" in card
-    assert "| sequence length |" in card
-    assert "peak_vram_gib_max" in card
+    assert "sequence length (tokens)" in card
+    assert "bfloat16; batch 16; seed 0" in card
+    assert "abc123" in card
+    assert "peak VRAM (GiB)" in card
     assert "1073741824" not in card
     assert "| Qwen/Qwen3-Reranker-0.6B |" not in card
+
+
+def test_scoring_summary_pairs_each_best_metric_with_its_threshold() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    summary = card.split("### Best thresholded scoring metrics")[1]
+    header = summary.splitlines()[2]
+
+    assert header == (
+        "| model | languages | MCC @ threshold | F1 @ threshold | "
+        "balanced accuracy @ threshold | precision @ threshold | recall @ threshold | "
+        "ROC-AUC | items/s | peak VRAM (GiB) |"
+    )
+    assert "| score/two |" in summary
+    score_row = next(line for line in summary.splitlines() if line.startswith("| score/two |"))
+    assert score_row.count(" @ ") == 5
+    assert "| 10.00 | 1.00 |" in score_row
+    assert "best_mcc_threshold" not in header
+    assert "threshold_sweep.csv" in card
+
+
+def test_public_card_omits_redundant_scoring_table_and_aggregate_columns() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    aggregate = card.split("## Aggregate scores")[1].split("## Scoring models")[0]
+    scoring = card.split("## Scoring models")[1]
+
+    assert "| model_id | language_count | accuracy_macro | balanced_accuracy_macro |" in aggregate
+    assert "n_items_total" not in aggregate
+    assert "f1_min" not in aggregate
+    assert "unparsed_rate_macro" not in aggregate
+    assert "| model_id | language_count |" not in scoring
+    assert "thresholds and their metrics" in scoring
 
 
 def test_the_card_uses_model_defined_for_legacy_missing_sequence_lengths() -> None:
@@ -422,8 +469,8 @@ def test_the_card_uses_model_defined_for_legacy_missing_sequence_lengths() -> No
 
     assert "| Qwen/Qwen3-Reranker-0.6B |" in card
     assert (
-        "| Qwen/Qwen3-Reranker-0.6B | causal-LM reranker | manual yes/no reranker turn | "
-        "yes/no next-token probability | argmax over the native yes/no scores | "
+        "| Qwen/Qwen3-Reranker-0.6B | causal-LM reranker: manual yes/no reranker turn | "
+        "yes/no next-token probability; argmax over the native yes/no scores | "
         "model-defined |"
     ) in card
 
