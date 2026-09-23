@@ -89,8 +89,15 @@ if [[ "$LRB_MODEL_ID" == "$GLINER2_MODEL_ID" ]]; then
   echo "== runtime: gliner2 $GLINER2_VERSION (isolated Transformers 4)"
 fi
 if [[ "$LRB_MODEL_ID" == "$GGUF_MODEL_ID" ]]; then
-  module load cuda 2>/dev/null || true
-  CMAKE_ARGS="-DGGML_CUDA=on" uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
+  # OAR runs a non-login shell, so Lmod must be sourced before `module` exists.
+  # shellcheck disable=SC1091
+  source /etc/profile.d/lmod.sh 2>/dev/null || true
+  module load cuda-toolkit/12.9.1 2>/dev/null || module load cuda-toolkit 2>/dev/null || true
+  if ! command -v nvcc >/dev/null; then
+    echo "no CUDA toolkit (nvcc) available to build llama.cpp" >&2
+    exit 1
+  fi
+  CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=native" uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
     --no-binary llama-cpp-python "llama-cpp-python==$LLAMA_CPP_PYTHON_VERSION" jinja2
   echo "== runtime: llama-cpp-python $LLAMA_CPP_PYTHON_VERSION (CUDA build)"
 fi
