@@ -64,6 +64,9 @@ mkdir -p "$LRB_RESULTS" "$HF_HOME"
 # environment so the locked runtime every other model uses is never touched.
 case "$LRB_MODEL_ID" in
   "$GTE_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gte-${OAR_JOB_ID:-manual}" ;;
+  # gliclass is an extra the default sync removes, so a concurrent job on the shared
+  # environment would uninstall it mid-run.
+  "$GLICLASS_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gliclass-${OAR_JOB_ID:-manual}" ;;
   "$GLINER2_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gliner2-${OAR_JOB_ID:-manual}" ;;
   "$GGUF_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gguf-${OAR_JOB_ID:-manual}" ;;
 esac

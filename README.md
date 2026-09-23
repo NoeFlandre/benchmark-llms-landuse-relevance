@@ -95,6 +95,7 @@ also contains `data/train.csv`, a single viewer-friendly multilingual split.
 | `allenai/Olmo-3-7B-Instruct` | ~7B |
 | `google/gemma-4-E2B-it` | ~2B |
 | `google/gemma-4-E4B-it` | ~4B |
+| `unsloth/Qwen3.8-27B-GGUF@UD-IQ2_XXS` | 27B at a ~2-bit GGUF quant (7.3 GB), llama.cpp |
 
 ### Scoring models
 
@@ -105,6 +106,20 @@ also contains `data/train.csv`, a single viewer-friendly multilingual split.
 | `convaiinnovations/laya-multilingual` | ~0.322B | typed `noul` yes probability |
 | `Qwen/Qwen3-Reranker-0.6B` | ~0.596B | yes/no next-token argmax |
 | `Qwen/Qwen3-Reranker-4B` | ~4.022B | yes/no next-token argmax |
+| `LiquidAI/LFM2.5-2.6B@logprob` | ~2.7B | first-token yes/no log-probs, one forward pass |
+| `knowledgator/gliclass-multilang-mini` | ~0.284B | GLiClass label probability |
+| `MoritzLaurer/bge-m3-zeroshot-v2.0` | ~0.568B | NLI entailment probability |
+| `MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7` | ~0.279B | NLI entailment probability |
+| `BalaRajesh1/mmbert-small-nli` | ~0.141B | NLI entailment probability |
+| `fastino/gliner2.5-multi-v1` | ~0.287B | GLiNER2 label confidence |
+
+`LiquidAI/LFM2.5-2.6B@logprob` sends the generative prompt and chat turn, closes the
+template's opening `<think>` in the input, and reads P(yes) vs P(no) at the next
+position from a single forward pass — no token is generated. The NLI, GLiClass and
+GLiNER2 models use their own zero-shot APIs with the sentence as input and one
+hypothesis taken from the LLM prompt (`data/prompt_zeroshot.txt`). The GGUF quant runs
+through llama.cpp with the generative prompt, template, greedy decoding and budget, and
+records its quant label in `quantization` rather than `dtype`.
 
 ## Grid'5000
 
