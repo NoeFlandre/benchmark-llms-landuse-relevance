@@ -76,6 +76,9 @@ class RunMetadata:
     throughput_items_per_second: float | None = None
     peak_vram_bytes: int | None = None
     sequence_length: int | None = None
+    # GGUF quant label for llama.cpp runs; empty for full-precision checkpoints, whose
+    # precision is ``dtype``. Kept separate so a quant is never mistaken for a dtype.
+    quantization: str = ""
 
     @property
     def is_generative(self) -> bool:
@@ -88,7 +91,11 @@ class RunMetadata:
             )
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        # Omitted when empty, so every full-precision run keeps its exact published bytes.
+        if not payload["quantization"]:
+            del payload["quantization"]
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "RunMetadata":

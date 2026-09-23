@@ -23,6 +23,7 @@ from landuse_relevance_bench.domain.records import (
     RunResult,
     outcomes_of,
 )
+from landuse_relevance_bench.domain.roster import quantization_of
 from landuse_relevance_bench.domain.scorers import scorer_for
 
 DEFAULT_MAX_NEW_TOKENS = 4096
@@ -77,10 +78,12 @@ def execute(
             batch_size=request.batch_size,
             seed=request.seed,
             decoding="greedy",
-            dtype=request.dtype,
+            dtype=str(getattr(generator, "runtime_dtype", request.dtype)),
             started_at=started_at,
             duration_seconds=round(duration, 3),
             source_commit=source_commit,
+            throughput_items_per_second=len(items) / duration if duration > 0.0 else None,
+            quantization=quantization_of(request.model_id),
         ),
         predictions=predictions,
         metrics=evaluate(outcomes_of(predictions)),

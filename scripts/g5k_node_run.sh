@@ -27,6 +27,11 @@ LRB_MODEL_ID="${LRB_MODEL_ID:-}"
 LRB_DRY_RUN="${LRB_DRY_RUN:-0}"
 GTE_MODEL_ID="Alibaba-NLP/gte-multilingual-reranker-base"
 GTE_TRANSFORMERS_VERSION="5.11.0"
+GLINER2_MODEL_ID="fastino/gliner2.5-multi-v1"
+GLINER2_VERSION="2.0.0"
+GLICLASS_MODEL_ID="knowledgator/gliclass-multilang-mini"
+GGUF_MODEL_ID="unsloth/Qwen3.8-27B-GGUF@UD-IQ2_XXS"
+LLAMA_CPP_PYTHON_VERSION="0.3.35"
 
 if [[ "${1:-}" == "--dry-run" ]]; then
   LRB_DRY_RUN=1
@@ -53,14 +58,33 @@ mkdir -p "$LRB_RESULTS" "$HF_HOME"
 
 # GTE's remote model code calls get_extended_attention_mask, absent from the
 # locked Transformers 5.17 runtime. Keep its compatible runtime isolated.
-if [[ "$LRB_MODEL_ID" == "$GTE_MODEL_ID" ]]; then
-  export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gte-${OAR_JOB_ID:-manual}"
-fi
+# gliner2 pins Transformers<5 and llama.cpp needs a CUDA build: both get their own
+# environment so the locked runtime every other model uses is never touched.
+case "$LRB_MODEL_ID" in
+  "$GTE_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gte-${OAR_JOB_ID:-manual}" ;;
+  "$GLINER2_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gliner2-${OAR_JOB_ID:-manual}" ;;
+  "$GGUF_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gguf-${OAR_JOB_ID:-manual}" ;;
+esac
 
 echo "== node: $(hostname)  job: ${OAR_JOB_ID:-none}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 
-uv sync --extra inference --frozen --no-dev
+extras=(--extra inference)
+if [[ "$LRB_MODEL_ID" == "$GLICLASS_MODEL_ID" ]]; then
+  extras+=(--extra scoring)
+fi
+uv sync "${extras[@]}" --frozen --no-dev
+if [[ "$LRB_MODEL_ID" == "$GLINER2_MODEL_ID" ]]; then
+  uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    "gliner2[local]==$GLINER2_VERSION" "transformers>=4.38,<5" protobuf sentencepiece
+  echo "== runtime: gliner2 $GLINER2_VERSION (isolated Transformers 4)"
+fi
+if [[ "$LRB_MODEL_ID" == "$GGUF_MODEL_ID" ]]; then
+  module load cuda 2>/dev/null || true
+  CMAKE_ARGS="-DGGML_CUDA=on" uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    --no-binary-package llama-cpp-python "llama-cpp-python==$LLAMA_CPP_PYTHON_VERSION" jinja2
+  echo "== runtime: llama-cpp-python $LLAMA_CPP_PYTHON_VERSION (CUDA build)"
+fi
 if [[ "$LRB_MODEL_ID" == "$GTE_MODEL_ID" ]]; then
   uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
     "transformers==$GTE_TRANSFORMERS_VERSION"
@@ -145,9 +169,10 @@ if [[ "$LRB_DRY_RUN" == "1" ]]; then
 fi
 
 if (( is_scoring == 1 )); then
+  # Each scorer declares its own prompt file; override only when asked to.
   uv run --no-sync lrb score "$LRB_MODEL_ID" \
     --data-root "$LRB_DATA_ROOT" \
-    --prompt "${LRB_SCORER_PROMPT:-data/prompt_reranker.txt}" \
+    ${LRB_SCORER_PROMPT:+--prompt "$LRB_SCORER_PROMPT"} \
     --out "$LRB_RESULTS" \
     --batch-size "$LRB_BATCH_SIZE" \
     --shard-index "$LRB_SHARD_INDEX" \

@@ -10,6 +10,7 @@ from typing import Any
 
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.domain.engine import Generation
+from landuse_relevance_bench.domain.roster import quantization_of
 
 
 def is_truncated(
@@ -134,8 +135,15 @@ class TransformersGenerator:
         )
 
 
-def provide(request: RunRequest) -> tuple[TransformersGenerator, str]:
-    """The default generator provider used by the CLI."""
+def provide(request: RunRequest) -> tuple[Any, str]:
+    """The default generator provider used by the CLI.
+
+    A rostered GGUF quant is dispatched to llama.cpp; everything else runs here.
+    """
+    if quantization_of(request.model_id):
+        from landuse_relevance_bench.adapters.llama_generator import provide as provide_gguf
+
+        return provide_gguf(request)
     generator = TransformersGenerator.load(
         request.model_id,
         GeneratorSettings(

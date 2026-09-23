@@ -1,6 +1,6 @@
 """Scoring the benchmark with models that never generate text.
 
-The roster contains four scoring families: Qwen's yes/no next-token rerankers,
+The roster contains several scoring families, including: Qwen's yes/no next-token rerankers,
 GTE's sequence-classification logit, mxbai's binary ``1``/``0`` next-token
 logit difference, and Laya's typed ``noul`` decision probability. Each adapter
 returns the same normalised relevance score and also keeps its native score for
@@ -17,6 +17,7 @@ from landuse_relevance_bench.adapters.hf_scorer_prompt import reranker_input
 from landuse_relevance_bench.adapters.pipeline import SCORING_SEQUENCE_LENGTH, RunRequest
 from landuse_relevance_bench.domain.engine import LabelScorer, LabelScores, ScoringInput
 from landuse_relevance_bench.domain.labels import Label
+from landuse_relevance_bench.domain.scorers import repository_of
 
 _SINGLE_LOGIT_COUNT = 1
 _BINARY_LOGIT_COUNT = 2
@@ -384,13 +385,103 @@ def _laya_probability(answer: Any) -> float:
     return probability
 
 
-class GliClassScorer(_CudaMeasurement):
-    """Reads a verdict from a zero-shot classifier's score for each label."""
+ZEROSHOT_HYPOTHESIS_MARKER = "HYPOTHESIS:"
+ZEROSHOT_SEQUENCE_LENGTH = 512
 
-    _LABELS = ("yes", "no")
+
+def zeroshot_hypothesis(prompt: str) -> str:
+    """Read the shared hypothesis out of the rendered zero-shot prompt.
+
+    The hypothesis lives in the prompt file, not in code, so its sha256 is pinned in
+    every result exactly like an LLM prompt's.
+    """
+    _, marker, hypothesis = prompt.rpartition(ZEROSHOT_HYPOTHESIS_MARKER)
+    hypothesis = hypothesis.strip()
+    if not marker or not hypothesis:
+        raise ValueError(f"zero-shot prompt has no {ZEROSHOT_HYPOTHESIS_MARKER!r} line")
+    return hypothesis
+
+
+def _probability_scores(probability: float, native: float | None = None) -> LabelScores:
+    probability = min(max(float(probability), 0.0), 1.0)
+    return LabelScores(
+        {Label.NO: 1.0 - probability, Label.YES: probability},
+        native_score=probability if native is None else native,
+    )
+
+
+def _torch_device() -> str:
+    import torch
+
+    return "cuda:0" if torch.cuda.is_available() else "cpu"
+
+
+class NliZeroShotScorer(_CudaMeasurement):
+    """Entailment probability of the land-use hypothesis, via the zero-shot pipeline.
+
+    This is the checkpoints' documented interface: ``pipeline("zero-shot-classification")``
+    with the sentence as premise. A single candidate label is scored as entailment
+    against contradiction (``not_entailment`` for two-way models), which is what the
+    pipeline does for ``multi_label=True``.
+    """
+
+    sequence_length = ZEROSHOT_SEQUENCE_LENGTH
 
     def __init__(self, pipeline: Any, revision: str) -> None:
         self._pipeline = pipeline
+        self._model = pipeline.model
+        self._revision = revision
+
+    @classmethod
+    def load(
+        cls, model_id: str, settings: ScorerSettings, revision: str | None = None
+    ) -> "NliZeroShotScorer":
+        import torch
+
+        transformers = _load_transformers()
+        tokenizer: Any = transformers.AutoTokenizer.from_pretrained(model_id, revision=revision)
+        tokenizer.model_max_length = min(tokenizer.model_max_length, ZEROSHOT_SEQUENCE_LENGTH)
+        model: Any = transformers.AutoModelForSequenceClassification.from_pretrained(
+            model_id, revision=revision, dtype=getattr(torch, settings.dtype)
+        )
+        pipeline = transformers.pipeline(
+            "zero-shot-classification",
+            model=model,
+            tokenizer=tokenizer,
+            device=_torch_device(),
+        )
+        resolved = str(getattr(model.config, "_commit_hash", "") or "")
+        return cls(pipeline, revision or resolved)
+
+    @property
+    def revision(self) -> str:
+        return self._revision
+
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        if not inputs:
+            return []
+        hypothesis = zeroshot_hypothesis(inputs[0].prompt)
+        results = self._pipeline(
+            [item.sentence for item in inputs],
+            candidate_labels=[hypothesis],
+            hypothesis_template="{}",
+            multi_label=True,
+            batch_size=len(inputs),
+            truncation=True,
+        )
+        if isinstance(results, dict):
+            results = [results]
+        return [_probability_scores(result["scores"][0]) for result in results]
+
+
+class GliClassScorer(_CudaMeasurement):
+    """GLiClass's sigmoid score for the single land-use label."""
+
+    sequence_length = ZEROSHOT_SEQUENCE_LENGTH
+
+    def __init__(self, pipeline: Any, revision: str) -> None:
+        self._pipeline = pipeline
+        self._model = getattr(pipeline, "model", None)
         self._revision = revision
 
     @classmethod
@@ -406,8 +497,15 @@ class GliClassScorer(_CudaMeasurement):
             model_id, revision=revision, dtype=getattr(torch, settings.dtype)
         )
         tokenizer = transformers.AutoTokenizer.from_pretrained(model_id, revision=revision)
+        # multi-label scores each label independently, so one label keeps its own
+        # probability instead of being normalised to 1 against nothing.
         pipeline = ZeroShotClassificationPipeline(
-            model, tokenizer, classification_type="single-label", device="cuda:0"
+            model,
+            tokenizer,
+            classification_type="multi-label",
+            device=_torch_device(),
+            max_length=ZEROSHOT_SEQUENCE_LENGTH,
+            progress_bar=False,
         )
         resolved = str(getattr(model.config, "_commit_hash", "") or "")
         return cls(pipeline, revision or resolved)
@@ -419,18 +517,169 @@ class GliClassScorer(_CudaMeasurement):
     def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         if not inputs:
             return []
+        hypothesis = zeroshot_hypothesis(inputs[0].prompt)
         results = self._pipeline(
-            [item.prompt for item in inputs], list(self._LABELS), threshold=0.0
+            [item.sentence for item in inputs],
+            [hypothesis],
+            threshold=0.0,
+            batch_size=len(inputs),
         )
-        return [_as_label_scores(result) for result in results]
+        return [_label_probability(result, hypothesis) for result in results]
 
 
-def _as_label_scores(result: Any) -> LabelScores:
-    scores = {Label(entry["label"]): float(entry["score"]) for entry in result}
-    missing = {Label.YES, Label.NO} - set(scores)
-    for label in missing:
-        scores[label] = 0.0
-    return LabelScores(scores)
+def _label_probability(result: Any, label: str) -> LabelScores:
+    for entry in result:
+        if entry["label"] == label:
+            return _probability_scores(entry["score"])
+    return _probability_scores(0.0)
+
+
+class Gliner2Scorer(_CudaMeasurement):
+    """GLiNER2.5's classification probability for the single land-use label."""
+
+    TASK = "landuse"
+
+    def __init__(self, model: Any, revision: str) -> None:
+        self._model = model
+        self._revision = revision
+
+    @classmethod
+    def load(
+        cls, model_id: str, settings: ScorerSettings, revision: str | None = None
+    ) -> "Gliner2Scorer":
+        from huggingface_hub import snapshot_download
+
+        # Imported by name: gliner2 lives in its own environment (it pins Transformers 4).
+        auto_extractor = __import__("builtins").__import__("gliner2").AutoExtractor
+
+        del settings  # the SDK picks its own runtime dtype, recorded as runtime_dtype
+        local_path = snapshot_download(model_id, revision=revision)
+        model = auto_extractor.from_pretrained(
+            local_path, map_location=_torch_device().split(":")[0]
+        )
+        model.eval()
+        return cls(model, revision or Path(local_path).name)
+
+    @property
+    def revision(self) -> str:
+        return self._revision
+
+    @property
+    def runtime_dtype(self) -> str:
+        dtype = getattr(next(self._model.parameters()), "dtype", None)
+        return "sdk-default" if dtype is None else str(dtype).removeprefix("torch.")
+
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        if not inputs:
+            return []
+        hypothesis = zeroshot_hypothesis(inputs[0].prompt)
+        tasks = {self.TASK: {"labels": [hypothesis], "multi_label": True, "cls_threshold": 0.0}}
+        scores = []
+        for item in inputs:
+            result = self._model.classify_text(item.sentence, tasks, include_confidence=True)
+            scores.append(_probability_scores(_gliner2_confidence(result[self.TASK], hypothesis)))
+        return scores
+
+
+def _gliner2_confidence(task_result: Any, label: str) -> float:
+    """Read one label's confidence from GLiNER2's classification output shapes."""
+    entries = task_result if isinstance(task_result, list) else [task_result]
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("label") == label:
+            return float(entry["confidence"])
+    return 0.0
+
+
+class CausalLogprobScorer(_CudaMeasurement):
+    """Reads a generative model's verdict from one forward pass, without decoding.
+
+    The input is the exact chat turn the generative run used (same prompt, same
+    template), with the model's opening ``<think>`` closed empty so that the next
+    token is the verdict itself. ``P(yes)`` is renormalised over the two verdict
+    tokens; the native score is ``log P(yes) - log P(no)`` over the full vocabulary,
+    and the full-vocabulary mass on the two tokens is logged alongside for audit.
+    """
+
+    THINK_CLOSE = "</think>"
+
+    def __init__(self, tokenizer: Any, model: Any, settings: ScorerSettings) -> None:
+        self._tokenizer = tokenizer
+        self._model = model
+        self._settings = settings
+        self._yes_ids = _verdict_token_ids(tokenizer, "yes")
+        self._no_ids = _verdict_token_ids(tokenizer, "no")
+
+    @classmethod
+    def load(
+        cls, model_id: str, settings: ScorerSettings, revision: str | None = None
+    ) -> "CausalLogprobScorer":
+        import torch
+
+        transformers = _load_transformers()
+        tokenizer: Any = transformers.AutoTokenizer.from_pretrained(model_id, revision=revision)
+        tokenizer.padding_side = "left"
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        model: Any = transformers.AutoModelForCausalLM.from_pretrained(
+            model_id,
+            revision=revision,
+            dtype=getattr(torch, settings.dtype),
+            device_map=settings.device_map,
+        )
+        model.eval()
+        return cls(tokenizer, model, settings)
+
+    @property
+    def revision(self) -> str:
+        return str(getattr(self._model.config, "_commit_hash", "") or "")
+
+    def as_chat(self, prompt: str) -> str:
+        text = self._tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+        if text.rstrip().endswith("<think>"):
+            text = text.rstrip() + self.THINK_CLOSE
+        return text
+
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        import torch
+
+        if not inputs:
+            return []
+        batch = self._tokenizer(
+            [self.as_chat(item.prompt) for item in inputs],
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=SCORING_SEQUENCE_LENGTH,
+            add_special_tokens=False,
+        )
+        batch = {k: v.to(self._model.device) for k, v in batch.items()}
+        with torch.inference_mode():
+            logits = self._model(**batch).logits[:, -1, :].float()
+        log_probs = torch.log_softmax(logits, dim=-1)
+        log_yes = torch.logsumexp(log_probs[:, self._yes_ids], dim=-1)
+        log_no = torch.logsumexp(log_probs[:, self._no_ids], dim=-1)
+        p_yes = torch.sigmoid(log_yes - log_no)
+        return [
+            _probability_scores(float(p), native=float(ly - ln))
+            for p, ly, ln in zip(p_yes, log_yes, log_no, strict=True)
+        ]
+
+
+def _verdict_token_ids(tokenizer: Any, word: str) -> list[int]:
+    """Single-token spellings of a verdict (case and leading-space variants)."""
+    ids: set[int] = set()
+    for candidate in (word, f" {word}", word.capitalize(), f" {word.capitalize()}"):
+        encoded = tokenizer.encode(candidate, add_special_tokens=False)
+        if len(encoded) == 1:
+            ids.add(int(encoded[0]))
+    if not ids:
+        raise ValueError(f"{word!r} has no single-token spelling; log-probabilities undefined")
+    return sorted(ids)
 
 
 def _single_token_id(tokenizer: Any, word: str) -> int:
@@ -464,6 +713,12 @@ def scorer_class_for(model_id: str) -> type[Any]:
         "convaiinnovations/laya-multilingual": LayaScorer,
         "Qwen/Qwen3-Reranker-0.6B": RerankerScorer,
         "Qwen/Qwen3-Reranker-4B": RerankerScorer,
+        "LiquidAI/LFM2.5-2.6B@logprob": CausalLogprobScorer,
+        "knowledgator/gliclass-multilang-mini": GliClassScorer,
+        "MoritzLaurer/bge-m3-zeroshot-v2.0": NliZeroShotScorer,
+        "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7": NliZeroShotScorer,
+        "BalaRajesh1/mmbert-small-nli": NliZeroShotScorer,
+        "fastino/gliner2.5-multi-v1": Gliner2Scorer,
     }
     try:
         return adapters[model_id]
@@ -475,6 +730,6 @@ def provide_scorer(request: RunRequest) -> tuple[LabelScorer, str]:
     """The default scorer provider used by the CLI."""
     settings = ScorerSettings(dtype=request.dtype)
     scorer = scorer_class_for(request.model_id).load(
-        request.model_id, settings, revision=request.revision
+        repository_of(request.model_id), settings, revision=request.revision
     )
     return scorer, request.revision or scorer.revision

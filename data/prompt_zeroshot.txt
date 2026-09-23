@@ -1,0 +1,5 @@
+Zero-shot classification input for NLI and label-matching models. The premise is the TARGET SENTENCE; the hypothesis / positive label is the line after HYPOTHESIS, derived from the LLM prompt.
+
+TARGET SENTENCE: {}
+
+HYPOTHESIS: This sentence contains information useful for inferring the land use or land cover of the associated geographic place.

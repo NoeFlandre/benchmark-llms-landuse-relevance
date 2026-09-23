@@ -55,7 +55,38 @@ _SCORER_CARD_CONFIG = {
         "manual yes/no reranker turn",
         "yes/no next-token probability",
     ),
+    "LiquidAI/LFM2.5-2.6B@logprob": (
+        "causal LM, no decoding",
+        "LLM prompt + chat turn, empty think block",
+        "first-token P(yes) vs P(no)",
+    ),
+    "knowledgator/gliclass-multilang-mini": (
+        "GLiClass zero-shot",
+        "sentence + hypothesis label",
+        "label probability",
+    ),
+    "MoritzLaurer/bge-m3-zeroshot-v2.0": (
+        "NLI zero-shot pipeline",
+        "sentence premise + hypothesis",
+        "entailment probability",
+    ),
+    "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7": (
+        "NLI zero-shot pipeline",
+        "sentence premise + hypothesis",
+        "entailment probability",
+    ),
+    "BalaRajesh1/mmbert-small-nli": (
+        "NLI zero-shot pipeline",
+        "sentence premise + hypothesis",
+        "entailment probability",
+    ),
+    "fastino/gliner2.5-multi-v1": (
+        "GLiNER2 classify_text",
+        "sentence + hypothesis label",
+        "label confidence",
+    ),
 }
+_LOGPROB_PAIRS = {"LiquidAI/LFM2.5-2.6B@logprob": "LiquidAI/LFM2.5-2.6B"}
 
 
 class DatasetHub(Protocol):
@@ -87,6 +118,7 @@ def dataset_card(
     benchmark_name: str,
     prompt_text: str,
     scorer_prompt_text: str = "",
+    extra_scorer_prompt_texts: Sequence[str] = (),
     viewer_file: str = "",
 ) -> str:
     """Build a terse card whose scores are recomputed from every prediction."""
@@ -104,17 +136,22 @@ def dataset_card(
         raise ValueError("prompt text does not match the digest recorded in the runs")
     generative = generative_pre
     scoring = [r for r in results if not r.metadata.is_generative]
-    scorer_prompt_sha256 = ""
-    if scoring:
-        scorer_prompt_sha256 = _uniform(
-            scoring, "scoring prompt digest", lambda r: r.metadata.prompt_sha256
-        )
-        if sha256_of_text(scorer_prompt_text) != scorer_prompt_sha256:
-            raise ValueError(
-                "scoring prompt text does not match the digest recorded in the scoring runs"
-            )
+    scoring_prompts = _scoring_prompts(
+        scoring, prompt_text, (scorer_prompt_text, *extra_scorer_prompt_texts)
+    )
     decoding = _uniform(generative, "decoding", lambda r: r.metadata.decoding)
-    dtype = _uniform(generative, "dtype", lambda r: r.metadata.dtype)
+    # A GGUF quant has no torch dtype; its precision is its recorded quant label.
+    full_precision = [r for r in generative if not r.metadata.quantization]
+    dtype = _uniform(full_precision or generative, "dtype", lambda r: r.metadata.dtype)
+    quantized = sorted(
+        {(r.metadata.model_id, r.metadata.quantization) for r in generative}
+        - {(r.metadata.model_id, "") for r in generative}
+    )
+    quant_line = "".join(
+        f"\n`{model_id}` runs the `{quant}` GGUF quant through llama.cpp (same prompt, "
+        "template, greedy decoding and budget)."
+        for model_id, quant in quantized
+    )
     seed = _uniform(generative, "seed", lambda r: r.metadata.seed)
     max_new_tokens = _uniform(generative, "token budget", lambda r: r.metadata.max_new_tokens)
     batch_sizes = sorted({result.metadata.batch_size for result in generative})
@@ -145,7 +182,10 @@ def dataset_card(
         )
 
     body = table(generative)
-    scoring_section = _scoring_section(scoring, prompt_text=scorer_prompt_text) if scoring else ""
+    scoring_section = _scoring_section(scoring, prompts=scoring_prompts) if scoring else ""
+    comparison = _logprob_comparison(results)
+    if comparison:
+        scoring_section = f"{scoring_section}\n\n{comparison}"
     sections_block = f"\n\n{scoring_section}" if scoring_section else ""
     return f"""---
 license: mit
@@ -175,7 +215,7 @@ tags:
 Does a sentence describe a place's land or environment in ways visible to satellites?
 
 English prompt · {decoding} decoding · seed {seed} · `max_new_tokens={max_new_tokens}` ·
-`{dtype}` · {batch_size_line}.
+`{dtype}` · {batch_size_line}.{quant_line}
 
 ### Prompt text
 
@@ -233,7 +273,7 @@ def _ranked_cell(
 def _scoring_section(
     scoring: Sequence[RunResult],
     *,
-    prompt_text: str,
+    prompts: Sequence[tuple[str, str]],
 ) -> str:
     """Render compact public-facing scoring details and tables."""
     summary = scoring_summary_rows(scoring)
@@ -267,6 +307,9 @@ def _scoring_section(
     )
     setup_divider = "|" + "|".join(["---"] * 6) + "|"
     setup_body = "\n".join(_scoring_setup_row(model_runs) for model_runs in _by_model(scoring))
+    prompt_blocks = "\n\n".join(
+        f"{label}:\n\n```text\n{text}```" if text else f"{label}." for label, text in prompts
+    )
     return f"""## Scoring models
 
 Scores are normalized to [0, 1]. Best thresholds are selected on this benchmark (an upper
@@ -278,16 +321,93 @@ bound); ROC-AUC needs no threshold. Full sweep: [`threshold_sweep.csv`](threshol
 {setup_divider}
 {setup_body}
 
-### Scoring prompt
+### Scoring prompts
 
-```text
-{prompt_text}```
+{prompt_blocks}
 
 ### Best thresholded scoring metrics
 
 {summary_header}
 {summary_divider}
 {summary_body}"""
+
+
+def _scoring_prompts(
+    scoring: Sequence[RunResult], llm_prompt: str, candidates: Sequence[str]
+) -> list[tuple[str, str]]:
+    """Match every scoring run's prompt digest to a supplied text, labelled by its users.
+
+    A scorer that reads the LLM prompt (log-probability scoring) is pointed back at the
+    task prompt above instead of repeating it.
+    """
+    llm_digest = sha256_of_text(llm_prompt)
+    texts = {sha256_of_text(text): text for text in candidates if text}
+    users: dict[str, list[str]] = {}
+    for result in scoring:
+        users.setdefault(result.metadata.prompt_sha256, [])
+        if result.metadata.model_id not in users[result.metadata.prompt_sha256]:
+            users[result.metadata.prompt_sha256].append(result.metadata.model_id)
+    blocks: list[tuple[str, str]] = []
+    for digest, models in users.items():
+        if digest == llm_digest:
+            continue
+        if digest not in texts:
+            raise ValueError(
+                "scoring prompt text does not match the digest recorded in the scoring runs "
+                f"of {', '.join(models)}"
+            )
+        blocks.append((", ".join(f"`{model}`" for model in sorted(models)), texts[digest]))
+    if llm_digest in users:
+        models = ", ".join(f"`{model}`" for model in sorted(users[llm_digest]))
+        blocks.append((f"{models} use the task prompt above", ""))
+    return blocks
+
+
+def _logprob_comparison(results: Sequence[RunResult]) -> str:
+    """Compare log-probability scoring against parsing the same model's generations."""
+    by_model = _grouped(results)
+    rows = []
+    for scored_id, generated_id in _LOGPROB_PAIRS.items():
+        scored, generated = by_model.get(scored_id), by_model.get(generated_id)
+        if not scored or not generated:
+            continue
+        shared = sorted(
+            {r.metadata.language for r in scored} & {r.metadata.language for r in generated}
+        )
+        for method, runs in (("generation + parsing", generated), ("yes/no log-probs", scored)):
+            subset = [r for r in runs if r.metadata.language in shared]
+            (aggregate,) = aggregate_rows(subset)
+            seconds = sum(r.metadata.duration_seconds for r in subset)
+            items = sum(r.metrics.n_items for r in subset)
+            auc = "n/a"
+            if not subset[0].metadata.is_generative:
+                auc = _format_card_float(
+                    next(
+                        row["roc_auc_macro"]
+                        for row in scoring_summary_rows(subset)
+                        if row["model_id"] == scored_id
+                    )
+                )
+            rows.append(
+                f"| {method} | {aggregate['f1_macro']} | {aggregate['matthews_corrcoef_macro']} "
+                f"| {aggregate['unparsed_rate_macro']} | {auc} | {seconds / 3600:.2f} "
+                f"| {1000 * seconds / items:.1f} |"
+            )
+    if not rows:
+        return ""
+    return (
+        "### LFM2.5-2.6B: log-probabilities vs generation\n\n"
+        "Same model, prompt and languages; log-probs call yes when P(yes) > P(no).\n\n"
+        "| method | F1 | MCC | unparsed | ROC-AUC | GPU hours | ms/item |\n"
+        "|---|---|---|---|---|---|---|\n" + "\n".join(rows)
+    )
+
+
+def _grouped(results: Sequence[RunResult]) -> dict[str, list[RunResult]]:
+    grouped: dict[str, list[RunResult]] = {}
+    for result in results:
+        grouped.setdefault(result.metadata.model_id, []).append(result)
+    return grouped
 
 
 def _by_model(results: Sequence[RunResult]) -> tuple[tuple[RunResult, ...], ...]:
@@ -374,6 +494,7 @@ def publish_results(
     benchmark_name: str = "v3-multilingual",
     prompt_text: str,
     scorer_prompt_text: str = "",
+    extra_scorer_prompt_texts: Sequence[str] = (),
     data_root: Path | None = None,
 ) -> str:
     """Write the card next to the results, then push the whole folder to the Hub."""
@@ -393,6 +514,7 @@ def publish_results(
             benchmark_name=benchmark_name,
             prompt_text=prompt_text,
             scorer_prompt_text=scorer_prompt_text,
+            extra_scorer_prompt_texts=extra_scorer_prompt_texts,
             viewer_file=viewer_file,
         ),
         encoding="utf-8",

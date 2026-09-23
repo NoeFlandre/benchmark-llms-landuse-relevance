@@ -35,7 +35,7 @@ from landuse_relevance_bench.adapters.translations import (
 from landuse_relevance_bench.domain.engine import LabelScorer, TextGenerator
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
 from landuse_relevance_bench.domain.roster import ROSTER, model_ids
-from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, scorer_ids
+from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, scorer_for, scorer_ids
 from landuse_relevance_bench.domain.sharding import (
     model_language_pairs,
     pair_statuses,
@@ -228,9 +228,12 @@ def run(
 
 @app.command()
 def score(
-    model_id: Annotated[str, typer.Argument(help="Hugging Face model repository id.")],
+    model_id: Annotated[str, typer.Argument(help="Scoring roster id.")],
     data_root: DataRoot = DEFAULT_DATA_ROOT,
-    prompt: Prompt = DEFAULT_PROMPT,
+    prompt: Annotated[
+        Path | None,
+        typer.Option("--prompt", help="Prompt template; defaults to the scorer's own."),
+    ] = None,
     out: Results = DEFAULT_RESULTS,
     language: Language = None,
     revision: Annotated[str | None, typer.Option(help="Pin the model to a commit.")] = None,
@@ -245,6 +248,7 @@ def score(
         raise typer.BadParameter(
             f"{model_id!r} is not in the scoring roster; `lrb run` benchmarks generative models"
         )
+    prompt = prompt or Path(scorer_for(model_id).prompt)
     manifest, selected = _selected_languages(data_root, language)
     pairs = _planned_pairs((model_id,), selected, shard_index, shard_count)
     provider = _cached_scorer_provider()
@@ -417,9 +421,19 @@ def publish(
         benchmark_name=benchmark_name,
         prompt_text=prompt_text,
         scorer_prompt_text=scorer_prompt_text,
+        extra_scorer_prompt_texts=_extra_scorer_prompts(scorer_prompt),
         data_root=data_root,
     )
     typer.echo(f"published {len(runs)} run(s) to {url}")
+
+
+def _extra_scorer_prompts(primary: Path) -> tuple[str, ...]:
+    """Every other prompt file a rostered scorer declares, for the card to match digests."""
+    paths = sorted({Path(spec.prompt) for spec in SCORER_ROSTER} - {primary, DEFAULT_PROMPT})
+    try:
+        return tuple(load_prompt(path) for path in paths if path.is_file())
+    except (OSError, PromptFileError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 def _selected_languages(

@@ -731,3 +731,83 @@ def test_the_card_has_neat_spacing_between_sections() -> None:
     )
 
     assert "\n\n\n" not in card
+
+
+ZEROSHOT_PROMPT = "TARGET SENTENCE: {}\n\nHYPOTHESIS: It is about land use.\n"
+
+
+def test_the_card_matches_each_scoring_prompt_to_the_runs_that_used_it() -> None:
+    zeroshot = replace(
+        _scored("nli/model"),
+        metadata=replace(
+            _scored("nli/model").metadata, prompt_sha256=sha256_of_text(ZEROSHOT_PROMPT)
+        ),
+    )
+    logprob = replace(
+        _scored("LiquidAI/LFM2.5-2.6B@logprob"),
+        metadata=replace(
+            _scored("x").metadata,
+            model_id="LiquidAI/LFM2.5-2.6B@logprob",
+            prompt_sha256=PROMPT_SHA256,
+        ),
+    )
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two"), zeroshot, logprob],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+        extra_scorer_prompt_texts=(ZEROSHOT_PROMPT,),
+    )
+    scoring = card.split("## Scoring models")[1]
+
+    assert ZEROSHOT_PROMPT in scoring
+    assert "`nli/model`:" in scoring
+    assert "`LiquidAI/LFM2.5-2.6B@logprob` use the task prompt above." in scoring
+
+
+def test_the_card_compares_log_probabilities_with_parsed_generation() -> None:
+    generated = _result_with_outcomes(
+        "LiquidAI/LFM2.5-2.6B",
+        (
+            (Label.YES, Label.YES),
+            (Label.YES, Label.YES),
+            (Label.NO, Label.NO),
+            (Label.NO, Label.NO),
+        ),
+    )
+    generated = replace(
+        generated,
+        metadata=replace(
+            generated.metadata, model_id="LiquidAI/LFM2.5-2.6B", duration_seconds=3600.0
+        ),
+    )
+    scored = _scoring_result("LiquidAI/LFM2.5-2.6B@logprob", (0.9, 0.8, 0.2, 0.1), vram_gib=1)
+    scored = replace(
+        scored,
+        metadata=replace(scored.metadata, prompt_sha256=PROMPT_SHA256, duration_seconds=36.0),
+    )
+    card = dataset_card(
+        [generated, scored],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+    )
+
+    section = card.split("### LFM2.5-2.6B: log-probabilities vs generation")[1]
+    assert "| generation + parsing | 1.0 |" in section
+    assert "| yes/no log-probs | 1.0 | 1.0 | 0.0 | 1 | 0.01 | 9000.0 |" in section
+    assert "| n/a | 1.00 | 900000.0 |" in section
+
+
+def test_the_card_names_a_gguf_quant_without_calling_it_a_dtype() -> None:
+    quant = replace(
+        _result("unsloth/Big-GGUF@IQ2"),
+        metadata=replace(
+            _result().metadata, model_id="unsloth/Big-GGUF@IQ2", dtype="gguf", quantization="IQ2"
+        ),
+    )
+    card = dataset_card(
+        [_result("gen/one"), quant], benchmark_name="benchmark.csv", prompt_text=PROMPT
+    )
+
+    assert "`bfloat16`" in card
+    assert "`unsloth/Big-GGUF@IQ2` runs the `IQ2` GGUF quant through llama.cpp" in card

@@ -15,6 +15,15 @@ class ModelSpec:
     model_id: str
     total_parameters: int
     note: str
+    # A GGUF quant label (e.g. ``UD-IQ2_XXS``). Empty for full-precision Transformers
+    # checkpoints; set, the model runs through llama.cpp and results record the label.
+    quantization: str = ""
+    weights_file: str = ""
+
+    @property
+    def repository(self) -> str:
+        """The Hub repository to load; the roster id minus any ``@variant``."""
+        return self.model_id.split("@", 1)[0]
 
 
 ROSTER: tuple[ModelSpec, ...] = (
@@ -65,6 +74,13 @@ ROSTER: tuple[ModelSpec, ...] = (
         "Ministral 3 8B; vision-language, prompted text-only.",
     ),
     ModelSpec("utter-project/EuroLLM-9B-Instruct-2512", 9_152_300_000, "EuroLLM 9B instruct."),
+    ModelSpec(
+        "unsloth/Qwen3.8-27B-GGUF@UD-IQ2_XXS",
+        27_320_697_856,
+        "Qwen3.8 27B at a ~2-bit GGUF quant (7.3 GB) through llama.cpp.",
+        quantization="UD-IQ2_XXS",
+        weights_file="Qwen3.8-27B-UD-IQ2_XXS.gguf",
+    ),
 )
 
 
@@ -77,3 +93,11 @@ def spec_for(model_id: str) -> ModelSpec:
         if spec.model_id == model_id:
             return spec
     raise KeyError(f"{model_id!r} is not in the benchmark roster")
+
+
+def quantization_of(model_id: str) -> str:
+    """The quant label a rostered model runs at; empty for unrostered or full precision."""
+    for spec in ROSTER:
+        if spec.model_id == model_id:
+            return spec.quantization
+    return ""
