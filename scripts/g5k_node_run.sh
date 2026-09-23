@@ -70,6 +70,10 @@ case "$LRB_MODEL_ID" in
   "$GLINER2_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gliner2-${OAR_JOB_ID:-manual}" ;;
   "$GGUF_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gguf-${OAR_JOB_ID:-manual}" ;;
 esac
+if [[ -n "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
+  # $HOME is quota-limited; a per-job environment is rebuilt from the uv cache anyway.
+  trap 'rm -rf "$UV_PROJECT_ENVIRONMENT"' EXIT
+fi
 
 echo "== node: $(hostname)  job: ${OAR_JOB_ID:-none}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
