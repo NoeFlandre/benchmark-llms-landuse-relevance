@@ -63,6 +63,7 @@ select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", 
 # A command's parameters are its user interface; typer needs them in the signature.
 "src/landuse_relevance_bench/cli.py" = ["PLC0415", "PLR0913", "PLR0917"]
 "src/landuse_relevance_bench/adapters/hf_generator.py" = ["PLC0415"]
+"src/landuse_relevance_bench/adapters/pipeline.py" = ["PLC0415"]
 "src/landuse_relevance_bench/adapters/hf_scorer.py" = ["PLC0415"]
 "src/landuse_relevance_bench/adapters/llama_generator.py" = ["PLC0415"]
 "src/landuse_relevance_bench/adapters/hf_publish.py" = ["PLC0415", "PLR0913"]

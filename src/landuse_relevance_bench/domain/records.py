@@ -79,6 +79,8 @@ class RunMetadata:
     # GGUF quant label for llama.cpp runs; empty for full-precision checkpoints, whose
     # precision is ``dtype``. Kept separate so a quant is never mistaken for a dtype.
     quantization: str = ""
+    # Accelerator the timing was measured on; omitted when unknown, like quantization.
+    device_name: str = ""
 
     @property
     def is_generative(self) -> bool:
@@ -93,8 +95,9 @@ class RunMetadata:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         # Omitted when empty, so every full-precision run keeps its exact published bytes.
-        if not payload["quantization"]:
-            del payload["quantization"]
+        for optional in ("quantization", "device_name"):
+            if not payload[optional]:
+                del payload[optional]
         return payload
 
     @classmethod

@@ -84,6 +84,7 @@ def execute(
             source_commit=source_commit,
             throughput_items_per_second=len(items) / duration if duration > 0.0 else None,
             quantization=quantization_of(request.model_id),
+            device_name=_device_name(),
         ),
         predictions=predictions,
         metrics=evaluate(outcomes_of(predictions)),
@@ -141,6 +142,7 @@ def execute_scoring(
             throughput_items_per_second=throughput,
             peak_vram_bytes=_peak_vram_bytes(scorer),
             sequence_length=int(getattr(scorer, "sequence_length", SCORING_SEQUENCE_LENGTH)),
+            device_name=_device_name(),
         ),
         predictions=predictions,
         metrics=evaluate(outcomes_of(predictions)),
@@ -164,3 +166,12 @@ def _end_measurement(scorer: LabelScorer) -> None:
 def _peak_vram_bytes(scorer: LabelScorer) -> int | None:
     value = getattr(scorer, "peak_vram_bytes", None)
     return int(value) if value is not None else None
+
+
+def _device_name() -> str:
+    """The GPU a run was timed on, so throughput claims name their hardware."""
+    try:
+        import torch
+    except ImportError:
+        return ""
+    return torch.cuda.get_device_name(0) if torch.cuda.is_available() else ""

@@ -50,6 +50,12 @@ class _CudaMeasurement:
         if model is None:
             model = getattr(getattr(self, "_pipeline", None), "model", None)
         device = getattr(model, "device", None)
+        if getattr(device, "type", None) == "cuda":
+            return device
+        # Some SDK models (GLiClass) expose no ``device``; read it from their weights.
+        parameters = getattr(model, "parameters", None)
+        if callable(parameters):
+            device = getattr(next(iter(parameters()), None), "device", None)
         return device if getattr(device, "type", None) == "cuda" else None
 
     def begin_measurement(self) -> None:

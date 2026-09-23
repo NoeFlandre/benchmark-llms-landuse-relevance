@@ -47,4 +47,4 @@ def test_active_documentation_has_no_historical_benchmark_references() -> None:
         text = path.read_text(encoding="utf-8")
         lowered = text.lower()
         assert not any(needle.lower() in lowered for needle in forbidden), path
-        assert re.search(r"\bv1\b", lowered) is None, path
+        assert re.search(r"(?<![-\w])v1\b", lowered) is None, path

@@ -91,7 +91,7 @@ fi
 if [[ "$LRB_MODEL_ID" == "$GGUF_MODEL_ID" ]]; then
   module load cuda 2>/dev/null || true
   CMAKE_ARGS="-DGGML_CUDA=on" uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
-    --no-binary-package llama-cpp-python "llama-cpp-python==$LLAMA_CPP_PYTHON_VERSION" jinja2
+    --no-binary llama-cpp-python "llama-cpp-python==$LLAMA_CPP_PYTHON_VERSION" jinja2
   echo "== runtime: llama-cpp-python $LLAMA_CPP_PYTHON_VERSION (CUDA build)"
 fi
 if [[ "$LRB_MODEL_ID" == "$GTE_MODEL_ID" ]]; then
