@@ -25,13 +25,14 @@ remove the heuristic entirely, at the cost of no longer measuring instruction-fo
 — see [ADR-0001](adr/0001-greedy-generation.md).
 
 **Mutation testing covers the domain only.** Adapters are covered by tests but not
-mutated; their logic is thin, and mutating filesystem code mostly produces equivalent
-mutants. Revisit if an adapter grows real branching.
+mutated; mutating filesystem and model-runtime code mostly produces equivalent mutants.
+The adapters are no longer thin: `hf_scorer.py` (~740 lines, eight scorer families) and
+`hf_publish.py` (~660 lines) are now the largest modules. Their branching is covered by
+unit tests with fake runtimes, not by mutation.
 
-**Four mutants survive by construction.** `zip(..., strict=True)` in `predict_all` is
-unreachable defence — the explicit length check above it already guarantees equal
-lengths — so mutating `strict` changes nothing. The check is kept for its error message
-and `strict=True` for the lint rule that requires it. One further mutant rewrites
-`"utf-8"` as `"UTF-8"`, which Python treats as the same encoding. The mutation gate
-allows exactly the active roster listed in `domain/roster.py`, which holds every model
-ID previously tested by this project plus the ones added since.
+**Four mutants survive by construction.** Each is `strict=True` removed from one of the
+four `zip(...)` calls in the domain — two in `orchestration.py`, two in
+`thresholds.py`. Every one is unreachable defence: an explicit length check or the
+construction of the zipped sequences already guarantees equal lengths, so mutating
+`strict` changes nothing. The keyword stays for the lint rule that requires it. CI
+allows exactly these four (`scripts/check_mutants.py --max-survivors 4`).

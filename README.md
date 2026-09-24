@@ -45,12 +45,15 @@ Scoring runs record inference throughput in items per second and peak allocated 
 VRAM when a CUDA device is available. These values appear in the detailed
 `leaderboard.csv` and the scoring summary.
 
-The adapters preserve each checkpoint's intended interface: GTE receives a
-prompt/sentence pair and returns its sequence-classification relevance logit; mxbai
-receives its official binary query/document turn; Laya receives four JSON sentence
-fields with one typed `noul` question per field. Laya uses the checkpoint's 1,024-token
-context and SDK-selected runtime dtype; other scoring sequence lengths are recorded
-per run.
+The adapters preserve each checkpoint's intended interface: the Qwen rerankers score
+their yes/no continuation; GTE receives a prompt/sentence pair and returns its
+sequence-classification relevance logit; mxbai receives its official binary
+query/document turn; Laya receives four JSON sentence fields with one typed `noul`
+question per field; `LFM2.5-2.6B@logprob` reads `P(yes)` against `P(no)` from one
+forward pass over the generative turn with an empty think block appended; the NLI
+models, GLiClass and GLiNER2 score the hypothesis in `data/prompt_zeroshot.txt`. Laya
+uses the checkpoint's 1,024-token context and SDK-selected runtime dtype; other scoring
+sequence lengths are recorded per run.
 
 Decoding is greedy, so a run replays exactly. The verdict is the last standalone
 `yes`/`no` in the generation — two of these models open with an analysis preamble that

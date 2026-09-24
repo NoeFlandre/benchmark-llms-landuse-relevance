@@ -35,11 +35,18 @@ normalised relevance score and optional native score for every item; their repor
 sweeps thresholds and selects the best MCC, F1, balanced accuracy, precision, recall,
 and ROC-AUC. It also records items/second and peak allocated CUDA VRAM per run.
 
-The adapters keep model-native input contracts: GTE uses a sequence-classification
-prompt/sentence pair, mxbai uses its documented binary query/document continuation,
-and Laya uses four JSON sentence fields with one typed `noul` question per field in
-each scorer call. Laya's checkpoint context is 1,024 tokens; each run records the
-exact sequence length, runtime dtype, batch, revision, and decision rule used.
+The adapters keep model-native input contracts. The Qwen rerankers score the yes/no
+continuation of their chat turn; GTE uses a sequence-classification prompt/sentence
+pair; mxbai uses its documented binary query/document continuation; Laya uses four
+JSON sentence fields with one typed `noul` question per field in each scorer call.
+`LiquidAI/LFM2.5-2.6B@logprob` reads the generative model in one forward pass: the
+generative chat turn with an empty think block appended, `P(yes)` against `P(no)` for
+the next token. The NLI models (bge-m3, mDeBERTa, mmBERT) run the zero-shot
+classification pipeline, and GLiClass and GLiNER2 score one land-use label through
+their SDKs; all three share the hypothesis in `data/prompt_zeroshot.txt`. Each scorer
+declares its own prompt file, so the recorded prompt digest matches its input. Laya's
+checkpoint context is 1,024 tokens; each run records the exact sequence length,
+runtime dtype, batch, revision, device name, and decision rule used.
 
 A generation that contains no standalone `yes`/`no` token is counted as an error and
 kept verbatim in the results — see [ADR-0002](adr/0002-unparsed-as-error.md).

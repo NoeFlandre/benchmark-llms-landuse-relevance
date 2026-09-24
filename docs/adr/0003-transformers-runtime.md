@@ -21,3 +21,5 @@ Run through `transformers` with a batched, left-padded greedy decode, behind the
   support can lag, and a benchmark that cannot load the model measures nothing.
 - Swapping in a vLLM engine later is a new class implementing `TextGenerator`; nothing
   in the domain changes.
+- GGUF quants and the GLiClass/GLiNER2 SDKs are the exceptions — see
+  [ADR-0007](0007-additional-runtimes.md).
