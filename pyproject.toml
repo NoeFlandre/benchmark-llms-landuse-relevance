@@ -77,7 +77,7 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", "PL", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["PLR2004", "ARG001", "ARG002", "RUF012", "PLC0415"]
+"tests/**" = ["PLR2004", "ARG001", "ARG002", "ARG004", "ARG005", "RUF012", "PLC0415"]
 # Optional runtimes (torch, transformers, huggingface_hub) are imported inside the
 # functions that need them, so the CLI and the domain stay usable without them.
 # A command's parameters are its user interface; typer needs them in the signature.

@@ -1,8 +1,9 @@
 """Scriptable entry points for running, scoring and publishing the benchmark."""
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypeVar
 
 import typer
 
@@ -29,8 +30,8 @@ from landuse_relevance_bench.adapters.translations import (
     TranslationManifest,
     load_manifest,
 )
-from landuse_relevance_bench.domain.engine import LabelScorer, TextGenerator
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
+from landuse_relevance_bench.domain.records import RunResult
 from landuse_relevance_bench.domain.roster import ROSTER, model_ids
 from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, scorer_for, scorer_ids
 from landuse_relevance_bench.domain.sharding import (
@@ -43,6 +44,8 @@ DEFAULT_DATA_ROOT = Path("data/translations")
 DEFAULT_PROMPT = Path("data/prompt.txt")
 DEFAULT_SCORER_PROMPT = Path("data/prompt_reranker.txt")
 DEFAULT_RESULTS = Path("results")
+
+T = TypeVar("T")
 
 app = typer.Typer(add_completion=False, help=__doc__)
 
@@ -69,34 +72,24 @@ def scorer_provider() -> ScorerProvider:
     return provide_scorer
 
 
-def _cached_scorer_provider() -> ScorerProvider:
-    """Load one scoring model lazily and reuse it for all of that model's languages."""
-    provider: ScorerProvider | None = None
-    loaded: tuple[LabelScorer, str] | None = None
+def _cached(factory: Callable[[], Callable[[RunRequest], T]]) -> Callable[[RunRequest], T]:
+    """Load one model lazily and reuse it for all of that model's languages."""
+    loaded: list[T] = []
 
-    def provide(request: RunRequest) -> tuple[LabelScorer, str]:
-        nonlocal loaded, provider
-        if loaded is None:
-            provider = provider or scorer_provider()
-            loaded = provider(request)
-        return loaded
+    def provide(request: RunRequest) -> T:
+        if not loaded:
+            loaded.append(factory()(request))
+        return loaded[0]
 
     return provide
+
+
+def _cached_scorer_provider() -> ScorerProvider:
+    return _cached(scorer_provider)
 
 
 def _cached_generator_provider() -> GeneratorProvider:
-    """Load one model lazily and reuse it for all of that model's languages."""
-    provider: GeneratorProvider | None = None
-    loaded: tuple[TextGenerator, str] | None = None
-
-    def provide(request: RunRequest) -> tuple[TextGenerator, str]:
-        nonlocal loaded, provider
-        if loaded is None:
-            provider = provider or generator_provider()
-            loaded = provider(request)
-        return loaded
-
-    return provide
+    return _cached(generator_provider)
 
 
 def source_commit() -> str:
@@ -110,8 +103,13 @@ def source_commit() -> str:
     return completed.stdout.strip()
 
 
-def _benchmark_one(request: RunRequest, provider: GeneratorProvider | None = None) -> None:
-    """Run one model, reporting input problems as usage errors rather than tracebacks."""
+_INPUT_ERRORS = (OSError, BenchmarkFileError, PromptFileError, TranslationDataError, ValueError)
+
+
+def _run_pair(
+    request: RunRequest, run: Callable[[], RunResult], extra: Callable[[RunResult], str]
+) -> None:
+    """Run one model-language pair unless it is checkpointed; input problems are usage errors."""
     result_path = request.output_dir / run_filename(request.model_id, request.language)
     if result_path.is_file():
         try:
@@ -121,42 +119,37 @@ def _benchmark_one(request: RunRequest, provider: GeneratorProvider | None = Non
         typer.echo(f"{request.model_id} [{request.language}] already complete; skipping")
         return
     try:
-        result = execute(request, provider or generator_provider(), source_commit=source_commit())
-    except (OSError, BenchmarkFileError, PromptFileError, TranslationDataError, ValueError) as exc:
+        result = run()
+    except _INPUT_ERRORS as exc:
         raise typer.BadParameter(str(exc)) from exc
     metrics = result.metrics
     typer.echo(
         f"{request.model_id} [{request.language}]  accuracy={metrics.accuracy:.3f}  "
-        f"f1={metrics.f1:.3f}  "
-        f"mcc={metrics.matthews_corrcoef:.3f}  unparsed={metrics.unparsed_rate:.3f}  "
+        f"f1={metrics.f1:.3f}  mcc={metrics.matthews_corrcoef:.3f}  {extra(result)}"
         f"({result.metadata.duration_seconds:.1f}s)"
     )
 
 
+def _benchmark_one(request: RunRequest, provider: GeneratorProvider | None = None) -> None:
+    """Benchmark one generative model on one language."""
+    _run_pair(
+        request,
+        lambda: execute(request, provider or generator_provider(), source_commit=source_commit()),
+        lambda result: f"unparsed={result.metrics.unparsed_rate:.3f}  ",
+    )
+
+
 def _score_one(request: RunRequest, provider: ScorerProvider | None = None) -> None:
-    """Score one model, reporting input problems as usage errors rather than tracebacks."""
-    result_path = request.output_dir / run_filename(request.model_id, request.language)
-    if result_path.is_file():
-        try:
-            read_run(result_path)
-        except ValueError as exc:
-            raise typer.BadParameter(str(exc)) from exc
-        typer.echo(f"{request.model_id} [{request.language}] already complete; skipping")
-        return
-    try:
-        result = execute_scoring(
+    """Score one non-generative model on one language."""
+    _run_pair(
+        request,
+        lambda: execute_scoring(
             request, provider or scorer_provider(), source_commit=source_commit()
-        )
-    except (OSError, BenchmarkFileError, PromptFileError, TranslationDataError, ValueError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    metrics = result.metrics
-    typer.echo(
-        f"{request.model_id} [{request.language}]  accuracy={metrics.accuracy:.3f}  "
-        f"f1={metrics.f1:.3f}  "
-        f"mcc={metrics.matthews_corrcoef:.3f}  "
-        f"throughput={result.metadata.throughput_items_per_second or 0.0:.1f}/s  "
-        f"peak_vram={result.metadata.peak_vram_bytes or 0}B  "
-        f"({result.metadata.duration_seconds:.1f}s)"
+        ),
+        lambda result: (
+            f"throughput={result.metadata.throughput_items_per_second or 0.0:.1f}/s  "
+            f"peak_vram={result.metadata.peak_vram_bytes or 0}B  "
+        ),
     )
 
 
@@ -202,6 +195,10 @@ def run(
     shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
 ) -> None:
     """Benchmark one model on every selected language."""
+    if model_id in scorer_ids():
+        raise typer.BadParameter(
+            f"{model_id!r} is a scoring model; `lrb score` benchmarks scoring models"
+        )
     manifest, selected = _selected_languages(data_root, language)
     pairs = _planned_pairs((model_id,), selected, shard_index, shard_count)
     provider = _cached_generator_provider()
@@ -311,10 +308,14 @@ def status(
     language: Language = None,
     shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
     shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+    include_scorers: Annotated[
+        bool, typer.Option("--include-scorers", help="Also list scoring models.")
+    ] = False,
 ) -> None:
     """Show complete or pending state for the selected model-language shard."""
     _, selected = _selected_languages(data_root, language)
-    pairs = _planned_pairs(model_ids(), selected, shard_index, shard_count)
+    roster = model_ids() + (scorer_ids() if include_scorers else ())
+    pairs = _planned_pairs(roster, selected, shard_index, shard_count)
     completed = set()
     for model_id, selected_language in pairs:
         path = results_dir / run_filename(model_id, selected_language)

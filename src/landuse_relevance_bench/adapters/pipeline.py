@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from landuse_relevance_bench.adapters.benchmark_csv import load_benchmark
 from landuse_relevance_bench.adapters.hashing import sha256_of_file, sha256_of_text
@@ -19,6 +20,7 @@ from landuse_relevance_bench.domain.orchestration import (
 )
 from landuse_relevance_bench.domain.records import (
     SCORING,
+    Prediction,
     RunMetadata,
     RunResult,
     outcomes_of,
@@ -61,36 +63,19 @@ def execute(
     items = load_benchmark(request.benchmark_path, expected_language=request.language)
     template = load_prompt(request.prompt_path)
     generator, revision = provide_generator(request)
-
-    started_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    started = time.monotonic()
-    predictions = predict_all(items, template, generator, batch_size=request.batch_size)
-    duration = time.monotonic() - started
-
-    result = RunResult(
-        metadata=RunMetadata(
-            model_id=request.model_id,
-            language=request.language,
-            model_revision=revision,
-            prompt_sha256=sha256_of_text(template),
-            benchmark_sha256=sha256_of_file(request.benchmark_path),
-            max_new_tokens=request.max_new_tokens,
-            batch_size=request.batch_size,
-            seed=request.seed,
-            decoding="greedy",
-            dtype=str(getattr(generator, "runtime_dtype", request.dtype)),
-            started_at=started_at,
-            duration_seconds=round(duration, 3),
-            source_commit=source_commit,
-            throughput_items_per_second=len(items) / duration if duration > 0.0 else None,
-            quantization=quantization_of(request.model_id),
-            device_name=_device_name(),
-        ),
-        predictions=predictions,
-        metrics=evaluate(outcomes_of(predictions)),
+    run = _timed(lambda: predict_all(items, template, generator, batch_size=request.batch_size))
+    metadata = _metadata(
+        request,
+        generator,
+        run,
+        revision=revision,
+        template=template,
+        source_commit=source_commit,
+        max_new_tokens=request.max_new_tokens,
+        decoding="greedy",
+        quantization=quantization_of(request.model_id),
     )
-    write_run(result, request.output_dir)
-    return result
+    return _store(request, metadata, run.predictions)
 
 
 def execute_scoring(
@@ -110,40 +95,81 @@ def execute_scoring(
     template = load_prompt(request.prompt_path)
     scorer, revision = provide_scorer(request)
 
-    started_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    _begin_measurement(scorer)
-    started = time.monotonic()
-    try:
-        predictions = score_all(items, template, scorer, batch_size=request.batch_size)
-    finally:
-        _end_measurement(scorer)
-    duration = time.monotonic() - started
-    throughput = len(items) / duration if duration > 0.0 else None
-    runtime_dtype = str(getattr(scorer, "runtime_dtype", request.dtype))
+    def measured() -> tuple[Prediction, ...]:
+        _begin_measurement(scorer)
+        try:
+            return score_all(items, template, scorer, batch_size=request.batch_size)
+        finally:
+            _end_measurement(scorer)
 
+    run = _timed(measured)
+    metadata = _metadata(
+        request,
+        scorer,
+        run,
+        revision=revision,
+        template=template,
+        source_commit=source_commit,
+        # Nothing is decoded, so there is no token budget and no decoding strategy.
+        max_new_tokens=0,
+        decoding="none",
+        inference=SCORING,
+        decision_rule=spec.decision_rule,
+        peak_vram_bytes=_peak_vram_bytes(scorer),
+        sequence_length=_sequence_length(scorer),
+    )
+    return _store(request, metadata, run.predictions)
+
+
+@dataclass(frozen=True, slots=True)
+class _TimedRun:
+    predictions: tuple[Prediction, ...]
+    started_at: str
+    duration: float
+
+
+def _timed(run: Callable[[], tuple[Prediction, ...]]) -> _TimedRun:
+    started_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    started = time.monotonic()
+    predictions = run()
+    return _TimedRun(predictions, started_at, time.monotonic() - started)
+
+
+def _metadata(  # noqa: PLR0913 - the provenance fields are distinct inputs
+    request: RunRequest,
+    model: object,
+    run: _TimedRun,
+    *,
+    revision: str,
+    template: str,
+    source_commit: str,
+    **specific: Any,
+) -> RunMetadata:
+    """Fields every run records, plus the ones its method adds."""
+    duration = run.duration
+    return RunMetadata(
+        model_id=request.model_id,
+        language=request.language,
+        model_revision=revision,
+        prompt_sha256=sha256_of_text(template),
+        benchmark_sha256=sha256_of_file(request.benchmark_path),
+        batch_size=_effective_batch_size(model, request),
+        seed=request.seed,
+        dtype=str(getattr(model, "runtime_dtype", request.dtype)),
+        started_at=run.started_at,
+        duration_seconds=round(duration, 3),
+        source_commit=source_commit,
+        throughput_items_per_second=len(run.predictions) / duration if duration > 0.0 else None,
+        device_name=_device_name(),
+        **specific,
+    )
+
+
+def _store(
+    request: RunRequest, metadata: RunMetadata, predictions: tuple[Prediction, ...]
+) -> RunResult:
     result = RunResult(
-        metadata=RunMetadata(
-            model_id=request.model_id,
-            language=request.language,
-            model_revision=revision,
-            prompt_sha256=sha256_of_text(template),
-            benchmark_sha256=sha256_of_file(request.benchmark_path),
-            # Nothing is decoded, so there is no token budget and no decoding strategy.
-            max_new_tokens=0,
-            batch_size=request.batch_size,
-            seed=request.seed,
-            decoding="none",
-            dtype=runtime_dtype,
-            started_at=started_at,
-            duration_seconds=round(duration, 3),
-            source_commit=source_commit,
-            inference=SCORING,
-            decision_rule=spec.decision_rule,
-            throughput_items_per_second=throughput,
-            peak_vram_bytes=_peak_vram_bytes(scorer),
-            sequence_length=_sequence_length(scorer),
-            device_name=_device_name(),
-        ),
+        metadata=metadata,
         predictions=predictions,
         metrics=evaluate(outcomes_of(predictions)),
     )
@@ -181,3 +207,8 @@ def _sequence_length(scorer: LabelScorer) -> int | None:
     """The input cap a scorer truncates at; ``None`` when its SDK decides internally."""
     value = getattr(scorer, "sequence_length", SCORING_SEQUENCE_LENGTH)
     return None if value is None else int(value)
+
+
+def _effective_batch_size(model: object, request: RunRequest) -> int:
+    """The batch actually run: an adapter that works item by item says so."""
+    return int(getattr(model, "effective_batch_size", request.batch_size))

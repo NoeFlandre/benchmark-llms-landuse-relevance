@@ -17,6 +17,8 @@ from landuse_relevance_bench.domain.engine import Generation
 from landuse_relevance_bench.domain.roster import spec_for
 
 LLAMA_CONTEXT_LENGTH = 8192
+#: llama-cpp-python decodes one sequence at a time; recorded instead of the requested batch.
+LLAMA_BATCH_SIZE = 1
 _LENGTH_STOP = "length"
 
 
@@ -93,6 +95,8 @@ class LlamaCppGenerator:
         """No torch dtype applies; the precision is the recorded quantization label."""
         return "gguf"
 
+    effective_batch_size = LLAMA_BATCH_SIZE
+
     def as_chat(self, prompt: str) -> str:
         return render_chat(self._template, prompt, bos_token=self._bos, eos_token=self._eos)
 
@@ -100,9 +104,16 @@ class LlamaCppGenerator:
         return [self._generate_one(prompt) for prompt in prompts]
 
     def _generate_one(self, prompt: str) -> Generation:
+        chat = self.as_chat(prompt)
+        prompt_tokens = len(self._llama.tokenize(chat.encode("utf-8"), special=True))
+        if prompt_tokens + self._settings.max_new_tokens > self._settings.context_length:
+            raise ValueError(
+                f"prompt ({prompt_tokens} tokens) plus the {self._settings.max_new_tokens}-token "
+                f"budget exceeds the {self._settings.context_length}-token context"
+            )
         self._llama.reset()
         completion = self._llama.create_completion(
-            prompt=self.as_chat(prompt),
+            prompt=chat,
             max_tokens=self._settings.max_new_tokens,
             temperature=0.0,
             top_k=1,
@@ -119,12 +130,14 @@ class LlamaCppGenerator:
 
 
 def _token_text(llama: Any, token_id: Any) -> str:
+    """A special token's text for the chat template; absent ids render as nothing.
+
+    A declared id that cannot be decoded raises: silently rendering it as "" would
+    change the prompt the model sees.
+    """
     if token_id is None:
         return ""
-    try:
-        return llama.detokenize([int(token_id)], special=True).decode("utf-8", "replace")
-    except (TypeError, ValueError):
-        return ""
+    return llama.detokenize([int(token_id)], special=True).decode("utf-8")
 
 
 def provide(request: RunRequest) -> tuple[LlamaCppGenerator, str]:

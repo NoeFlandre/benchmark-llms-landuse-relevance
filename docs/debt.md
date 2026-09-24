@@ -26,8 +26,8 @@ remove the heuristic entirely, at the cost of no longer measuring instruction-fo
 
 **Mutation testing covers the domain only.** Adapters are covered by tests but not
 mutated; mutating filesystem and model-runtime code mostly produces equivalent mutants.
-The adapters are no longer thin: `hf_scorer.py` (~740 lines, eight scorer families) and
-`hf_publish.py` (~660 lines) are now the largest modules. Their branching is covered by
+The adapters are no longer thin: `hf_scorer.py` (~690 lines, eight scorer families) and
+`hf_publish.py` (~580 lines) are now the largest modules. Their branching is covered by
 unit tests with fake runtimes, not by mutation.
 
 **Four mutants survive by construction.** Each is `strict=True` removed from one of the

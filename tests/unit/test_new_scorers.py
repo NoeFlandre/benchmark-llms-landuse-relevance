@@ -7,7 +7,6 @@ from landuse_relevance_bench.adapters.hf_scorer import (
     GliClassScorer,
     Gliner2Scorer,
     NliZeroShotScorer,
-    ScorerSettings,
     scorer_class_for,
     zeroshot_hypothesis,
 )
@@ -109,7 +108,7 @@ class FakeTokenizer:
 
 
 def test_logprob_turn_closes_the_think_block_so_the_verdict_comes_next() -> None:
-    scorer = CausalLogprobScorer(FakeTokenizer(), None, ScorerSettings(dtype="bfloat16"))
+    scorer = CausalLogprobScorer(FakeTokenizer(), None)
     assert scorer.as_chat("Q").endswith("assistant\n<think></think>")
     assert scorer._yes_ids == [1, 3]
     assert scorer._no_ids == [2, 4]
@@ -135,6 +134,9 @@ class FakeLlama:
 
     def detokenize(self, ids, special=False):
         return b""
+
+    def tokenize(self, text, special=False):
+        return list(range(len(text.split())))
 
     def create_completion(self, **kwargs):
         self.calls.append(kwargs)
@@ -182,3 +184,40 @@ def test_quantization_is_omitted_for_full_precision_runs_to_keep_their_bytes() -
 
 def test_gliner2_records_its_window_as_model_defined() -> None:
     assert Gliner2Scorer.sequence_length is None
+
+
+def test_a_missing_label_raises_instead_of_scoring_zero() -> None:
+    def pipeline(texts, labels, **_):
+        return [[{"label": "something else", "score": 0.9}] for _ in texts]
+
+    with pytest.raises(ValueError, match="no score for the label"):
+        GliClassScorer(pipeline, "rev").score(_inputs("forest"))
+
+
+def test_a_zero_shot_batch_must_share_one_hypothesis() -> None:
+    mixed = [*_inputs("forest"), ScoringInput("TARGET SENTENCE: x\n\nHYPOTHESIS: other", "x")]
+
+    with pytest.raises(ValueError, match="share one hypothesis"):
+        NliZeroShotScorer(FakeNliPipeline(), "rev").score(mixed)
+
+
+def test_gguf_refuses_a_prompt_that_overflows_its_context() -> None:
+    settings = LlamaSettings(max_new_tokens=16, seed=0, context_length=18)
+    generator = LlamaCppGenerator(FakeLlama("stop"), settings, "rev")
+
+    with pytest.raises(ValueError, match="exceeds the 18-token context"):
+        generator.generate(["one two three"])
+
+
+def test_item_by_item_adapters_report_their_real_batch_size() -> None:
+    assert Gliner2Scorer.effective_batch_size == 1
+    assert LlamaCppGenerator.effective_batch_size == 1
+
+
+def test_every_rostered_scorer_has_exactly_one_adapter() -> None:
+    from landuse_relevance_bench.domain.scorers import scorer_ids
+
+    for model_id in scorer_ids():
+        assert scorer_class_for(model_id)
+    with pytest.raises(ValueError, match="no scoring adapter"):
+        scorer_class_for("not/rostered")
