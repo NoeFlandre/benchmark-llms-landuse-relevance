@@ -7,6 +7,8 @@ files remain archive-only.
 
 from dataclasses import dataclass
 
+from landuse_relevance_bench.domain.variants import repository_of
+
 
 @dataclass(frozen=True, slots=True)
 class ModelSpec:
@@ -23,7 +25,7 @@ class ModelSpec:
     @property
     def repository(self) -> str:
         """The Hub repository to load; the roster id minus any ``@variant``."""
-        return self.model_id.split("@", 1)[0]
+        return repository_of(self.model_id)
 
 
 ROSTER: tuple[ModelSpec, ...] = (
@@ -97,7 +99,7 @@ def spec_for(model_id: str) -> ModelSpec:
 
 def quantization_of(model_id: str) -> str:
     """The quant label a rostered model runs at; empty for unrostered or full precision."""
-    for spec in ROSTER:
-        if spec.model_id == model_id:
-            return spec.quantization
-    return ""
+    try:
+        return spec_for(model_id).quantization
+    except KeyError:
+        return ""

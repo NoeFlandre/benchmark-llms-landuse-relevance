@@ -238,25 +238,6 @@ def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(
     assert url.endswith("me/bench")
 
 
-def test_publishing_removes_legacy_plots_locally_and_remotely(tmp_path: Path) -> None:
-    plots = tmp_path / "plots"
-    plots.mkdir()
-    (plots / "quality_metrics.svg").write_text("old quality plot", encoding="utf-8")
-    (plots / "performance.svg").write_text("old performance plot", encoding="utf-8")
-    api = FakeApi()
-
-    publish_results("me/bench", tmp_path, [_result()], api=api, prompt_text=PROMPT)
-
-    assert not plots.exists()
-    assert api.uploaded[0]["delete_patterns"] == [
-        "plots/quality_metrics.svg",
-        "plots/performance.svg",
-    ]
-    card = (tmp_path / "README.md").read_text(encoding="utf-8")
-    assert "## Plots" not in card
-    assert "![" not in card
-
-
 def test_publishing_writes_the_card_into_the_uploaded_folder(tmp_path: Path) -> None:
     publish_results("me/bench", tmp_path, [_result()], api=FakeApi(), prompt_text=PROMPT)
     assert "LiquidAI/LFM2.5-350M" in (tmp_path / "README.md").read_text(encoding="utf-8")

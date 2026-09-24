@@ -8,11 +8,13 @@ from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.results_store import (
     aggregate_rows,
     read_runs,
+    ARCHIVE_COMPONENT,
+    group_by_model,
     scoring_summary_rows,
 )
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
-from landuse_relevance_bench.domain.scorers import scorer_for
+from landuse_relevance_bench.domain.scorers import DEFAULT_CARD, logprob_pairs, scorer_for
 
 CARD_COLUMNS = (
     "model_id",
@@ -24,69 +26,7 @@ CARD_COLUMNS = (
     "recall_macro",
     "matthews_corrcoef_macro",
 )
-_LEGACY_PLOT_FILES = (
-    "plots/quality_metrics.svg",
-    "plots/performance.svg",
-)
 
-_SCORER_CARD_CONFIG = {
-    "Alibaba-NLP/gte-multilingual-reranker-base": (
-        "sequence classifier",
-        "prompt + sentence pair",
-        "sigmoid relevance logit",
-    ),
-    "mixedbread-ai/mxbai-rerank-base-v2": (
-        "causal-LM reranker",
-        "official query/document turn",
-        "sigmoid(1-logit - 0-logit - 4.5)",
-    ),
-    "convaiinnovations/laya-multilingual": (
-        "typed decision model",
-        "JSON state + 4 `noul` questions/call",
-        "Laya `noul` yes probability",
-    ),
-    "Qwen/Qwen3-Reranker-0.6B": (
-        "causal-LM reranker",
-        "manual yes/no reranker turn",
-        "yes/no next-token probability",
-    ),
-    "Qwen/Qwen3-Reranker-4B": (
-        "causal-LM reranker",
-        "manual yes/no reranker turn",
-        "yes/no next-token probability",
-    ),
-    "LiquidAI/LFM2.5-2.6B@logprob": (
-        "causal LM, no decoding",
-        "LLM prompt + chat turn, empty think block",
-        "first-token P(yes) vs P(no)",
-    ),
-    "knowledgator/gliclass-multilang-mini": (
-        "GLiClass zero-shot",
-        "sentence + hypothesis label",
-        "label probability",
-    ),
-    "MoritzLaurer/bge-m3-zeroshot-v2.0": (
-        "NLI zero-shot pipeline",
-        "sentence premise + hypothesis",
-        "entailment probability",
-    ),
-    "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7": (
-        "NLI zero-shot pipeline",
-        "sentence premise + hypothesis",
-        "entailment probability",
-    ),
-    "BalaRajesh1/mmbert-small-nli": (
-        "NLI zero-shot pipeline",
-        "sentence premise + hypothesis",
-        "entailment probability",
-    ),
-    "fastino/gliner2.5-multi-v1": (
-        "GLiNER2 classify_text",
-        "sentence + hypothesis label",
-        "label confidence",
-    ),
-}
-_LOGPROB_PAIRS = {"LiquidAI/LFM2.5-2.6B@logprob": "LiquidAI/LFM2.5-2.6B"}
 
 
 class DatasetHub(Protocol):
@@ -129,13 +69,12 @@ def dataset_card(
         derived = evaluate(outcomes_of(result.predictions))
         if derived != result.metrics:
             raise ValueError(f"{result.metadata.model_id} metrics do not match predictions")
-    generative_pre = [r for r in results if r.metadata.is_generative]
-    if not generative_pre:
+    generative = [r for r in results if r.metadata.is_generative]
+    if not generative:
         raise ValueError("cannot build a card without any generative run")
-    prompt_sha256 = _uniform(generative_pre, "prompt digest", lambda r: r.metadata.prompt_sha256)
+    prompt_sha256 = _uniform(generative, "prompt digest", lambda r: r.metadata.prompt_sha256)
     if sha256_of_text(prompt_text) != prompt_sha256:
         raise ValueError("prompt text does not match the digest recorded in the runs")
-    generative = generative_pre
     scoring = [r for r in results if not r.metadata.is_generative]
     scoring_prompts = _scoring_prompts(
         scoring, prompt_text, (scorer_prompt_text, *extra_scorer_prompt_texts)
@@ -307,7 +246,8 @@ def _scoring_section(
         "dtype / batch / seed | revision |"
     )
     setup_divider = "|" + "|".join(["---"] * 6) + "|"
-    setup_body = "\n".join(_scoring_setup_row(model_runs) for model_runs in _by_model(scoring))
+    by_model = group_by_model(scoring)
+    setup_body = "\n".join(_scoring_setup_row(by_model[model_id]) for model_id in sorted(by_model))
     prompt_blocks = "\n\n".join(
         f"{label}:\n\n```text\n{text}```" if text else f"{label}." for label, text in prompts
     )
@@ -374,97 +314,86 @@ def _logprob_comparison(
     ``timing_results`` are generative reruns on the log-prob runs' GPU, kept out of the
     leaderboards; they add a same-hardware time row over their languages.
     """
-    by_model = _grouped(results)
-    same_gpu = _same_gpu_rows(by_model, _grouped(timing_results))
-    rows: list[str] = []
-    for scored_id, generated_id in _LOGPROB_PAIRS.items():
-        scored, generated = by_model.get(scored_id), by_model.get(generated_id)
-        if not scored or not generated:
-            continue
-        shared = sorted(
-            {r.metadata.language for r in scored} & {r.metadata.language for r in generated}
-        )
-        for method, runs in (("generation + parsing", generated), ("yes/no log-probs", scored)):
-            subset = [r for r in runs if r.metadata.language in shared]
-            (aggregate,) = aggregate_rows(subset)
-            seconds = sum(r.metadata.duration_seconds for r in subset)
-            items = sum(r.metrics.n_items for r in subset)
-            auc = "n/a"
-            if not subset[0].metadata.is_generative:
-                value = next(
-                    row["roc_auc_macro"]
-                    for row in scoring_summary_rows(subset)
-                    if row["model_id"] == scored_id
-                )
-                auc = "n/a" if value is None else _format_card_float(float(value))
-            rows.append(
-                f"| {method} | {aggregate['f1_macro']} | {aggregate['matthews_corrcoef_macro']} "
-                f"| {aggregate['unparsed_rate_macro']} | {auc} | {seconds / 3600:.2f} "
-                f"| {1000 * seconds / items:.1f} |"
-            )
-    if not rows:
+    by_model = group_by_model(results)
+    timing = group_by_model(timing_results)
+    sections = [
+        _logprob_section(scored_id, generated_id, by_model, timing)
+        for scored_id, generated_id in logprob_pairs().items()
+    ]
+    return "\n\n".join(section for section in sections if section)
+
+
+def _logprob_section(
+    scored_id: str,
+    generated_id: str,
+    by_model: dict[str, list[RunResult]],
+    timing: dict[str, list[RunResult]],
+) -> str:
+    scored, generated = by_model.get(scored_id), by_model.get(generated_id)
+    if not scored or not generated:
         return ""
-    rows.extend(same_gpu)
+    shared = {r.metadata.language for r in scored} & {r.metadata.language for r in generated}
+    rows = [
+        _comparison_row(method, [r for r in runs if r.metadata.language in shared], scored_id)
+        for method, runs in (("generation + parsing", generated), ("yes/no log-probs", scored))
+    ]
+    same_gpu = _same_gpu_row(scored, timing.get(generated_id, []))
+    if same_gpu:
+        rows.append(same_gpu)
+    name = generated_id.rsplit("/", 1)[-1]
     return (
-        "### LFM2.5-2.6B: log-probabilities vs generation\n\n"
+        f"### {name}: log-probabilities vs generation\n\n"
         "Same model, prompt and languages; log-probs call yes when P(yes) > P(no).\n\n"
         "| method | F1 | MCC | unparsed | ROC-AUC | GPU hours | ms/item |\n"
         "|---|---|---|---|---|---|---|\n" + "\n".join(rows)
     )
 
 
-def _same_gpu_rows(
-    by_model: dict[str, list[RunResult]], timing: dict[str, list[RunResult]]
-) -> list[str]:
-    rows = []
-    for scored_id, generated_id in _LOGPROB_PAIRS.items():
-        reruns = timing.get(generated_id, [])
-        if not reruns:
-            continue
-        languages = {r.metadata.language for r in reruns}
-        devices = {r.metadata.device_name for r in reruns}
-        scored = [
-            r
-            for r in by_model.get(scored_id, [])
-            if r.metadata.language in languages and r.metadata.device_name in devices
-        ]
-        if len(devices) != 1 or len(scored) != len(reruns):
-            continue
-        label = f"same GPU ({devices.pop()}; {', '.join(sorted(languages))})"
-        generated_s = sum(r.metadata.duration_seconds for r in reruns)
-        scored_s = sum(r.metadata.duration_seconds for r in scored)
-        rows.append(
-            f"| {label}: generation vs log-probs | | | | | {generated_s:.0f} s vs "
-            f"{scored_s:.1f} s ({generated_s / scored_s:.0f}x) | |"
-        )
-    return rows
+def _comparison_row(method: str, subset: Sequence[RunResult], scored_id: str) -> str:
+    (aggregate,) = aggregate_rows(subset)
+    seconds = sum(r.metadata.duration_seconds for r in subset)
+    items = sum(r.metrics.n_items for r in subset)
+    auc = "n/a"
+    if not subset[0].metadata.is_generative:
+        (summary,) = (row for row in scoring_summary_rows(subset) if row["model_id"] == scored_id)
+        value = summary["roc_auc_macro"]
+        auc = "n/a" if value is None else _format_card_float(float(value))
+    return (
+        f"| {method} | {aggregate['f1_macro']} | {aggregate['matthews_corrcoef_macro']} "
+        f"| {aggregate['unparsed_rate_macro']} | {auc} | {seconds / 3600:.2f} "
+        f"| {1000 * seconds / items:.1f} |"
+    )
 
 
-def _grouped(results: Sequence[RunResult]) -> dict[str, list[RunResult]]:
-    grouped: dict[str, list[RunResult]] = {}
-    for result in results:
-        grouped.setdefault(result.metadata.model_id, []).append(result)
-    return grouped
-
-
-def _by_model(results: Sequence[RunResult]) -> tuple[tuple[RunResult, ...], ...]:
-    """Group scoring rows by model in stable order for the compact setup table."""
-    grouped: dict[str, list[RunResult]] = {}
-    for result in results:
-        grouped.setdefault(result.metadata.model_id, []).append(result)
-    return tuple(tuple(grouped[model_id]) for model_id in sorted(grouped))
+def _same_gpu_row(scored: Sequence[RunResult], reruns: Sequence[RunResult]) -> str:
+    """Time generation and log-probs over the same languages on the same GPU model."""
+    if not reruns:
+        return ""
+    languages = {r.metadata.language for r in reruns}
+    devices = {r.metadata.device_name for r in reruns}
+    matched = [
+        r for r in scored if r.metadata.language in languages and r.metadata.device_name in devices
+    ]
+    if len(devices) != 1 or len(matched) != len(reruns):
+        return ""
+    label = f"same GPU ({devices.pop()}; {', '.join(sorted(languages))})"
+    generated_s = sum(r.metadata.duration_seconds for r in reruns)
+    scored_s = sum(r.metadata.duration_seconds for r in matched)
+    return (
+        f"| {label}: generation vs log-probs | | | | | {generated_s:.0f} s vs "
+        f"{scored_s:.1f} s ({generated_s / scored_s:.0f}x) | |"
+    )
 
 
 def _scoring_setup_row(results: Sequence[RunResult]) -> str:
     """Render the reproducibility-relevant adapter settings for one model."""
     model_id = results[0].metadata.model_id
-    family, input_handling, score = _SCORER_CARD_CONFIG.get(
-        model_id, ("scoring adapter", "recorded prompt + sentence", "normalized yes score")
-    )
     try:
-        rule = scorer_for(model_id).decision_rule
+        spec = scorer_for(model_id)
     except KeyError:
-        rule = results[0].metadata.decision_rule or "recorded per run"
+        spec = None
+    family, input_handling, score = spec.card if spec else DEFAULT_CARD
+    rule = spec.decision_rule if spec else results[0].metadata.decision_rule or "recorded per run"
     if rule.endswith(" at 0.5"):
         rule = "yes if score ≥ 0.5"
     sequence = _setting_or_varying(results, "sequence length", lambda r: r.metadata.sequence_length)
@@ -545,7 +474,6 @@ def publish_results(
     if data_root is not None:
         write_viewer_dataset(data_root, results_dir / "data" / "train.csv")
         viewer_file = "data/train.csv"
-    _remove_legacy_plots(results_dir)
     (results_dir / "README.md").write_text(
         dataset_card(
             results,
@@ -564,20 +492,8 @@ def publish_results(
         repo_type="dataset",
         folder_path=str(results_dir),
         commit_message=commit_message,
-        delete_patterns=list(_LEGACY_PLOT_FILES),
     )
     return f"https://huggingface.co/datasets/{repo_id}"
-
-
-def _remove_legacy_plots(results_dir: Path) -> None:
-    """Remove only the two generated plots that older publishers staged."""
-    for relative_path in _LEGACY_PLOT_FILES:
-        path = results_dir / relative_path
-        if path.is_file() or path.is_symlink():
-            path.unlink()
-    plot_dir = results_dir / "plots"
-    if plot_dir.is_dir() and not any(plot_dir.iterdir()):
-        plot_dir.rmdir()
 
 
 def _default_api() -> DatasetHub:
@@ -591,7 +507,7 @@ def _default_api() -> DatasetHub:
 def _reject_archive_paths(results_dir: Path) -> None:
     paths = results_dir.rglob("*") if results_dir.exists() else ()
     for path in paths:
-        if "archive" in path.relative_to(results_dir).parts:
+        if ARCHIVE_COMPONENT in path.relative_to(results_dir).parts:
             raise ValueError(f"refusing to upload archive path: {path}")
 
 
