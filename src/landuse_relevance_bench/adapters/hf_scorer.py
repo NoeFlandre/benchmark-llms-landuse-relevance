@@ -544,6 +544,8 @@ class Gliner2Scorer(_CudaMeasurement):
     """GLiNER2.5's classification probability for the single land-use label."""
 
     TASK = "landuse"
+    # classify_text applies the checkpoint's own window; the adapter sets no cap.
+    sequence_length = None
 
     def __init__(self, model: Any, revision: str) -> None:
         self._model = model

@@ -391,6 +391,12 @@ def publish(
         Path, typer.Option("--scorer-prompt", help="Prompt template used by scoring models.")
     ] = DEFAULT_SCORER_PROMPT,
     benchmark_name: Annotated[str, typer.Option("--benchmark-name")] = "v3-multilingual",
+    timing_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--timing-dir", help="Same-GPU generative reruns for the log-prob timing row."
+        ),
+    ] = None,
     private: Annotated[bool, typer.Option(help="Create the dataset repository private.")] = False,
 ) -> None:
     """Push the stored runs, leaderboard and a generated card to the Hub."""
@@ -422,6 +428,7 @@ def publish(
         prompt_text=prompt_text,
         scorer_prompt_text=scorer_prompt_text,
         extra_scorer_prompt_texts=_extra_scorer_prompts(scorer_prompt),
+        timing_results=read_runs(timing_dir) if timing_dir else (),
         data_root=data_root,
     )
     typer.echo(f"published {len(runs)} run(s) to {url}")

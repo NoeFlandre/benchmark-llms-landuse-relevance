@@ -119,6 +119,7 @@ def dataset_card(
     prompt_text: str,
     scorer_prompt_text: str = "",
     extra_scorer_prompt_texts: Sequence[str] = (),
+    timing_results: Sequence[RunResult] = (),
     viewer_file: str = "",
 ) -> str:
     """Build a terse card whose scores are recomputed from every prediction."""
@@ -183,7 +184,7 @@ def dataset_card(
 
     body = table(generative)
     scoring_section = _scoring_section(scoring, prompts=scoring_prompts) if scoring else ""
-    comparison = _logprob_comparison(results)
+    comparison = _logprob_comparison(results, timing_results)
     if comparison:
         scoring_section = f"{scoring_section}\n\n{comparison}"
     sections_block = f"\n\n{scoring_section}" if scoring_section else ""
@@ -358,15 +359,24 @@ def _scoring_prompts(
             )
         blocks.append((", ".join(f"`{model}`" for model in sorted(models)), texts[digest]))
     if llm_digest in users:
-        models = ", ".join(f"`{model}`" for model in sorted(users[llm_digest]))
-        blocks.append((f"{models} use the task prompt above", ""))
+        names = sorted(users[llm_digest])
+        verb = "uses" if len(names) == 1 else "use"
+        models = ", ".join(f"`{model}`" for model in names)
+        blocks.append((f"{models} {verb} the task prompt above", ""))
     return blocks
 
 
-def _logprob_comparison(results: Sequence[RunResult]) -> str:
-    """Compare log-probability scoring against parsing the same model's generations."""
+def _logprob_comparison(
+    results: Sequence[RunResult], timing_results: Sequence[RunResult] = ()
+) -> str:
+    """Compare log-probability scoring against parsing the same model's generations.
+
+    ``timing_results`` are generative reruns on the log-prob runs' GPU, kept out of the
+    leaderboards; they add a same-hardware time row over their languages.
+    """
     by_model = _grouped(results)
-    rows = []
+    same_gpu = _same_gpu_rows(by_model, _grouped(timing_results))
+    rows: list[str] = []
     for scored_id, generated_id in _LOGPROB_PAIRS.items():
         scored, generated = by_model.get(scored_id), by_model.get(generated_id)
         if not scored or not generated:
@@ -381,13 +391,12 @@ def _logprob_comparison(results: Sequence[RunResult]) -> str:
             items = sum(r.metrics.n_items for r in subset)
             auc = "n/a"
             if not subset[0].metadata.is_generative:
-                auc = _format_card_float(
-                    next(
-                        row["roc_auc_macro"]
-                        for row in scoring_summary_rows(subset)
-                        if row["model_id"] == scored_id
-                    )
+                value = next(
+                    row["roc_auc_macro"]
+                    for row in scoring_summary_rows(subset)
+                    if row["model_id"] == scored_id
                 )
+                auc = "n/a" if value is None else _format_card_float(float(value))
             rows.append(
                 f"| {method} | {aggregate['f1_macro']} | {aggregate['matthews_corrcoef_macro']} "
                 f"| {aggregate['unparsed_rate_macro']} | {auc} | {seconds / 3600:.2f} "
@@ -395,12 +404,40 @@ def _logprob_comparison(results: Sequence[RunResult]) -> str:
             )
     if not rows:
         return ""
+    rows.extend(same_gpu)
     return (
         "### LFM2.5-2.6B: log-probabilities vs generation\n\n"
         "Same model, prompt and languages; log-probs call yes when P(yes) > P(no).\n\n"
         "| method | F1 | MCC | unparsed | ROC-AUC | GPU hours | ms/item |\n"
         "|---|---|---|---|---|---|---|\n" + "\n".join(rows)
     )
+
+
+def _same_gpu_rows(
+    by_model: dict[str, list[RunResult]], timing: dict[str, list[RunResult]]
+) -> list[str]:
+    rows = []
+    for scored_id, generated_id in _LOGPROB_PAIRS.items():
+        reruns = timing.get(generated_id, [])
+        if not reruns:
+            continue
+        languages = {r.metadata.language for r in reruns}
+        devices = {r.metadata.device_name for r in reruns}
+        scored = [
+            r
+            for r in by_model.get(scored_id, [])
+            if r.metadata.language in languages and r.metadata.device_name in devices
+        ]
+        if len(devices) != 1 or len(scored) != len(reruns):
+            continue
+        label = f"same GPU ({devices.pop()}; {', '.join(sorted(languages))})"
+        generated_s = sum(r.metadata.duration_seconds for r in reruns)
+        scored_s = sum(r.metadata.duration_seconds for r in scored)
+        rows.append(
+            f"| {label}: generation vs log-probs | | | | | {generated_s:.0f} s vs "
+            f"{scored_s:.1f} s ({generated_s / scored_s:.0f}x) | |"
+        )
+    return rows
 
 
 def _grouped(results: Sequence[RunResult]) -> dict[str, list[RunResult]]:
@@ -495,6 +532,7 @@ def publish_results(
     prompt_text: str,
     scorer_prompt_text: str = "",
     extra_scorer_prompt_texts: Sequence[str] = (),
+    timing_results: Sequence[RunResult] = (),
     data_root: Path | None = None,
 ) -> str:
     """Write the card next to the results, then push the whole folder to the Hub."""
@@ -515,6 +553,7 @@ def publish_results(
             prompt_text=prompt_text,
             scorer_prompt_text=scorer_prompt_text,
             extra_scorer_prompt_texts=extra_scorer_prompt_texts,
+            timing_results=timing_results,
             viewer_file=viewer_file,
         ),
         encoding="utf-8",

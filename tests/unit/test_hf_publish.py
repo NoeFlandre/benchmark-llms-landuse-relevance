@@ -762,7 +762,7 @@ def test_the_card_matches_each_scoring_prompt_to_the_runs_that_used_it() -> None
 
     assert ZEROSHOT_PROMPT in scoring
     assert "`nli/model`:" in scoring
-    assert "`LiquidAI/LFM2.5-2.6B@logprob` use the task prompt above." in scoring
+    assert "`LiquidAI/LFM2.5-2.6B@logprob` uses the task prompt above." in scoring
 
 
 def test_the_card_compares_log_probabilities_with_parsed_generation() -> None:
@@ -811,3 +811,33 @@ def test_the_card_names_a_gguf_quant_without_calling_it_a_dtype() -> None:
 
     assert "`bfloat16`" in card
     assert "`unsloth/Big-GGUF@IQ2` runs the `IQ2` GGUF quant through llama.cpp" in card
+
+
+def test_the_comparison_adds_a_same_gpu_timing_row_from_reruns() -> None:
+    gpu = "NVIDIA A100"
+    generated = replace(
+        _result("LiquidAI/LFM2.5-2.6B"),
+        metadata=replace(_result().metadata, model_id="LiquidAI/LFM2.5-2.6B"),
+    )
+    rerun = replace(
+        generated, metadata=replace(generated.metadata, duration_seconds=700.0, device_name=gpu)
+    )
+    scored = _scored("LiquidAI/LFM2.5-2.6B@logprob")
+    scored = replace(
+        scored,
+        metadata=replace(
+            scored.metadata,
+            model_id="LiquidAI/LFM2.5-2.6B@logprob",
+            prompt_sha256=PROMPT_SHA256,
+            duration_seconds=2.0,
+            device_name=gpu,
+        ),
+    )
+    card = dataset_card(
+        [generated, scored], benchmark_name="b", prompt_text=PROMPT, timing_results=[rerun]
+    )
+
+    assert (
+        f"| same GPU ({gpu}; en): generation vs log-probs | | | | | 700 s vs 2.0 s (350x) | |"
+        in card
+    )

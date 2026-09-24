@@ -178,3 +178,7 @@ def test_quantization_is_omitted_for_full_precision_runs_to_keep_their_bytes() -
     assert "quantization" not in _metadata().to_dict()
     quant = _metadata(quantization="UD-IQ2_XXS", dtype="gguf")
     assert RunMetadata.from_dict(quant.to_dict()) == quant
+
+
+def test_gliner2_records_its_window_as_model_defined() -> None:
+    assert Gliner2Scorer.sequence_length is None

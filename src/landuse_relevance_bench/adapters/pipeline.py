@@ -141,7 +141,7 @@ def execute_scoring(
             decision_rule=spec.decision_rule,
             throughput_items_per_second=throughput,
             peak_vram_bytes=_peak_vram_bytes(scorer),
-            sequence_length=int(getattr(scorer, "sequence_length", SCORING_SEQUENCE_LENGTH)),
+            sequence_length=_sequence_length(scorer),
             device_name=_device_name(),
         ),
         predictions=predictions,
@@ -175,3 +175,9 @@ def _device_name() -> str:
     except ImportError:
         return ""
     return torch.cuda.get_device_name(0) if torch.cuda.is_available() else ""
+
+
+def _sequence_length(scorer: LabelScorer) -> int | None:
+    """The input cap a scorer truncates at; ``None`` when its SDK decides internally."""
+    value = getattr(scorer, "sequence_length", SCORING_SEQUENCE_LENGTH)
+    return None if value is None else int(value)
