@@ -47,7 +47,7 @@ crap: test  ## CRAP score guardrail over the domain, from the coverage `test` wr
 
 mutation:  ## Mutation testing over the domain, gated like CI
 	$(RUN) mutmut run --max-children 4 || true
-	$(RUN) python scripts/check_mutants.py --max-survivors 4
+	$(RUN) python scripts/check_mutants.py --max-survivors 0
 
 smoke:  ## End-to-end CLI smoke test against a stub-free tiny model
 	$(RUN) lrb models

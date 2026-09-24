@@ -43,4 +43,4 @@ and best-operating-point summaries from those stored values.
 
 `make check` runs the gauntlet: ruff → ty → unit → property → acceptance →
 architecture → CRAP. Mutation testing is separate (`make mutation`); CI runs the same
-commands plus mutation, gated by `scripts/check_mutants.py --max-survivors 4`.
+commands plus mutation, gated by `scripts/check_mutants.py --max-survivors 0`.

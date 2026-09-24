@@ -13,6 +13,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SURVIVED = re.compile(r"\bsurvived\b", re.IGNORECASE)
+KILLED = re.compile(r"\bkilled\b", re.IGNORECASE)
 
 
 class MutationRunError(RuntimeError):
@@ -22,13 +23,14 @@ class MutationRunError(RuntimeError):
 def survivors(root: Path = PROJECT_ROOT) -> list[str]:
     """Surviving mutants, refusing to report zero when the run never produced results.
 
-    A crashed `mutmut run` leaves no result metadata, and `mutmut results` then lists no
-    survivors; without this check the crash would pass the gate.
+    A crashed `mutmut run` (for example a test that fails to import in mutmut's copied
+    workspace) can leave result metadata but no tested mutants, and `mutmut results`
+    then lists no survivors. A trustworthy run has killed at least one mutant.
     """
     if not any((root / "mutants").rglob("*.meta")):
         raise MutationRunError("no mutation results found; did `mutmut run` crash?")
     completed = subprocess.run(
-        [sys.executable, "-m", "mutmut", "results"],
+        [sys.executable, "-m", "mutmut", "results", "--all", "true"],
         cwd=root,
         capture_output=True,
         text=True,
@@ -37,7 +39,10 @@ def survivors(root: Path = PROJECT_ROOT) -> list[str]:
     output = completed.stdout + completed.stderr
     if completed.returncode != 0:
         raise MutationRunError(f"`mutmut results` failed:\n{output}")
-    return [line.strip() for line in output.splitlines() if SURVIVED.search(line)]
+    lines = output.splitlines()
+    if not any(KILLED.search(line) for line in lines):
+        raise MutationRunError("mutmut killed no mutants; the run did not test anything")
+    return [line.strip() for line in lines if SURVIVED.search(line)]
 
 
 def main() -> int:

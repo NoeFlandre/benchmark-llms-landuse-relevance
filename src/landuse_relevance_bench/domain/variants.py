@@ -10,4 +10,4 @@ VARIANT_SEPARATOR = "@"
 
 def repository_of(model_id: str) -> str:
     """Strip a ``@variant`` suffix, leaving the loadable Hub repository id."""
-    return model_id.split(VARIANT_SEPARATOR, 1)[0]
+    return model_id.partition(VARIANT_SEPARATOR)[0]

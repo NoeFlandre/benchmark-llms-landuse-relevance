@@ -30,9 +30,10 @@ The adapters are no longer thin: `hf_scorer.py` (~690 lines, eight scorer famili
 `hf_publish.py` (~580 lines) are now the largest modules. Their branching is covered by
 unit tests with fake runtimes, not by mutation.
 
-**Four mutants survive by construction.** Each is `strict=True` removed from one of the
-four `zip(...)` calls in the domain — two in `orchestration.py`, two in
-`thresholds.py`. Every one is unreachable defence: an explicit length check or the
-construction of the zipped sequences already guarantees equal lengths, so mutating
-`strict` changes nothing. The keyword stays for the lint rule that requires it. CI
-allows exactly these four (`scripts/check_mutants.py --max-survivors 4`).
+**No mutant survives, and none is allowed to.** Until the 2026-09 uplift the gate was
+silently broken: mutmut's copied workspace lacked the documentation one unit test reads,
+so its stats run failed, no mutant was tested, and the survivor count read zero. The
+workspace now copies what the tests read, `check_mutants.py` refuses a run that killed
+nothing, and the domain avoids constructs whose mutants are equivalent (guarded
+`zip(strict=True)` calls, redundant defaults). CI allows zero survivors
+(`scripts/check_mutants.py --max-survivors 0`).

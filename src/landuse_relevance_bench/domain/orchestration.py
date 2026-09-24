@@ -32,9 +32,9 @@ def predict_all(
         outputs = list(generator.generate([render_prompt(template, i.sentence) for i in batch]))
         if len(outputs) != len(batch):
             raise ValueError(f"generator returned {len(outputs)} outputs for {len(batch)} prompts")
+        # Lengths are checked above, so each item reads its own output by position.
         predictions.extend(
-            _predict(item, Generation.of(output))
-            for item, output in zip(batch, outputs, strict=True)  # length checked above
+            _predict(item, Generation.of(outputs[index])) for index, item in enumerate(batch)
         )
     return tuple(predictions)
 
@@ -64,8 +64,7 @@ def score_all(
         if len(scored) != len(batch):
             raise ValueError(f"scorer returned {len(scored)} scores for {len(batch)} prompts")
         predictions.extend(
-            _scored_prediction(item, scores)
-            for item, scores in zip(batch, scored, strict=True)  # length checked above
+            _scored_prediction(item, scored[index]) for index, item in enumerate(batch)
         )
     return tuple(predictions)
 
@@ -76,7 +75,6 @@ def _scored_prediction(item: BenchmarkItem, scores: LabelScores) -> Prediction:
         expected=item.label,
         predicted=scores.verdict,
         raw_output=format_scores(scores),
-        truncated=False,
     )
 
 
@@ -89,7 +87,7 @@ def format_scores(scores: LabelScores) -> str:
     """
     rendered = " ".join(
         f"{label.value}={scores.scores[label]:.6f}"
-        for label in sorted(scores.scores, key=lambda label: label.value)
+        for label in sorted(scores.scores)  # StrEnum: sorts by the token itself
     )
     if scores.native_score is not None:
         rendered += f" native={scores.native_score:.6f}"

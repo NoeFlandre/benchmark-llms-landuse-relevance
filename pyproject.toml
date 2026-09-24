@@ -141,6 +141,12 @@ also_copy = [
     "src/landuse_relevance_bench/cli.py",
     "src/landuse_relevance_bench/adapters/",
     "tests/",
+    "scripts/",
     "data/",
+    # Read by tests/unit/test_archive_boundary.py; without them the stats run fails
+    # and no mutant is ever tested.
+    "README.md",
+    "docs/",
+    "results/",
     "pyproject.toml",
 ]

@@ -46,9 +46,10 @@ def parse_scores(raw_output: str) -> dict[Label, float]:
     """Read back the ``label=score`` text a scoring run stores for one item."""
     scores: dict[Label, float] = {}
     for part in raw_output.split():
-        name, separator, value = part.partition("=")
-        if not separator:
+        name, *values = part.split("=")
+        if len(values) != 1:
             raise ScoreFormatError(f"not a label=score pair: {part!r}")
+        (value,) = values
         try:
             parsed = float(value)
             if name != "native":
