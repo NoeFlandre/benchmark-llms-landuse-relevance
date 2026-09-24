@@ -107,7 +107,11 @@ def _run_node_script(  # noqa: PLR0913 - one keyword per scenario knob
     _executable(fake_bin / "uv", FAKE_UV)
     marker = tmp_path / "environment-path"
 
-    environment: dict[str, str] = dict(os.environ)
+    # Drop exported shell functions (Grid'5000 frontends export `module` this way) so the
+    # fake `module` on PATH is the one the script calls.
+    environment: dict[str, str] = {
+        key: value for key, value in os.environ.items() if not key.startswith("BASH_FUNC_")
+    }
     # Never source the host's real Lmod: it would replace the fake `module` below.
     environment["LRB_LMOD_INIT"] = "/dev/null"
     environment.pop("UV_PROJECT_ENVIRONMENT", None)
