@@ -8,11 +8,18 @@ the same method, so they are rostered, run and reported separately.
 
 from dataclasses import dataclass
 
+from landuse_relevance_bench.domain.variants import repository_of
+
 #: How a scoring model's native scores become a verdict. Recorded on every scoring
 #: run, because without it a scoring row cannot be compared to a generative one.
 ARGMAX = "argmax over the native yes/no scores"
 RELEVANCE_THRESHOLD = "sigmoid of the native relevance logit at 0.5"
-MXBAI_RELEVANCE_THRESHOLD = "sigmoid(native yes-minus-no logit minus 4.5) at 0.5"
+#: mxbai-rerank-v2's published estimate of its maximum logit difference; the official
+#: normaliser subtracts it before the sigmoid.
+MXBAI_LOGIT_OFFSET = 4.5
+MXBAI_RELEVANCE_THRESHOLD = (
+    f"sigmoid(native yes-minus-no logit minus {MXBAI_LOGIT_OFFSET}) at 0.5"
+)
 LAYA_RELEVANCE_THRESHOLD = "Laya noul yes probability at 0.5"
 LOGPROB_ARGMAX = "argmax over the first-token yes/no log-probabilities"
 ENTAILMENT_THRESHOLD = "zero-shot pipeline entailment probability at 0.5"
@@ -24,9 +31,11 @@ RERANKER_PROMPT = "data/prompt_reranker.txt"
 GENERATIVE_PROMPT = "data/prompt.txt"
 ZEROSHOT_PROMPT = "data/prompt_zeroshot.txt"
 
-#: Separates a roster id from the variant it names (``repo@variant``), so two methods
-#: on one checkpoint write distinct result files.
-VARIANT_SEPARATOR = "@"
+
+
+#: Card description for a scoring run whose model is no longer rostered.
+DEFAULT_CARD = ("scoring adapter", "recorded prompt + sentence", "normalized yes score")
+LOGPROB_KIND = "causal-lm-logprob"
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +48,8 @@ class ScorerSpec:
     decision_rule: str
     note: str
     prompt: str = RERANKER_PROMPT
+    #: How the published card describes the adapter: (family, input handling, score).
+    card: tuple[str, str, str] = DEFAULT_CARD
 
     @property
     def repository(self) -> str:
@@ -53,6 +64,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "sequence-classifier",
         RELEVANCE_THRESHOLD,
         "Multilingual sequence classifier; sigmoid of its relevance logit is the yes score.",
+        card=('sequence classifier', 'prompt + sentence pair', 'sigmoid relevance logit'),
     ),
     ScorerSpec(
         "mixedbread-ai/mxbai-rerank-base-v2",
@@ -60,6 +72,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "reranker",
         MXBAI_RELEVANCE_THRESHOLD,
         "Binary relevance reranker; scores the official 1/0 continuation and normalises it.",
+        card=('causal-LM reranker', 'official query/document turn', 'sigmoid(1-logit - 0-logit - 4.5)'),
     ),
     ScorerSpec(
         "convaiinnovations/laya-multilingual",
@@ -67,6 +80,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "typed-decision-model",
         LAYA_RELEVANCE_THRESHOLD,
         "Non-autoregressive multilingual decision model; scores a typed noul question.",
+        card=('typed decision model', 'JSON state + 4 `noul` questions/call', 'Laya `noul` yes probability'),
     ),
     ScorerSpec(
         "Qwen/Qwen3-Reranker-0.6B",
@@ -74,6 +88,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "reranker",
         ARGMAX,
         "Relevance reranker; scores the yes/no continuation, never generates.",
+        card=('causal-LM reranker', 'manual yes/no reranker turn', 'yes/no next-token probability'),
     ),
     ScorerSpec(
         "Qwen/Qwen3-Reranker-4B",
@@ -81,14 +96,16 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "reranker",
         ARGMAX,
         "Relevance reranker; scores the yes/no continuation, never generates.",
+        card=('causal-LM reranker', 'manual yes/no reranker turn', 'yes/no next-token probability'),
     ),
     ScorerSpec(
         "LiquidAI/LFM2.5-2.6B@logprob",
         2_697_198_592,
-        "causal-lm-logprob",
+        LOGPROB_KIND,
         LOGPROB_ARGMAX,
         "The generative LFM2.5-2.6B, read from its first-token yes/no log-probabilities.",
         GENERATIVE_PROMPT,
+        card=('causal LM, no decoding', 'LLM prompt + chat turn, empty think block', 'first-token P(yes) vs P(no)'),
     ),
     ScorerSpec(
         "knowledgator/gliclass-multilang-mini",
@@ -97,6 +114,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         LABEL_THRESHOLD,
         "GLiClass multilingual zero-shot classifier; one land-use label.",
         ZEROSHOT_PROMPT,
+        card=('GLiClass zero-shot', 'sentence + hypothesis label', 'label probability'),
     ),
     ScorerSpec(
         "MoritzLaurer/bge-m3-zeroshot-v2.0",
@@ -105,6 +123,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         ENTAILMENT_THRESHOLD,
         "BGE-M3 entailment classifier through the zero-shot-classification pipeline.",
         ZEROSHOT_PROMPT,
+        card=('NLI zero-shot pipeline', 'sentence premise + hypothesis', 'entailment probability'),
     ),
     ScorerSpec(
         "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
@@ -113,6 +132,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         ENTAILMENT_THRESHOLD,
         "mDeBERTa-v3 multilingual NLI through the zero-shot-classification pipeline.",
         ZEROSHOT_PROMPT,
+        card=('NLI zero-shot pipeline', 'sentence premise + hypothesis', 'entailment probability'),
     ),
     ScorerSpec(
         "BalaRajesh1/mmbert-small-nli",
@@ -121,6 +141,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         ENTAILMENT_THRESHOLD,
         "mmBERT-small multilingual NLI through the zero-shot-classification pipeline.",
         ZEROSHOT_PROMPT,
+        card=('NLI zero-shot pipeline', 'sentence premise + hypothesis', 'entailment probability'),
     ),
     ScorerSpec(
         "fastino/gliner2.5-multi-v1",
@@ -129,13 +150,14 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         LABEL_THRESHOLD,
         "GLiNER2.5 multilingual schema classifier; one land-use label.",
         ZEROSHOT_PROMPT,
+        card=('GLiNER2 classify_text', 'sentence + hypothesis label', 'label confidence'),
     ),
 )
 
 
-def repository_of(model_id: str) -> str:
-    """Strip a ``@variant`` suffix, leaving the loadable Hub repository id."""
-    return model_id.split(VARIANT_SEPARATOR, 1)[0]
+def logprob_pairs() -> dict[str, str]:
+    """Each log-probability scorer mapped to the generative roster id it reads."""
+    return {spec.model_id: spec.repository for spec in SCORER_ROSTER if spec.kind == LOGPROB_KIND}
 
 
 def scorer_ids() -> tuple[str, ...]:

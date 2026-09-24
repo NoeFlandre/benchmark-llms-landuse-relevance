@@ -17,7 +17,8 @@ from landuse_relevance_bench.adapters.hf_scorer_prompt import reranker_input
 from landuse_relevance_bench.adapters.pipeline import SCORING_SEQUENCE_LENGTH, RunRequest
 from landuse_relevance_bench.domain.engine import LabelScorer, LabelScores, ScoringInput
 from landuse_relevance_bench.domain.labels import Label
-from landuse_relevance_bench.domain.scorers import repository_of
+from landuse_relevance_bench.domain.scorers import MXBAI_LOGIT_OFFSET
+from landuse_relevance_bench.domain.variants import repository_of
 
 _SINGLE_LOGIT_COUNT = 1
 _BINARY_LOGIT_COUNT = 2
@@ -266,7 +267,7 @@ class MxbaiRerankerScorer(_CudaMeasurement):
         with torch.inference_mode():
             logits = self._model(**batch).logits[:, -1, :]
         native = logits[:, self._yes_id].float() - logits[:, self._no_id].float()
-        probabilities = torch.sigmoid(native - 4.5)
+        probabilities = torch.sigmoid(native - MXBAI_LOGIT_OFFSET)
         return [
             LabelScores(
                 {Label.NO: float(1.0 - probability), Label.YES: float(probability)},
@@ -710,7 +711,7 @@ def _sequence_relevance_logits(logits: Any) -> Any:
 
 def mxbai_normalize(native_score: float) -> float:
     """Match mxbai-rerank-v2's estimated-max sigmoid normalisation."""
-    return 1.0 / (1.0 + exp(-(native_score - 4.5)))
+    return 1.0 / (1.0 + exp(-(native_score - MXBAI_LOGIT_OFFSET)))
 
 
 def scorer_class_for(model_id: str) -> type[Any]:

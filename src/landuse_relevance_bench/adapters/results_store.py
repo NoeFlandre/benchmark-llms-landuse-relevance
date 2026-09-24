@@ -11,8 +11,10 @@ from typing import Any
 from landuse_relevance_bench.domain.records import RunResult
 from landuse_relevance_bench.domain.thresholds import (
     DEFAULT_THRESHOLDS,
-    decide_at,
-    roc_auc,
+    decide_scores,
+    expected_labels,
+    roc_auc_scores,
+    yes_scores,
 )
 
 LEADERBOARD_COLUMNS = (
@@ -57,7 +59,7 @@ CLASSIFICATION_METRICS = (
     "unparsed_rate",
 )
 _LANGUAGE_PATTERN = re.compile(r"^[a-z]{2,3}$")
-_ARCHIVE_COMPONENT = "archive"
+ARCHIVE_COMPONENT = "archive"
 _MIN_NESTED_RESULT_PARTS = 2
 
 
@@ -169,24 +171,21 @@ def threshold_sweep_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     against a row there. ``roc_auc_macro`` does not depend on the boundary and is
     repeated on every row of a model for convenience.
     """
-    scoring: dict[str, list[RunResult]] = {}
-    for result in results:
-        if not result.metadata.is_generative:
-            scoring.setdefault(result.metadata.model_id, []).append(result)
-
     rows = []
-    for model_id, runs in sorted(scoring.items()):
+    for model_id, runs in sorted(group_by_model(scoring_runs(results)).items()):
+        # Each run's scores are parsed once and reused for every boundary.
+        parsed = [(expected_labels(r.predictions), yes_scores(r.predictions)) for r in runs]
         auc_values = []
-        for run in runs:
+        for expected, scores in parsed:
             try:
-                auc_values.append(roc_auc(run.predictions))
+                auc_values.append(roc_auc_scores(expected, scores))
             except ValueError:
                 # A partial/debug fixture can contain one class; the thresholded
                 # metrics remain useful and ROC-AUC is honestly unavailable.
                 continue
         auc = None if not auc_values else round(fmean(auc_values), 4)
         for threshold in DEFAULT_THRESHOLDS:
-            scored = [decide_at(run.predictions, threshold) for run in runs]
+            scored = [decide_scores(expected, scores, threshold) for expected, scores in parsed]
             row: dict[str, Any] = {
                 "model_id": model_id,
                 "threshold": threshold,
@@ -206,14 +205,7 @@ def threshold_sweep_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
 
 def write_threshold_sweep_csv(results: Sequence[RunResult], path: Path) -> Path:
     """Write the sweep beside the leaderboard; empty of rows when nothing scores."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(
-            handle, fieldnames=list(THRESHOLD_SWEEP_COLUMNS), lineterminator="\n"
-        )
-        writer.writeheader()
-        writer.writerows(threshold_sweep_rows(results))
-    return path
+    return _write_rows(threshold_sweep_rows(results), THRESHOLD_SWEEP_COLUMNS, path)
 
 
 SCORING_SUMMARY_COLUMNS = (
@@ -236,20 +228,21 @@ SCORING_SUMMARY_COLUMNS = (
 )
 
 
-def scoring_summary_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
+def scoring_summary_rows(
+    results: Sequence[RunResult], sweep: Sequence[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
     """Select each model's best thresholded classification metrics.
 
     Ties use the lowest threshold, making the summary deterministic and favoring the
-    least strict boundary among equally good operating points.
+    least strict boundary among equally good operating points. Pass ``sweep`` (the
+    output of :func:`threshold_sweep_rows` over the same runs) to avoid recomputing it.
     """
-    scoring: dict[str, list[RunResult]] = {}
-    for result in results:
-        if not result.metadata.is_generative:
-            scoring.setdefault(result.metadata.model_id, []).append(result)
+    scoring = group_by_model(scoring_runs(results))
+    sweep_by_model = group_rows_by_model(sweep if sweep is not None else threshold_sweep_rows(results))
 
     rows = []
     for model_id, runs in sorted(scoring.items()):
-        sweep_rows = [row for row in threshold_sweep_rows(runs) if row["model_id"] == model_id]
+        sweep_rows = sweep_by_model.get(model_id, [])
         if not sweep_rows:
             continue
         row: dict[str, Any] = {
@@ -277,16 +270,54 @@ def scoring_summary_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (-row["best_f1"], row["model_id"]))
 
 
-def write_scoring_summary_csv(results: Sequence[RunResult], path: Path) -> Path:
-    """Write one best-threshold row per scoring model."""
+def scoring_runs(results: Sequence[RunResult]) -> list[RunResult]:
+    return [result for result in results if not result.metadata.is_generative]
+
+
+def group_by_model(results: Sequence[RunResult]) -> dict[str, list[RunResult]]:
+    """Runs keyed by model id, in input order within each model."""
+    grouped: dict[str, list[RunResult]] = {}
+    for result in results:
+        grouped.setdefault(result.metadata.model_id, []).append(result)
+    return grouped
+
+
+def group_rows_by_model(rows: Sequence[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(row["model_id"], []).append(row)
+    return grouped
+
+
+def write_reports(results: Sequence[RunResult], leaderboard: Path) -> dict[str, Path]:
+    """Write the four report CSVs beside ``leaderboard``, computing the sweep once."""
+    sweep = threshold_sweep_rows(results)
+    return {
+        "leaderboard": write_leaderboard_csv(results, leaderboard),
+        "aggregates": write_aggregates_csv(results, leaderboard.with_name("aggregates.csv")),
+        "threshold_sweep": _write_rows(
+            sweep, THRESHOLD_SWEEP_COLUMNS, leaderboard.with_name("threshold_sweep.csv")
+        ),
+        "scoring_summary": _write_rows(
+            scoring_summary_rows(results, sweep),
+            SCORING_SUMMARY_COLUMNS,
+            leaderboard.with_name("scoring_summary.csv"),
+        ),
+    }
+
+
+def _write_rows(rows: Sequence[dict[str, Any]], columns: Sequence[str], path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(
-            handle, fieldnames=list(SCORING_SUMMARY_COLUMNS), lineterminator="\n"
-        )
+        writer = csv.DictWriter(handle, fieldnames=list(columns), lineterminator="\n")
         writer.writeheader()
-        writer.writerows(scoring_summary_rows(results))
+        writer.writerows(rows)
     return path
+
+
+def write_scoring_summary_csv(results: Sequence[RunResult], path: Path) -> Path:
+    """Write one best-threshold row per scoring model."""
+    return _write_rows(scoring_summary_rows(results), SCORING_SUMMARY_COLUMNS, path)
 
 
 def _throughput_macro(results: Sequence[RunResult]) -> float | None:
@@ -309,14 +340,13 @@ def _peak_vram_max(results: Sequence[RunResult]) -> int | None:
 
 def aggregate_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     """Aggregate one detailed run per language into deterministic model rows."""
-    grouped: dict[str, list[RunResult]] = {}
     seen_pairs: set[tuple[str, str]] = set()
     for result in results:
         pair = (result.metadata.model_id, result.metadata.language)
         if pair in seen_pairs:
             raise ValueError(f"duplicate result for model-language pair {pair!r}")
         seen_pairs.add(pair)
-        grouped.setdefault(result.metadata.model_id, []).append(result)
+    grouped = group_by_model(results)
 
     rows = []
     for model_id, model_results in sorted(grouped.items()):
@@ -342,12 +372,7 @@ def aggregate_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
 
 def write_aggregates_csv(results: Sequence[RunResult], path: Path) -> Path:
     """Write model-level macro and spread metrics beside a detailed leaderboard."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(AGGREGATE_COLUMNS), lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(aggregate_rows(results))
-    return path
+    return _write_rows(aggregate_rows(results), AGGREGATE_COLUMNS, path)
 
 
 def _active_result_paths(directory: Path) -> list[Path]:
@@ -356,5 +381,5 @@ def _active_result_paths(directory: Path) -> list[Path]:
     return sorted(
         path
         for path in directory.rglob("*.json")
-        if _ARCHIVE_COMPONENT not in path.relative_to(directory).parts
+        if ARCHIVE_COMPONENT not in path.relative_to(directory).parts
     )

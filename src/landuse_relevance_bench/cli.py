@@ -22,10 +22,7 @@ from landuse_relevance_bench.adapters.results_store import (
     read_run,
     read_runs,
     run_filename,
-    write_aggregates_csv,
-    write_leaderboard_csv,
-    write_scoring_summary_csv,
-    write_threshold_sweep_csv,
+    write_reports,
 )
 from landuse_relevance_bench.adapters.translations import (
     TranslationDataError,
@@ -361,24 +358,17 @@ def report(
     runs = _filter_languages(read_runs(results_dir), language)
     if not runs:
         raise typer.BadParameter(f"no run results found in {results_dir}")
-    destination = out or results_dir / "leaderboard.csv"
-    write_leaderboard_csv(runs, destination)
-    aggregate_destination = destination.with_name("aggregates.csv")
-    write_aggregates_csv(runs, aggregate_destination)
-    sweep_destination = destination.with_name("threshold_sweep.csv")
-    write_threshold_sweep_csv(runs, sweep_destination)
-    summary_destination = destination.with_name("scoring_summary.csv")
-    write_scoring_summary_csv(runs, summary_destination)
+    written = write_reports(runs, out or results_dir / "leaderboard.csv")
     for row in leaderboard_rows(runs):
         typer.echo(
             f"{row['model_id']:<34} [{row['language']}] f1={row['f1']:.3f} "
             f"acc={row['accuracy']:.3f} "
             f"mcc={row['matthews_corrcoef']:.3f} unparsed={row['unparsed_rate']:.3f}"
         )
-    typer.echo(f"\nleaderboard written to {destination}")
-    typer.echo(f"aggregates written to {aggregate_destination}")
-    typer.echo(f"threshold sweep written to {sweep_destination}")
-    typer.echo(f"scoring summary written to {summary_destination}")
+    typer.echo(f"\nleaderboard written to {written['leaderboard']}")
+    typer.echo(f"aggregates written to {written['aggregates']}")
+    typer.echo(f"threshold sweep written to {written['threshold_sweep']}")
+    typer.echo(f"scoring summary written to {written['scoring_summary']}")
 
 
 @app.command()
@@ -408,12 +398,9 @@ def publish(
     runs = list(published)
     if not runs:
         raise typer.BadParameter(f"no run results found in {results_dir}")
-    write_leaderboard_csv(runs, results_dir / "leaderboard.csv")
-    write_aggregates_csv(runs, results_dir / "aggregates.csv")
-    # A reranker's score is not calibrated to a 0.5 boundary, so publish what the
-    # boundary does to it alongside the headline row.
-    write_threshold_sweep_csv(runs, results_dir / "threshold_sweep.csv")
-    write_scoring_summary_csv(runs, results_dir / "scoring_summary.csv")
+    # A reranker's score is not calibrated to a 0.5 boundary, so the sweep is published
+    # alongside the headline rows.
+    write_reports(runs, results_dir / "leaderboard.csv")
     try:
         prompt_text = load_prompt(prompt)
         scorer_prompt_text = load_prompt(scorer_prompt) if scorer_prompt.is_file() else ""

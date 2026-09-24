@@ -10,7 +10,10 @@ from landuse_relevance_bench.domain.thresholds import (
     decide_at,
     parse_scores,
     roc_auc,
-    sweep,
+    decide_scores,
+    expected_labels,
+    roc_auc_scores,
+    yes_scores,
 )
 
 
@@ -61,13 +64,13 @@ def test_an_empty_set_cannot_be_redecided() -> None:
         decide_at([], 0.5)
 
 
-def test_the_sweep_reports_one_point_per_threshold_in_order() -> None:
-    predictions = [_scored(Label.YES, 0.02), _scored(Label.NO, 0.001)]
+def test_pre_parsed_scores_decide_exactly_like_the_predictions() -> None:
+    predictions = [_scored(Label.YES, 0.02), _scored(Label.NO, 0.001), _scored(Label.YES, 0.7)]
+    expected, scores = expected_labels(predictions), yes_scores(predictions)
 
-    points = sweep(predictions)
-
-    assert [p.threshold for p in points] == list(DEFAULT_THRESHOLDS)
-    assert all(p.metrics.n_items == 2 for p in points)
+    for threshold in DEFAULT_THRESHOLDS:
+        assert decide_scores(expected, scores, threshold) == decide_at(predictions, threshold)
+    assert roc_auc_scores(expected, scores) == roc_auc(predictions)
 
 
 def test_auc_is_one_when_every_positive_outscores_every_negative() -> None:
