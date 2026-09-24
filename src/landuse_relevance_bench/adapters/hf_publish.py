@@ -6,10 +6,10 @@ from typing import Any, Protocol, cast
 
 from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.results_store import (
-    aggregate_rows,
-    read_runs,
     ARCHIVE_COMPONENT,
+    aggregate_rows,
     group_by_model,
+    read_runs,
     scoring_summary_rows,
 )
 from landuse_relevance_bench.domain.metrics import evaluate
@@ -26,7 +26,6 @@ CARD_COLUMNS = (
     "recall_macro",
     "matthews_corrcoef_macro",
 )
-
 
 
 class DatasetHub(Protocol):

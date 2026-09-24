@@ -17,7 +17,7 @@ One English prompt, one token of expected output, and the open-weight models lis
 ## Quick start
 
 ```bash
-uv sync --all-extras
+uv sync --extra inference --extra scoring --extra publish
 uv run lrb models                      # the roster
 uv run lrb languages                   # active language inventory
 uv run lrb run LiquidAI/LFM2.5-350M    # one model, all languages

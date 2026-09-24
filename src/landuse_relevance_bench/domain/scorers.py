@@ -17,9 +17,7 @@ RELEVANCE_THRESHOLD = "sigmoid of the native relevance logit at 0.5"
 #: mxbai-rerank-v2's published estimate of its maximum logit difference; the official
 #: normaliser subtracts it before the sigmoid.
 MXBAI_LOGIT_OFFSET = 4.5
-MXBAI_RELEVANCE_THRESHOLD = (
-    f"sigmoid(native yes-minus-no logit minus {MXBAI_LOGIT_OFFSET}) at 0.5"
-)
+MXBAI_RELEVANCE_THRESHOLD = f"sigmoid(native yes-minus-no logit minus {MXBAI_LOGIT_OFFSET}) at 0.5"
 LAYA_RELEVANCE_THRESHOLD = "Laya noul yes probability at 0.5"
 LOGPROB_ARGMAX = "argmax over the first-token yes/no log-probabilities"
 ENTAILMENT_THRESHOLD = "zero-shot pipeline entailment probability at 0.5"
@@ -30,7 +28,6 @@ LABEL_THRESHOLD = "zero-shot label probability at 0.5"
 RERANKER_PROMPT = "data/prompt_reranker.txt"
 GENERATIVE_PROMPT = "data/prompt.txt"
 ZEROSHOT_PROMPT = "data/prompt_zeroshot.txt"
-
 
 
 #: Card description for a scoring run whose model is no longer rostered.
@@ -64,7 +61,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "sequence-classifier",
         RELEVANCE_THRESHOLD,
         "Multilingual sequence classifier; sigmoid of its relevance logit is the yes score.",
-        card=('sequence classifier', 'prompt + sentence pair', 'sigmoid relevance logit'),
+        card=("sequence classifier", "prompt + sentence pair", "sigmoid relevance logit"),
     ),
     ScorerSpec(
         "mixedbread-ai/mxbai-rerank-base-v2",
@@ -72,7 +69,11 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "reranker",
         MXBAI_RELEVANCE_THRESHOLD,
         "Binary relevance reranker; scores the official 1/0 continuation and normalises it.",
-        card=('causal-LM reranker', 'official query/document turn', 'sigmoid(1-logit - 0-logit - 4.5)'),
+        card=(
+            "causal-LM reranker",
+            "official query/document turn",
+            "sigmoid(1-logit - 0-logit - 4.5)",
+        ),
     ),
     ScorerSpec(
         "convaiinnovations/laya-multilingual",
@@ -80,7 +81,11 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "typed-decision-model",
         LAYA_RELEVANCE_THRESHOLD,
         "Non-autoregressive multilingual decision model; scores a typed noul question.",
-        card=('typed decision model', 'JSON state + 4 `noul` questions/call', 'Laya `noul` yes probability'),
+        card=(
+            "typed decision model",
+            "JSON state + 4 `noul` questions/call",
+            "Laya `noul` yes probability",
+        ),
     ),
     ScorerSpec(
         "Qwen/Qwen3-Reranker-0.6B",
@@ -88,7 +93,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "reranker",
         ARGMAX,
         "Relevance reranker; scores the yes/no continuation, never generates.",
-        card=('causal-LM reranker', 'manual yes/no reranker turn', 'yes/no next-token probability'),
+        card=("causal-LM reranker", "manual yes/no reranker turn", "yes/no next-token probability"),
     ),
     ScorerSpec(
         "Qwen/Qwen3-Reranker-4B",
@@ -96,7 +101,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "reranker",
         ARGMAX,
         "Relevance reranker; scores the yes/no continuation, never generates.",
-        card=('causal-LM reranker', 'manual yes/no reranker turn', 'yes/no next-token probability'),
+        card=("causal-LM reranker", "manual yes/no reranker turn", "yes/no next-token probability"),
     ),
     ScorerSpec(
         "LiquidAI/LFM2.5-2.6B@logprob",
@@ -105,7 +110,11 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         LOGPROB_ARGMAX,
         "The generative LFM2.5-2.6B, read from its first-token yes/no log-probabilities.",
         GENERATIVE_PROMPT,
-        card=('causal LM, no decoding', 'LLM prompt + chat turn, empty think block', 'first-token P(yes) vs P(no)'),
+        card=(
+            "causal LM, no decoding",
+            "LLM prompt + chat turn, empty think block",
+            "first-token P(yes) vs P(no)",
+        ),
     ),
     ScorerSpec(
         "knowledgator/gliclass-multilang-mini",
@@ -114,7 +123,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         LABEL_THRESHOLD,
         "GLiClass multilingual zero-shot classifier; one land-use label.",
         ZEROSHOT_PROMPT,
-        card=('GLiClass zero-shot', 'sentence + hypothesis label', 'label probability'),
+        card=("GLiClass zero-shot", "sentence + hypothesis label", "label probability"),
     ),
     ScorerSpec(
         "MoritzLaurer/bge-m3-zeroshot-v2.0",
@@ -123,7 +132,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         ENTAILMENT_THRESHOLD,
         "BGE-M3 entailment classifier through the zero-shot-classification pipeline.",
         ZEROSHOT_PROMPT,
-        card=('NLI zero-shot pipeline', 'sentence premise + hypothesis', 'entailment probability'),
+        card=("NLI zero-shot pipeline", "sentence premise + hypothesis", "entailment probability"),
     ),
     ScorerSpec(
         "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
@@ -132,7 +141,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         ENTAILMENT_THRESHOLD,
         "mDeBERTa-v3 multilingual NLI through the zero-shot-classification pipeline.",
         ZEROSHOT_PROMPT,
-        card=('NLI zero-shot pipeline', 'sentence premise + hypothesis', 'entailment probability'),
+        card=("NLI zero-shot pipeline", "sentence premise + hypothesis", "entailment probability"),
     ),
     ScorerSpec(
         "BalaRajesh1/mmbert-small-nli",
@@ -141,7 +150,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         ENTAILMENT_THRESHOLD,
         "mmBERT-small multilingual NLI through the zero-shot-classification pipeline.",
         ZEROSHOT_PROMPT,
-        card=('NLI zero-shot pipeline', 'sentence premise + hypothesis', 'entailment probability'),
+        card=("NLI zero-shot pipeline", "sentence premise + hypothesis", "entailment probability"),
     ),
     ScorerSpec(
         "fastino/gliner2.5-multi-v1",
@@ -150,7 +159,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         LABEL_THRESHOLD,
         "GLiNER2.5 multilingual schema classifier; one land-use label.",
         ZEROSHOT_PROMPT,
-        card=('GLiNER2 classify_text', 'sentence + hypothesis label', 'label confidence'),
+        card=("GLiNER2 classify_text", "sentence + hypothesis label", "label confidence"),
     ),
 )
 

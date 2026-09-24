@@ -238,7 +238,9 @@ def scoring_summary_rows(
     output of :func:`threshold_sweep_rows` over the same runs) to avoid recomputing it.
     """
     scoring = group_by_model(scoring_runs(results))
-    sweep_by_model = group_rows_by_model(sweep if sweep is not None else threshold_sweep_rows(results))
+    sweep_by_model = group_rows_by_model(
+        sweep if sweep is not None else threshold_sweep_rows(results)
+    )
 
     rows = []
     for model_id, runs in sorted(scoring.items()):

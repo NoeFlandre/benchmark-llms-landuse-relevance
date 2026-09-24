@@ -28,7 +28,9 @@ fi
 if [[ "$1" == export ]]; then printf 'llama-cpp-python==0.3.35\\njinja2==3.1.6\\n'; exit 0; fi
 if [[ "$1" == pip ]]; then exit 0; fi
 if [[ "$1" == run ]]; then
-  if [[ "$*" == *"lrb languages"* ]]; then printf 'en\\t%s\\nfr\\t%s\\n' "$TEST_ROWS" "$TEST_ROWS"; fi
+  if [[ "$*" == *"lrb languages"* ]]; then
+    printf 'en\\t%s\\nfr\\t%s\\n' "$TEST_ROWS" "$TEST_ROWS"
+  fi
   if [[ "$*" == *"lrb scorers"* && "$TEST_ROSTER" == scorers ]]; then
     printf '%s\\tnote\\n' "$TEST_MODEL_ID"
   fi
@@ -65,7 +67,7 @@ def _executable(path: Path, body: str) -> None:
     path.chmod(0o755)
 
 
-def _run_node_script(
+def _run_node_script(  # noqa: PLR0913 - one keyword per scenario knob
     tmp_path: Path,
     model_id: str,
     *,

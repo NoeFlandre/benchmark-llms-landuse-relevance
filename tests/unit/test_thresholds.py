@@ -8,10 +8,10 @@ from landuse_relevance_bench.domain.thresholds import (
     DEFAULT_THRESHOLDS,
     ScoreFormatError,
     decide_at,
-    parse_scores,
-    roc_auc,
     decide_scores,
     expected_labels,
+    parse_scores,
+    roc_auc,
     roc_auc_scores,
     yes_scores,
 )
