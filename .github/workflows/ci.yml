@@ -21,10 +21,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --all-extras
-
-      - name: Baseline
-        run: uv run --no-sync pytest
+      # `gliner2` conflicts with `inference` by design (Transformers 4 vs 5), so
+      # --all-extras cannot resolve; the tests only need these runtimes.
+      - run: uv sync --extra inference --extra scoring --extra publish
 
       - name: Lint and format
         run: |
@@ -34,27 +33,22 @@ jobs:
       - name: Types
         run: uv run --no-sync ty check
 
-      - name: Unit tests with coverage
-        run: uv run --no-sync pytest tests/unit --cov --cov-report=term-missing --cov-report=json
+      # Each suite runs once; the unit+property coverage report feeds the CRAP gate.
+      - name: Unit and property tests with coverage
+        run: uv run --no-sync pytest tests/unit tests/property --cov --cov-report=term-missing --cov-report=json
 
-      - name: Property tests
-        run: uv run --no-sync pytest tests/property
-
-      - name: Acceptance scenarios
-        run: uv run --no-sync pytest tests/acceptance
-
-      - name: Architecture boundaries
-        run: uv run --no-sync pytest tests/architecture
+      - name: Acceptance, architecture and script tests
+        run: uv run --no-sync pytest tests/acceptance tests/architecture tests/scripts
 
       - name: CRAP score
-        run: |
-          uv run --no-sync pytest tests/unit tests/property --cov --cov-report=json -q
-          uv run --no-sync python scripts/crap.py --max 6
+        run: uv run --no-sync python scripts/crap.py --max 6
 
+      # mutmut exits non-zero whenever a mutant survives, so its exit code is not the
+      # gate; check_mutants.py is, and it fails when the run left no results (a crash).
       - name: Mutation testing
         run: |
           uv run --no-sync mutmut run --max-children 4 || true
-          uv run --no-sync python scripts/check_mutants.py --max-survivors 4
+          uv run --no-sync python scripts/check_mutants.py --max-survivors 0
 
       - name: CLI smoke test
         run: uv run --no-sync lrb models

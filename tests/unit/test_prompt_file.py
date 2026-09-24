@@ -26,3 +26,14 @@ def test_rejects_a_blank_template(tmp_path: Path) -> None:
 def test_loads_the_real_project_prompt(real_prompt_path: Path) -> None:
     template = load_prompt(real_prompt_path)
     assert "TARGET SENTENCE: {}" in template
+
+
+def test_multilingual_prompt_policy_is_documented() -> None:
+    adr = Path(__file__).parents[2] / "docs" / "adr" / "0006-multilingual-prompt-language.md"
+    text = adr.read_text(encoding="utf-8").lower()
+
+    assert "english" in text
+    assert "yes" in text and "no" in text
+    assert "unparsed" in text
+    assert "raw_output" in text
+    assert "recomput" in text

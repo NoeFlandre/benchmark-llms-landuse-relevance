@@ -6,6 +6,7 @@ from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunR
 
 META = RunMetadata(
     model_id="LiquidAI/LFM2.5-350M",
+    language="en",
     model_revision="abc123",
     prompt_sha256="p" * 64,
     benchmark_sha256="b" * 64,
@@ -88,3 +89,24 @@ def test_run_result_rejects_metrics_that_disagree_with_its_predictions() -> None
             predictions=(_prediction(), _prediction()),
             metrics=evaluate([(Label.YES, Label.YES)]),
         )
+
+
+def test_missing_language_is_rejected_as_archive_only_metadata() -> None:
+    payload = META.to_dict()
+    del payload["language"]
+
+    with pytest.raises(ValueError, match=r"archive-only.*language"):
+        RunMetadata.from_dict(payload)
+
+
+def test_metadata_written_before_performance_telemetry_was_added_still_loads() -> None:
+    payload = META.to_dict()
+    payload.pop("throughput_items_per_second")
+    payload.pop("peak_vram_bytes")
+    payload.pop("sequence_length")
+
+    restored = RunMetadata.from_dict(payload)
+
+    assert restored.throughput_items_per_second is None
+    assert restored.peak_vram_bytes is None
+    assert restored.sequence_length is None

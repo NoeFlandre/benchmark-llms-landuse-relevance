@@ -6,11 +6,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 PROMPT_TEMPLATE = "Classify.\n\nOutput only yes or no.\n\nTARGET SENTENCE: {}"
 CSV_TEXT = (
-    "sentence,label,polygon_name,h3_cell,latitude,longitude,source,region,source_url\n"
+    "sentence,label,polygon_name,h3_cell,latitude,longitude,source,region,source_url,"
+    "source_item_id,language\n"
     '"Dense mangrove forest lines the lagoon.",yes,Rabi,839116fffffffff,-16.4,-122.1,'
-    "wikipedia,fiji,https://example.org/a\n"
+    "wikipedia,fiji,https://example.org/a,source-1,en\n"
     '"The council was dissolved in 1974.",no,Cruzen Island,83f35efffffffff,-74.7,-140.3,'
-    "website,antarctica,https://example.org/b\n"
+    "website,antarctica,https://example.org/b,source-2,en\n"
 )
 
 
@@ -30,7 +31,12 @@ def benchmark_path(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def real_benchmark_path() -> Path:
-    return PROJECT_ROOT / "data" / "benchmark.csv"
+    return PROJECT_ROOT / "data" / "translations" / "en" / "v3-final-en.csv"
+
+
+@pytest.fixture
+def legacy_benchmark_path() -> Path:
+    return PROJECT_ROOT / "data" / "archive" / "single-language-benchmark" / "benchmark.csv"
 
 
 @pytest.fixture

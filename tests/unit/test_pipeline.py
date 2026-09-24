@@ -6,8 +6,9 @@ from typing import Any
 import pytest
 
 from landuse_relevance_bench.adapters.hashing import sha256_of_file
-from landuse_relevance_bench.adapters.pipeline import RunRequest, execute
+from landuse_relevance_bench.adapters.pipeline import DEFAULT_MAX_NEW_TOKENS, RunRequest, execute
 from landuse_relevance_bench.adapters.results_store import read_run, run_filename
+from landuse_relevance_bench.domain.engine import LabelScores
 from landuse_relevance_bench.domain.labels import Label
 
 
@@ -22,12 +23,31 @@ class StubGenerator:
         return taken
 
 
+class MeasuredScorer:
+    peak_vram_bytes: int = 123456
+    sequence_length: int = 8192
+
+    def begin_measurement(self) -> None:
+        self.started = True
+
+    def end_measurement(self) -> None:
+        self.finished = True
+
+    def score(self, inputs):
+        return [LabelScores({Label.YES: 0.9, Label.NO: 0.1}) for _ in inputs]
+
+
+class RuntimeDtypeScorer(MeasuredScorer):
+    runtime_dtype = "float16"
+
+
 @pytest.fixture
 def request_for(tmp_path: Path, benchmark_path: Path, prompt_path: Path):
     def build(**overrides: Any) -> RunRequest:
         return replace(
             RunRequest(
                 model_id="LiquidAI/LFM2.5-350M",
+                language="en",
                 benchmark_path=benchmark_path,
                 prompt_path=prompt_path,
                 output_dir=tmp_path / "results",
@@ -62,7 +82,7 @@ def test_scores_the_whole_benchmark_and_returns_the_result(request_for) -> None:
 
 def test_writes_one_result_file_named_after_the_model(request_for, tmp_path: Path) -> None:
     result = execute(request_for(), _provider(["yes", "no"]))
-    path = tmp_path / "results" / run_filename("LiquidAI/LFM2.5-350M")
+    path = tmp_path / "results" / run_filename("LiquidAI/LFM2.5-350M", "en")
     assert read_run(path) == result
 
 
@@ -71,11 +91,19 @@ def test_records_the_inputs_it_actually_used(request_for, benchmark_path: Path) 
     metadata = result.metadata
     assert metadata.benchmark_sha256 == sha256_of_file(benchmark_path)
     assert metadata.model_revision == "rev0"
+    assert metadata.language == "en"
     assert metadata.batch_size == 1
     assert metadata.max_new_tokens == 4
     assert metadata.seed == 7
     assert metadata.decoding == "greedy"
     assert metadata.duration_seconds >= 0.0
+
+
+def test_active_default_generation_budget_is_4096(request_for) -> None:
+    result = execute(request_for(), _provider(["yes", "no"]))
+
+    assert DEFAULT_MAX_NEW_TOKENS == 4096
+    assert result.metadata.max_new_tokens == 4096
 
 
 def test_feeds_the_file_prompt_to_the_generator(request_for) -> None:
@@ -90,3 +118,42 @@ def test_unparsable_generations_survive_into_the_stored_result(request_for) -> N
     assert result.predictions[0].predicted is None
     assert result.predictions[0].raw_output == "I cannot tell"
     assert result.metrics.unparsed_rate == 0.5
+
+
+def test_scoring_records_throughput_and_peak_vram(request_for) -> None:
+    scorer = MeasuredScorer()
+    request = request_for(model_id="Alibaba-NLP/gte-multilingual-reranker-base")
+
+    from landuse_relevance_bench.adapters.pipeline import execute_scoring
+
+    result = execute_scoring(request, lambda _: (scorer, "gte-rev"))
+
+    assert scorer.started and scorer.finished
+    assert result.metadata.model_revision == "gte-rev"
+    assert result.metadata.sequence_length == 8192
+    assert result.metadata.throughput_items_per_second is not None
+    assert result.metadata.throughput_items_per_second > 0.0
+    assert result.metadata.peak_vram_bytes == 123456
+
+
+def test_scoring_records_the_scorer_specific_sequence_length(request_for) -> None:
+    scorer = MeasuredScorer()
+    scorer.sequence_length = 1024
+    request = request_for(model_id="convaiinnovations/laya-multilingual")
+
+    from landuse_relevance_bench.adapters.pipeline import execute_scoring
+
+    result = execute_scoring(request, lambda _: (scorer, "laya-rev"))
+
+    assert result.metadata.sequence_length == 1024
+
+
+def test_scoring_records_a_scorer_runtime_dtype_when_provided(request_for) -> None:
+    scorer = RuntimeDtypeScorer()
+    request = request_for(model_id="convaiinnovations/laya-multilingual")
+
+    from landuse_relevance_bench.adapters.pipeline import execute_scoring
+
+    result = execute_scoring(request, lambda _: (scorer, "laya-rev"))
+
+    assert result.metadata.dtype == "float16"

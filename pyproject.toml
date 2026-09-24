@@ -15,6 +15,27 @@ inference = [
     "torch>=2.6",
     "transformers>=4.57",
     "accelerate>=1.0",
+    "laya>=0.3.5",
+    "huggingface-hub>=0.35",
+    # llama_generator.render_chat imports jinja2.sandbox; do not rely on Transformers.
+    "jinja2>=3.1",
+]
+# The zero-shot classifier ships its own runtime; only a scoring run needs it.
+scoring = [
+    "gliclass>=0.1",
+]
+# gliner2 pins Transformers<5, incompatible with `inference`: it is locked as a
+# conflicting extra and synced into its own environment on the node.
+gliner2 = [
+    "gliner2[local]==2.0.0",
+    "protobuf",
+    "sentencepiece",
+]
+# llama.cpp must be compiled against the node's CUDA toolkit, so the node script
+# rebuilds this locked version from source (--no-binary) after `uv sync`.
+gguf = [
+    "llama-cpp-python==0.3.35",
+    "jinja2>=3.1",
 ]
 publish = [
     "huggingface-hub>=0.35",
@@ -36,6 +57,11 @@ dev = [
     "mutmut>=3.2",
 ]
 
+[tool.uv]
+conflicts = [
+    [{ extra = "inference" }, { extra = "gliner2" }],
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -51,16 +77,17 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", "PL", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["PLR2004", "ARG001", "PLC0415"]
+"tests/**" = ["PLR2004", "ARG001", "ARG002", "ARG004", "ARG005", "RUF012", "PLC0415"]
 # Optional runtimes (torch, transformers, huggingface_hub) are imported inside the
 # functions that need them, so the CLI and the domain stay usable without them.
 # A command's parameters are its user interface; typer needs them in the signature.
 "src/landuse_relevance_bench/cli.py" = ["PLC0415", "PLR0913", "PLR0917"]
-"src/landuse_relevance_bench/adapters/hf_generator.py" = ["PLC0415"]
-"src/landuse_relevance_bench/adapters/hf_publish.py" = ["PLC0415", "PLR0913"]
+"src/landuse_relevance_bench/adapters/*.py" = ["PLC0415"]
+"src/landuse_relevance_bench/adapters/hf_publish.py" = ["PLR0913"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src", "."]
 addopts = "-q --strict-markers -m 'not integration'"
 markers = [
     "integration: exercises a real model runtime and downloads weights (deselected by default)",
@@ -114,6 +141,12 @@ also_copy = [
     "src/landuse_relevance_bench/cli.py",
     "src/landuse_relevance_bench/adapters/",
     "tests/",
+    "scripts/",
     "data/",
+    # Read by tests/unit/test_archive_boundary.py; without them the stats run fails
+    # and no mutant is ever tested.
+    "README.md",
+    "docs/",
+    "results/",
     "pyproject.toml",
 ]

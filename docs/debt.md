@@ -1,8 +1,9 @@
 # Known weaknesses
 
-**The benchmark is small.** 154 items means roughly ±8 points of 95% confidence on an
-accuracy near 0.8. Treat gaps smaller than that between two models as noise. Adding
-items is the fix; the content-addressed ids make old results joinable to a larger set.
+**Per-language samples are small.** Each language has 300 items, so a single-language
+accuracy near 0.8 still has wide uncertainty. Treat small gaps between models within
+one language as noise. The 85 aligned splits provide a better overall estimate through
+macro aggregation; the language-aware ids keep those joins explicit.
 
 **One prompt, no variants.** Scores conflate a model's judgement with its sensitivity
 to this specific wording. A prompt-variant sweep is the natural next step; the run
@@ -24,12 +25,15 @@ remove the heuristic entirely, at the cost of no longer measuring instruction-fo
 — see [ADR-0001](adr/0001-greedy-generation.md).
 
 **Mutation testing covers the domain only.** Adapters are covered by tests but not
-mutated; their logic is thin, and mutating filesystem code mostly produces equivalent
-mutants. Revisit if an adapter grows real branching.
+mutated; mutating filesystem and model-runtime code mostly produces equivalent mutants.
+The adapters are no longer thin: `hf_scorer.py` (~690 lines, eight scorer families) and
+`hf_publish.py` (~580 lines) are now the largest modules. Their branching is covered by
+unit tests with fake runtimes, not by mutation.
 
-**Four mutants survive by construction.** `zip(..., strict=True)` in `predict_all` is
-unreachable defence — the explicit length check above it already guarantees equal
-lengths — so mutating `strict` changes nothing. The check is kept for its error message
-and `strict=True` for the lint rule that requires it. One further mutant rewrites
-`"utf-8"` as `"UTF-8"`, which Python treats as the same encoding. The mutation gate
-allows exactly these four.
+**No mutant survives, and none is allowed to.** Until the 2026-09 uplift the gate was
+silently broken: mutmut's copied workspace lacked the documentation one unit test reads,
+so its stats run failed, no mutant was tested, and the survivor count read zero. The
+workspace now copies what the tests read, `check_mutants.py` refuses a run that killed
+nothing, and the domain avoids constructs whose mutants are equivalent (guarded
+`zip(strict=True)` calls, redundant defaults). CI allows zero survivors
+(`scripts/check_mutants.py --max-survivors 0`).
