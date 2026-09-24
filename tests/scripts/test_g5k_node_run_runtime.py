@@ -4,6 +4,17 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
+_BASH_MAJOR = int(
+    subprocess.run(
+        ["bash", "-c", "echo ${BASH_VERSINFO[0]}"], capture_output=True, text=True, check=True
+    ).stdout
+)
+# The node script uses `mapfile` and empty arrays under `set -u` (bash >= 4, as on the
+# Grid'5000 nodes and CI); macOS ships bash 3.2, where it cannot run at all.
+pytestmark = pytest.mark.skipif(_BASH_MAJOR < 4, reason="g5k_node_run.sh needs bash >= 4")
+
 REPOSITORY = Path(__file__).parents[2]
 GTE_MODEL_ID = "Alibaba-NLP/gte-multilingual-reranker-base"
 MXBAI_MODEL_ID = "mixedbread-ai/mxbai-rerank-base-v2"
@@ -206,7 +217,7 @@ def test_gguf_builds_the_locked_llama_cpp_against_cuda(tmp_path: Path) -> None:
     assert "CMAKE=-DGGML_CUDA=on" in install
     cuda_root = tmp_path / "cuda"
     assert f"LD={cuda_root}/lib64:{cuda_root}/lib:" in install
-    assert "module load cuda-toolkit/12.9.1" in run.module_log
+    assert "load cuda-toolkit/12.9.1" in run.module_log.splitlines()
 
 
 def test_gguf_cuda_module_is_configurable(tmp_path: Path) -> None:
