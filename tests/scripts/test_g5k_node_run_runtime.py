@@ -108,6 +108,8 @@ def _run_node_script(  # noqa: PLR0913 - one keyword per scenario knob
     marker = tmp_path / "environment-path"
 
     environment: dict[str, str] = dict(os.environ)
+    # Never source the host's real Lmod: it would replace the fake `module` below.
+    environment["LRB_LMOD_INIT"] = "/dev/null"
     environment.pop("UV_PROJECT_ENVIRONMENT", None)
     environment.pop("LD_LIBRARY_PATH", None)
     environment.update(

@@ -17,6 +17,7 @@
 #                      check but keeps the uniformity check   (default: 300)
 #   LRB_CUDA_MODULE Lmod module providing nvcc for llama.cpp (default: cuda-toolkit/12.9.1,
 #                   falling back to the site's default cuda-toolkit)
+#   LRB_LMOD_INIT   Lmod init script sourced before `module` (default: /etc/profile.d/lmod.sh)
 #   LRB_DRY_RUN     print sizing information and exit     (default: 0)
 #   HF_HOME         Hugging Face cache                  (default: node-local /tmp scratch)
 set -euo pipefail
@@ -124,7 +125,7 @@ if (( is_quantized == 1 )); then
   fi
   # OAR runs a non-login shell, so Lmod must be sourced before `module` exists.
   # shellcheck disable=SC1091
-  source /etc/profile.d/lmod.sh 2>/dev/null || true
+  source "${LRB_LMOD_INIT:-/etc/profile.d/lmod.sh}" 2>/dev/null || true
   module load "$LRB_CUDA_MODULE" 2>/dev/null || module load cuda-toolkit 2>/dev/null || true
   if ! command -v nvcc >/dev/null; then
     echo "no CUDA toolkit (nvcc) available to build llama.cpp" >&2
