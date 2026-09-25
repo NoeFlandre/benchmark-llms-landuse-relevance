@@ -1,70 +1,140 @@
-"""TransformersGenerator's decision logic, exercised with stand-ins rather than torch."""
+"""TransformersGenerator's decision logic, exercised through its public surface with stand-ins."""
 
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import torch
 
 from landuse_relevance_bench.adapters import hf_generator
-from landuse_relevance_bench.adapters.hf_generator import GeneratorSettings, TransformersGenerator
+from landuse_relevance_bench.adapters.hf_generator import (
+    GeneratorSettings,
+    TransformersGenerator,
+    stop_token_ids,
+)
 from landuse_relevance_bench.adapters.pipeline import RunRequest
+from landuse_relevance_bench.domain.engine import Generation
 
 SETTINGS = GeneratorSettings(max_new_tokens=3, dtype="bfloat16", seed=0)
 EOS = 2
 
 
-class FakeCompletion:
-    def __init__(self, ids: list[int]) -> None:
-        self._ids = ids
+MISSING = object()
 
-    def tolist(self) -> list[int]:
-        return self._ids
+
+class FakeBatch(dict):
+    """What a tokenizer returns: named tensors that can be moved to a device."""
 
 
 class FakeTokenizer:
     eos_token_id = 99
+    pad_token_id = 0
 
-    def decode(self, completion: FakeCompletion, skip_special_tokens: bool) -> str:
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    def apply_chat_template(self, messages: Any, **kwargs: Any) -> str:
+        assert kwargs == {
+            "tokenize": False,
+            "add_generation_prompt": True,
+            "enable_thinking": False,
+        }
+        return messages[0]["content"]
+
+    def __call__(self, texts: list[str], **kwargs: Any) -> FakeBatch:
+        assert kwargs == {"return_tensors": "pt", "padding": True, "add_special_tokens": False}
+        self.texts.extend(texts)
+        return FakeBatch(input_ids=torch.zeros((len(texts), 1), dtype=torch.long))
+
+    def decode(self, completion: Any, skip_special_tokens: bool) -> str:
         assert skip_special_tokens
         return "  " + " ".join(f"t{i}" for i in completion.tolist() if i != EOS) + "\n"
 
 
+class FakeModel:
+    """Echoes the prompt column, then emits the chosen completion rows."""
+
+    device = "cpu"
+
+    def __init__(self, rows: list[list[int]], generation_config: Any, config: Any) -> None:
+        self._rows = rows
+        self.generation_config = generation_config
+        self.config = config
+
+    def generate(self, *, input_ids: Any, **kwargs: Any) -> Any:
+        assert kwargs["do_sample"] is False
+        assert kwargs["max_new_tokens"] == SETTINGS.max_new_tokens
+        return torch.cat([input_ids, torch.tensor(self._rows, dtype=torch.long)], dim=1)
+
+
 def _generator(
-    eos_token_id: Any = EOS, *, has_config: bool = True, commit: Any = "abc"
+    rows: list[list[int]] | None = None,
+    *,
+    eos_token_id: Any = EOS,
+    has_config: bool = True,
+    commit: Any = "abc",
+    tokenizer: Any = None,
 ) -> TransformersGenerator:
     config = SimpleNamespace(eos_token_id=eos_token_id) if has_config else None
-    model_config = SimpleNamespace() if commit is None else SimpleNamespace(_commit_hash=commit)
-    model = SimpleNamespace(generation_config=config, config=model_config)
-    return TransformersGenerator(FakeTokenizer(), model, SETTINGS)
+    model_config = SimpleNamespace() if commit is MISSING else SimpleNamespace(_commit_hash=commit)
+    model = FakeModel(rows or [[5, 6, 7]], config, model_config)
+    return TransformersGenerator(tokenizer or FakeTokenizer(), model, SETTINGS)
+
+
+def _one(generator: TransformersGenerator) -> Generation:
+    (generation,) = generator.generate(["prompt"])
+    return generation
 
 
 def test_a_single_eos_id_is_the_only_stop_token() -> None:
-    assert _generator(7)._stop_token_ids == frozenset({7})
+    assert stop_token_ids(SimpleNamespace(eos_token_id=7), FakeTokenizer()) == frozenset({7})
 
 
 def test_a_list_of_eos_ids_drops_missing_entries() -> None:
-    assert _generator([7, None, 8])._stop_token_ids == frozenset({7, 8})
+    config = SimpleNamespace(eos_token_id=[7, None, 8])
+    assert stop_token_ids(config, FakeTokenizer()) == frozenset({7, 8})
 
 
 def test_without_a_generation_config_the_tokenizer_eos_is_used() -> None:
-    assert _generator(has_config=False)._stop_token_ids == frozenset({99})
+    assert stop_token_ids(None, FakeTokenizer()) == frozenset({99})
 
 
 def test_an_unset_eos_id_yields_no_stop_tokens() -> None:
-    assert _generator(None)._stop_token_ids == frozenset()
+    assert stop_token_ids(SimpleNamespace(eos_token_id=None), FakeTokenizer()) == frozenset()
+
+
+def test_generation_stops_on_the_configured_eos_id() -> None:
+    assert _one(_generator([[5, 7, 0]], eos_token_id=7)).truncated is False
+    assert _one(_generator([[5, 7, 0]], eos_token_id=[8, None, 7])).generated_tokens == 2
+
+
+def test_generation_falls_back_to_the_tokenizer_eos_without_a_config() -> None:
+    generation = _one(_generator([[5, 99, 0]], has_config=False))
+    assert generation.truncated is False
+    assert generation.generated_tokens == 2
+
+
+def test_an_empty_prompt_list_generates_nothing() -> None:
+    assert _generator().generate([]) == []
 
 
 def test_a_completion_that_hit_the_budget_is_truncated_and_stripped() -> None:
-    generation = _generator()._as_generation(FakeCompletion([5, 6, 7]))
+    generation = _one(_generator([[5, 6, 7]]))
     assert generation.text == "t5 t6 t7"
     assert generation.truncated is True
 
 
 def test_a_completion_that_stopped_is_not_truncated() -> None:
-    generation = _generator()._as_generation(FakeCompletion([5, EOS, 0]))
+    generation = _one(_generator([[5, EOS, 0]]))
     assert generation.text == "t5 t0"
     assert generation.truncated is False
+
+
+def test_prompts_are_chat_templated_before_encoding() -> None:
+    tokenizer = FakeTokenizer()
+    _generator([[5, 6, 7], [5, 6, 7]], tokenizer=tokenizer).generate(["a", "b"])
+    assert tokenizer.texts == ["a", "b"]
 
 
 def test_the_revision_is_the_resolved_commit_hash() -> None:
@@ -72,13 +142,11 @@ def test_the_revision_is_the_resolved_commit_hash() -> None:
 
 
 def test_the_revision_is_empty_when_the_commit_hash_is_missing() -> None:
-    assert _generator(commit=None).revision == ""
+    assert _generator(commit=MISSING).revision == ""
 
 
 def test_the_revision_is_empty_when_the_commit_hash_is_null() -> None:
-    generator = _generator()
-    generator._model.config._commit_hash = None
-    assert generator.revision == ""
+    assert _generator(commit=None).revision == ""
 
 
 def _request(revision: str | None) -> RunRequest:
@@ -113,13 +181,12 @@ def test_the_generated_length_stops_at_the_first_stop_token() -> None:
 
 
 def test_a_completion_reports_how_many_tokens_the_model_produced() -> None:
-    assert _generator()._as_generation(FakeCompletion([5, EOS, EOS])).generated_tokens == 2
+    assert _one(_generator([[5, EOS, EOS]])).generated_tokens == 2
 
 
 class FakeProcessor:
-    tokenizer = FakeTokenizer()
-
     def __init__(self) -> None:
+        self.tokenizer = FakeTokenizer()
         self.messages: list[Any] = []
 
     def apply_chat_template(self, messages: Any, **kwargs: Any) -> str:
@@ -130,8 +197,11 @@ class FakeProcessor:
 
 def test_a_vision_language_model_gets_a_text_only_typed_user_turn() -> None:
     processor = FakeProcessor()
-    generator = hf_generator.VisionLanguageGenerator(processor, SimpleNamespace(), SETTINGS)
-    assert generator._as_chat("Is this land use?") == "rendered"
+    model = FakeModel([[5, EOS, 0]], SimpleNamespace(eos_token_id=EOS), SimpleNamespace())
+    generator = hf_generator.VisionLanguageGenerator(processor, model, SETTINGS)
+    (generation,) = generator.generate(["Is this land use?"])
+    assert generation.text == "t5 t0"
+    assert processor.tokenizer.texts == ["rendered"]
     assert processor.messages == [
         [{"role": "user", "content": [{"type": "text", "text": "Is this land use?"}]}]
     ]

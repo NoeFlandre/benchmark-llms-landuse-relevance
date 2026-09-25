@@ -36,6 +36,15 @@ def generated_length(token_ids: Sequence[int], stop_token_ids: Collection[int]) 
     return len(token_ids)
 
 
+def stop_token_ids(generation_config: Any, tokenizer: Any) -> frozenset[int]:
+    """The ids that end a completion: the generation config's EOS, else the tokenizer's."""
+    raw = (
+        generation_config.eos_token_id if generation_config is not None else tokenizer.eos_token_id
+    )
+    ids = raw if isinstance(raw, list) else [raw]
+    return frozenset(i for i in ids if i is not None)
+
+
 def user_turn(prompt: str, *, vision: bool) -> list[dict[str, Any]]:
     """A single user message; a vision-language template expects typed content parts."""
     content: Any = [{"type": "text", "text": prompt}] if vision else prompt
@@ -85,10 +94,7 @@ class TransformersGenerator:
 
     @property
     def _stop_token_ids(self) -> frozenset[int]:
-        config = self._model.generation_config
-        raw = config.eos_token_id if config is not None else self._tokenizer.eos_token_id
-        ids = raw if isinstance(raw, list) else [raw]
-        return frozenset(i for i in ids if i is not None)
+        return stop_token_ids(self._model.generation_config, self._tokenizer)
 
     @property
     def revision(self) -> str:
