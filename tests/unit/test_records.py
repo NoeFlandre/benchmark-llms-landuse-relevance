@@ -94,3 +94,24 @@ def test_run_result_rejects_metrics_that_disagree_with_its_predictions() -> None
             predictions=(_prediction(), _prediction()),
             metrics=evaluate([(Label.YES, Label.YES)]),
         )
+
+
+def test_a_timed_prediction_round_trips_and_the_run_file_carries_its_speed() -> None:
+    timed = Prediction(
+        item_id="1" * 16,
+        expected=Label.NO,
+        predicted=Label.NO,
+        raw_output="no",
+        truncated=False,
+        latency_seconds=0.25,
+        generated_tokens=4,
+        verify_steps=2,
+        accepted_drafts=3,
+        proposed_drafts=16,
+    )
+    assert Prediction.from_dict(timed.to_dict()) == timed
+    payload = RunResult(
+        metadata=META, predictions=(timed,), metrics=evaluate([(Label.NO, Label.NO)])
+    ).to_dict()
+    assert payload["speed"]["generated_tokens"] == 4
+    assert payload["speed"]["mean_accept_length"] == 2.0

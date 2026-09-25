@@ -1,6 +1,13 @@
 import pytest
 
-from landuse_relevance_bench.domain.roster import ROSTER, ModelSpec, model_ids, spec_for
+from landuse_relevance_bench.domain.roster import (
+    ROSTER,
+    ModelSpec,
+    dspark_settings,
+    model_ids,
+    sglang_pair,
+    spec_for,
+)
 
 
 def test_every_model_id_is_a_namespaced_hub_repository() -> None:
@@ -55,10 +62,50 @@ def test_every_rostered_run_pins_its_weights() -> None:
 
 
 def test_a_draft_outside_sglang_is_rejected() -> None:
-    with pytest.raises(ValueError, match="sglang"):
+    with pytest.raises(ValueError, match=r"^a speculative draft needs the sglang runtime$"):
         ModelSpec("a/b", 1, "", draft_model_id="a/draft")
 
 
 def test_an_unknown_runtime_is_rejected() -> None:
     with pytest.raises(ValueError, match="unknown runtime"):
         ModelSpec("a/b", 1, "", runtime="vllm")
+
+
+def test_dspark_settings_are_the_card_s_launch_flags() -> None:
+    assert dspark_settings(0.5, speculative_dspark_block_size=8) == {
+        "speculative_algorithm": "DSPARK",
+        "speculative_draft_attention_backend": "flashinfer",
+        "disable_radix_cache": True,
+        "mem_fraction_static": 0.5,
+        "speculative_dspark_block_size": 8,
+    }
+
+
+def test_a_sglang_pair_is_a_baseline_and_the_same_launch_with_the_draft() -> None:
+    target = ModelSpec("o/t", 10, "target", revision="r1", vision=True, batch_size=16)
+    baseline, drafted = sglang_pair(target, "o/t-DSpark", "r2", 3, dspark_settings(0.5))
+    assert baseline == ModelSpec(
+        "o/t",
+        10,
+        "SGLang, no draft: the like-for-like baseline for DSpark.",
+        run_id="o/t@sglang",
+        revision="r1",
+        runtime="sglang",
+        vision=True,
+        batch_size=1,
+        speculative={"disable_radix_cache": True, "mem_fraction_static": 0.5},
+    )
+    assert drafted == ModelSpec(
+        "o/t",
+        10,
+        "SGLang with the DSpark speculative draft; lossless under greedy decoding.",
+        run_id="o/t+DSpark",
+        revision="r1",
+        runtime="sglang",
+        vision=True,
+        draft_model_id="o/t-DSpark",
+        draft_revision="r2",
+        draft_parameters=3,
+        batch_size=1,
+        speculative=dspark_settings(0.5),
+    )

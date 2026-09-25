@@ -46,7 +46,7 @@ class ModelSpec:
         return self.run_id or self.model_id
 
 
-def _dspark_settings(mem_fraction_static: float, **extra: Any) -> dict[str, Any]:
+def dspark_settings(mem_fraction_static: float, **extra: Any) -> dict[str, Any]:
     return {
         "speculative_algorithm": "DSPARK",
         "speculative_draft_attention_backend": "flashinfer",
@@ -56,7 +56,7 @@ def _dspark_settings(mem_fraction_static: float, **extra: Any) -> dict[str, Any]
     }
 
 
-def _sglang_pair(
+def sglang_pair(
     target: ModelSpec,
     draft_model_id: str,
     draft_revision: str,
@@ -122,8 +122,8 @@ LFM_VL_3B = ModelSpec(
 
 #: Each DSpark card's SGLang recipe. The text drafters read their block size from
 #: the draft config; the VL card sets it explicitly for an H100.
-_TEXT_DSPARK = _dspark_settings(0.75)
-_VL_DSPARK = _dspark_settings(0.8, speculative_dspark_block_size=9)
+_TEXT_DSPARK = dspark_settings(0.75)
+_VL_DSPARK = dspark_settings(0.8, speculative_dspark_block_size=9)
 
 ROSTER: tuple[ModelSpec, ...] = (
     LFM_350M,
@@ -131,28 +131,28 @@ ROSTER: tuple[ModelSpec, ...] = (
     LFM_2_6B,
     LFM_8B_A1B,
     LFM_VL_3B,
-    *_sglang_pair(
+    *sglang_pair(
         LFM_1_2B,
         "LiquidAI/LFM2.5-1.2B-Instruct-DSpark",
         "4876d04848e15a6fd48d7c1481110e7cf5d62621",
         295_725_953,
         _TEXT_DSPARK,
     ),
-    *_sglang_pair(
+    *sglang_pair(
         LFM_2_6B,
         "LiquidAI/LFM2.5-2.6B-DSpark",
         "458cedab07d0f7b2b05700c77e1aa463d43d6f04",
         327_707_521,
         _TEXT_DSPARK,
     ),
-    *_sglang_pair(
+    *sglang_pair(
         LFM_8B_A1B,
         "LiquidAI/LFM2.5-8B-A1B-DSpark",
         "5b285c827912834665b1915f171897e49ff0f388",
         327_707_521,
         _TEXT_DSPARK,
     ),
-    *_sglang_pair(
+    *sglang_pair(
         LFM_VL_3B,
         "LiquidAI/LFM2.5-VL-3B-DSpark",
         "af77e9306a26e8625fde74d2a3051ab6d21bd955",

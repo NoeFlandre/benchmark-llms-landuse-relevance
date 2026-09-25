@@ -22,7 +22,7 @@ def test_percentile_interpolates_between_ranks(fraction: float, expected: float)
 
 
 def test_percentile_of_nothing_is_an_error() -> None:
-    with pytest.raises(ValueError, match="empty"):
+    with pytest.raises(ValueError, match=r"^percentile of an empty sequence$"):
         percentile([], 0.5)
 
 
@@ -33,6 +33,7 @@ def test_a_fully_recorded_run_reports_every_figure() -> None:
     assert speed.sentences_per_second == 0.5
     assert speed.latency_mean_seconds == 2.0
     assert speed.latency_p50_seconds == 2.0
+    assert speed.latency_p95_seconds == pytest.approx(2.9)
     assert speed.generated_tokens == 40
     assert speed.output_tokens_per_second == 10.0
     assert speed.mean_accept_length == pytest.approx(40 / 15)
@@ -52,3 +53,8 @@ def test_a_run_without_timings_still_reports_wall_time_throughput() -> None:
     assert speed.n_items == 2
     assert speed.sentences_per_second is None
     assert speed.latency_mean_seconds is None
+
+
+def test_a_single_verification_pass_still_yields_an_accept_length() -> None:
+    speed = summarise_speed([Timed(1.0, 7, 1, 6, 8)], wall_seconds=1.0)
+    assert speed.mean_accept_length == 7.0
