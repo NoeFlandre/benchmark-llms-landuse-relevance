@@ -1,22 +1,19 @@
 from dataclasses import replace
 
+from factories import make_metadata
 from landuse_relevance_bench.domain.agreement import speculative_agreements
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
-from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
+from landuse_relevance_bench.domain.records import Prediction, RunResult
 
-META = RunMetadata(
+META = make_metadata(
     model_id="t/model",
     model_revision="r",
     prompt_sha256="p",
     benchmark_sha256="b",
     max_new_tokens=64,
     batch_size=1,
-    seed=0,
-    decoding="greedy",
-    dtype="bfloat16",
     started_at="2026-09-25T00:00:00Z",
-    duration_seconds=1.0,
 )
 
 

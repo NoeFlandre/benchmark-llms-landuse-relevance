@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from landuse_relevance_bench.domain.agreement import Agreement
-from landuse_relevance_bench.domain.records import RunResult
+from landuse_relevance_bench.domain.metrics import ClassificationMetrics
+from landuse_relevance_bench.domain.records import Prediction, RunResult
 
 LEADERBOARD_COLUMNS = (
     "model_id",
@@ -66,21 +67,54 @@ def read_runs(directory: Path) -> list[RunResult]:
     return [read_run(p) for p in sorted(directory.glob("*.json"))]
 
 
-def _rounded(value: float | None, digits: int) -> float | None:
+SPEED_KEYS = (
+    "sentences_per_second",
+    "latency_p50_seconds",
+    "latency_p95_seconds",
+    "generated_tokens",
+    "output_tokens_per_second",
+    "mean_accept_length",
+    "draft_accept_rate",
+)
+
+
+def rounded(value: float | None, digits: int) -> float | None:
+    """``value`` rounded to ``digits``, or ``None`` when the run did not record it."""
     return None if value is None else round(value, digits)
+
+
+def score_columns(
+    metrics: ClassificationMetrics, predictions: Sequence[Prediction]
+) -> dict[str, Any]:
+    """The rounded scores and the truncation count shown for one run."""
+    return {
+        "accuracy": round(metrics.accuracy, 4),
+        "balanced_accuracy": round(metrics.balanced_accuracy, 4),
+        "f1": round(metrics.f1, 4),
+        "precision": round(metrics.precision, 4),
+        "recall": round(metrics.recall, 4),
+        "matthews_corrcoef": round(metrics.matthews_corrcoef, 4),
+        "unparsed_rate": round(metrics.unparsed_rate, 4),
+        "truncated": sum(p.truncated for p in predictions),
+    }
+
+
+def by_f1_then_name(row: dict[str, Any]) -> tuple[float, str]:
+    """Sort key: best F1 first, ties broken by model id for determinism."""
+    return (-row["f1"], row["model_id"])
 
 
 def speed_columns(result: RunResult) -> dict[str, Any]:
     """The speed figures shown next to the scores; blank where a run did not record them."""
     speed = result.speed
     return {
-        "sentences_per_second": _rounded(speed.sentences_per_second, 3),
-        "latency_p50_seconds": _rounded(speed.latency_p50_seconds, 4),
-        "latency_p95_seconds": _rounded(speed.latency_p95_seconds, 4),
+        "sentences_per_second": rounded(speed.sentences_per_second, 3),
+        "latency_p50_seconds": rounded(speed.latency_p50_seconds, 4),
+        "latency_p95_seconds": rounded(speed.latency_p95_seconds, 4),
         "generated_tokens": speed.generated_tokens,
-        "output_tokens_per_second": _rounded(speed.output_tokens_per_second, 1),
-        "mean_accept_length": _rounded(speed.mean_accept_length, 3),
-        "draft_accept_rate": _rounded(speed.draft_accept_rate, 4),
+        "output_tokens_per_second": rounded(speed.output_tokens_per_second, 1),
+        "mean_accept_length": rounded(speed.mean_accept_length, 3),
+        "draft_accept_rate": rounded(speed.draft_accept_rate, 4),
     }
 
 
@@ -90,14 +124,7 @@ def leaderboard_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
         {
             "model_id": r.metadata.name,
             "n_items": r.metrics.n_items,
-            "accuracy": round(r.metrics.accuracy, 4),
-            "balanced_accuracy": round(r.metrics.balanced_accuracy, 4),
-            "f1": round(r.metrics.f1, 4),
-            "precision": round(r.metrics.precision, 4),
-            "recall": round(r.metrics.recall, 4),
-            "matthews_corrcoef": round(r.metrics.matthews_corrcoef, 4),
-            "unparsed_rate": round(r.metrics.unparsed_rate, 4),
-            "truncated": sum(p.truncated for p in r.predictions),
+            **score_columns(r.metrics, r.predictions),
             "duration_seconds": round(r.metadata.duration_seconds, 2),
             **speed_columns(r),
             "runtime": r.metadata.runtime,
@@ -105,7 +132,7 @@ def leaderboard_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
         }
         for r in results
     ]
-    return sorted(rows, key=lambda row: (-row["f1"], row["model_id"]))
+    return sorted(rows, key=by_f1_then_name)
 
 
 def write_leaderboard_csv(results: Sequence[RunResult], path: Path) -> Path:
