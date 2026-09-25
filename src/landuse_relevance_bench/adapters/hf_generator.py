@@ -36,10 +36,24 @@ def generated_length(token_ids: Sequence[int], stop_token_ids: Collection[int]) 
     return len(token_ids)
 
 
+def stop_token_ids(generation_config: Any, tokenizer: Any) -> frozenset[int]:
+    """The ids that end a completion: the generation config's EOS, else the tokenizer's."""
+    raw = (
+        generation_config.eos_token_id if generation_config is not None else tokenizer.eos_token_id
+    )
+    ids = raw if isinstance(raw, list) else [raw]
+    return frozenset(i for i in ids if i is not None)
+
+
 def user_turn(prompt: str, *, vision: bool) -> list[dict[str, Any]]:
     """A single user message; a vision-language template expects typed content parts."""
     content: Any = [{"type": "text", "text": prompt}] if vision else prompt
     return [{"role": "user", "content": content}]
+
+
+def chat_template_kwargs(*, vision: bool) -> dict[str, Any]:
+    """Extra chat-template options: text models are asked not to emit a thinking block."""
+    return {} if vision else {"enable_thinking": False}
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +64,28 @@ class GeneratorSettings:
     dtype: str
     seed: int
     device_map: str = "auto"
+
+
+def _prepare_tokenizer(tokenizer: Any) -> None:
+    """Left-pad for batched decoding, padding with EOS when no pad token is defined."""
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+
+def _load_model(
+    auto_cls: Any, model_id: str, settings: GeneratorSettings, revision: str | None
+) -> Any:
+    import torch
+
+    model: Any = auto_cls.from_pretrained(
+        model_id,
+        revision=revision,
+        dtype=getattr(torch, settings.dtype),
+        device_map=settings.device_map,
+    )
+    model.eval()
+    return model
 
 
 class TransformersGenerator:
@@ -64,31 +100,19 @@ class TransformersGenerator:
     def load(
         cls, model_id: str, settings: GeneratorSettings, revision: str | None = None
     ) -> "TransformersGenerator":
-        import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
         set_seed(settings.seed)
         # The Transformers stubs model a tokenizer as a union that includes None, so the
         # attributes below are all "unresolved" to a type checker. It is a tokenizer.
         tokenizer: Any = AutoTokenizer.from_pretrained(model_id, revision=revision)
-        tokenizer.padding_side = "left"
-        if tokenizer.pad_token_id is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        model: Any = AutoModelForCausalLM.from_pretrained(
-            model_id,
-            revision=revision,
-            dtype=getattr(torch, settings.dtype),
-            device_map=settings.device_map,
-        )
-        model.eval()
+        _prepare_tokenizer(tokenizer)
+        model = _load_model(AutoModelForCausalLM, model_id, settings, revision)
         return cls(tokenizer, model, settings)
 
     @property
     def _stop_token_ids(self) -> frozenset[int]:
-        config = self._model.generation_config
-        raw = config.eos_token_id if config is not None else self._tokenizer.eos_token_id
-        ids = raw if isinstance(raw, list) else [raw]
-        return frozenset(i for i in ids if i is not None)
+        return stop_token_ids(self._model.generation_config, self._tokenizer)
 
     @property
     def revision(self) -> str:
@@ -129,7 +153,7 @@ class TransformersGenerator:
             user_turn(prompt, vision=False),
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=False,
+            **chat_template_kwargs(vision=False),
         )
 
 
@@ -149,21 +173,12 @@ class VisionLanguageGenerator(TransformersGenerator):
     def load(
         cls, model_id: str, settings: GeneratorSettings, revision: str | None = None
     ) -> "VisionLanguageGenerator":
-        import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor, set_seed
 
         set_seed(settings.seed)
         processor: Any = AutoProcessor.from_pretrained(model_id, revision=revision)
-        processor.tokenizer.padding_side = "left"
-        if processor.tokenizer.pad_token_id is None:
-            processor.tokenizer.pad_token = processor.tokenizer.eos_token
-        model: Any = AutoModelForImageTextToText.from_pretrained(
-            model_id,
-            revision=revision,
-            dtype=getattr(torch, settings.dtype),
-            device_map=settings.device_map,
-        )
-        model.eval()
+        _prepare_tokenizer(processor.tokenizer)
+        model = _load_model(AutoModelForImageTextToText, model_id, settings, revision)
         return cls(processor, model, settings)
 
     def _as_chat(self, prompt: str) -> str:
@@ -171,6 +186,7 @@ class VisionLanguageGenerator(TransformersGenerator):
             user_turn(prompt, vision=True),
             tokenize=False,
             add_generation_prompt=True,
+            **chat_template_kwargs(vision=True),
         )
 
 

@@ -6,7 +6,17 @@ from typing import Any
 
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import ClassificationMetrics, Outcome
+from landuse_relevance_bench.domain.roster import TRANSFORMERS
 from landuse_relevance_bench.domain.speed import SpeedMetrics, summarise_speed
+
+#: Optional per-generation measurements; absent from older result files.
+_COUNTERS = (
+    "latency_seconds",
+    "generated_tokens",
+    "verify_steps",
+    "accepted_drafts",
+    "proposed_drafts",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,11 +46,7 @@ class Prediction:
             "predicted": None if self.predicted is None else self.predicted.value,
             "raw_output": self.raw_output,
             "truncated": self.truncated,
-            "latency_seconds": self.latency_seconds,
-            "generated_tokens": self.generated_tokens,
-            "verify_steps": self.verify_steps,
-            "accepted_drafts": self.accepted_drafts,
-            "proposed_drafts": self.proposed_drafts,
+            **{name: getattr(self, name) for name in _COUNTERS},
         }
 
     @classmethod
@@ -52,11 +58,7 @@ class Prediction:
             predicted=None if predicted is None else Label(predicted),
             raw_output=payload["raw_output"],
             truncated=payload.get("truncated", False),
-            latency_seconds=payload.get("latency_seconds"),
-            generated_tokens=payload.get("generated_tokens"),
-            verify_steps=payload.get("verify_steps"),
-            accepted_drafts=payload.get("accepted_drafts"),
-            proposed_drafts=payload.get("proposed_drafts"),
+            **{name: payload.get(name) for name in _COUNTERS},
         )
 
 
@@ -79,7 +81,7 @@ class RunMetadata:
     #: The roster name of the run; differs from ``model_id`` when one model is run
     #: several ways (e.g. with and without a speculative draft).
     run_id: str = ""
-    runtime: str = "transformers"
+    runtime: str = TRANSFORMERS
     draft_model_id: str = ""
     draft_model_revision: str = ""
     speculative: Mapping[str, Any] = field(default_factory=dict)

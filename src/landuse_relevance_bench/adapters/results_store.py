@@ -62,9 +62,10 @@ def read_run(path: Path) -> RunResult:
         raise ValueError(f"{path} is not a valid run result: {exc}") from exc
 
 
-def read_runs(directory: Path) -> list[RunResult]:
-    """Read every run in ``directory``, in a stable filename order."""
-    return [read_run(p) for p in sorted(directory.glob("*.json"))]
+def read_runs(directory: Path, *, recursive: bool = False) -> list[RunResult]:
+    """Read every run in ``directory`` (and its subfolders when ``recursive``), in path order."""
+    paths = directory.rglob("*.json") if recursive else directory.glob("*.json")
+    return [read_run(p) for p in sorted(paths)]
 
 
 SPEED_KEYS = (
