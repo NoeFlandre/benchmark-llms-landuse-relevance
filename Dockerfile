@@ -17,7 +17,6 @@ COPY src ./src
 RUN uv sync --frozen --extra inference --extra publish --no-dev
 
 COPY data ./data
-COPY scripts ./scripts
 
 ENV PATH="/opt/venv/bin:${PATH}"
 ENTRYPOINT ["lrb"]
