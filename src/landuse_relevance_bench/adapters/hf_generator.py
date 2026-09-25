@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from landuse_relevance_bench.adapters.pipeline import RunRequest
+from landuse_relevance_bench.adapters.revision import resolve_revision
 from landuse_relevance_bench.domain.engine import Generation
 
 
@@ -204,4 +205,4 @@ def provide(request: RunRequest) -> tuple[TransformersGenerator, str]:
         _settings(request),
         revision=request.revision,
     )
-    return generator, request.revision or generator.revision
+    return generator, resolve_revision(request.model_id, request.revision, generator.revision)

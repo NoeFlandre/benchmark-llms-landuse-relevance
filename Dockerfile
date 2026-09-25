@@ -18,6 +18,11 @@ RUN uv sync --frozen --extra inference --extra publish --no-dev
 
 COPY data ./data
 
+# The image carries no .git, so the build names its commit for every recorded result:
+#   docker build --build-arg LRB_SOURCE_COMMIT=$(git rev-parse HEAD) .
+ARG LRB_SOURCE_COMMIT=""
+ENV LRB_SOURCE_COMMIT=${LRB_SOURCE_COMMIT}
+
 ENV PATH="/opt/venv/bin:${PATH}"
 ENTRYPOINT ["lrb"]
 CMD ["--help"]

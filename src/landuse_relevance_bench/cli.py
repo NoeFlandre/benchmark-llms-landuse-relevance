@@ -3,6 +3,7 @@
 import enum
 import json
 import logging
+import os
 import re
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
@@ -130,15 +131,30 @@ def generator_provider() -> GeneratorProvider:
     return provide
 
 
+SOURCE_COMMIT_ENV = "LRB_SOURCE_COMMIT"
+
+
 def source_commit() -> str:
-    """The commit the code was run from, recorded alongside every result."""
+    """The commit the code was run from, recorded alongside every result.
+
+    ``LRB_SOURCE_COMMIT`` wins, so an image built without ``.git`` can still name its
+    commit; otherwise git is asked. An unknown commit is recorded empty, with a warning.
+    """
+    pinned = os.environ.get(SOURCE_COMMIT_ENV, "").strip()
+    if pinned:
+        return pinned
     try:
         completed = subprocess.run(
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
         )
     except (OSError, subprocess.CalledProcessError):
-        return ""
-    return completed.stdout.strip()
+        completed = None
+    commit = completed.stdout.strip() if completed else ""
+    if not commit:
+        logging.getLogger(LOGGER_NAME).warning(
+            "could not determine the source commit; set %s to record it", SOURCE_COMMIT_ENV
+        )
+    return commit
 
 
 def _benchmark_one(request: RunRequest, *, as_json: bool = False) -> None:

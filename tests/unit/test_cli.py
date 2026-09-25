@@ -565,3 +565,33 @@ def test_publish_reports_a_hub_auth_failure_in_one_line(
     assert result.stderr.strip() == (
         "Error: publishing to me/bench failed: 401 Client Error: Unauthorized"
     )
+
+
+def test_source_commit_prefers_the_environment_override(monkeypatch) -> None:
+    monkeypatch.setenv("LRB_SOURCE_COMMIT", "feedface")
+    assert cli.source_commit() == "feedface"
+
+
+def test_source_commit_warns_when_git_is_unavailable(monkeypatch, caplog) -> None:
+    import logging
+    import subprocess
+
+    def no_git(*_args, **_kwargs):
+        raise OSError("git not found")
+
+    monkeypatch.delenv("LRB_SOURCE_COMMIT", raising=False)
+    monkeypatch.setattr(subprocess, "run", no_git)
+    logger = logging.getLogger(cli.LOGGER_NAME)
+    monkeypatch.setattr(logger, "propagate", True)
+    with caplog.at_level(logging.WARNING, logger=cli.LOGGER_NAME):
+        assert cli.source_commit() == ""
+    assert "LRB_SOURCE_COMMIT" in caplog.text
+
+
+def test_an_unlisted_model_is_warned_about(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    result = _run("some/model", benchmark_path, prompt_path, tmp_path)
+    assert result.exit_code == 0, result.output
+    assert "some/model is not in the benchmark roster" in result.stderr

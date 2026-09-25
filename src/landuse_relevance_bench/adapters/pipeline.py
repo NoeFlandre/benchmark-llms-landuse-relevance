@@ -65,7 +65,13 @@ class RunRequest:
         try:
             spec = spec_for(name)
         except KeyError:
-            spec = ModelSpec(name, 0, "")
+            logger.warning(
+                "%s is not in the benchmark roster; running it on %s with no pinned "
+                "revision and the default batch size",
+                name,
+                TRANSFORMERS,
+            )
+            spec = ModelSpec(name, 0, "unlisted")
         return cls(
             model_id=spec.model_id,
             run_id=spec.run_id,

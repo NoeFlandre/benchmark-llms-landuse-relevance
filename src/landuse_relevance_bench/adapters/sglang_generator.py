@@ -11,6 +11,7 @@ from typing import Any, Protocol
 
 from landuse_relevance_bench.adapters.hf_generator import chat_template_kwargs, user_turn
 from landuse_relevance_bench.adapters.pipeline import RunRequest
+from landuse_relevance_bench.adapters.revision import resolve_revision
 from landuse_relevance_bench.domain.engine import Generation
 
 
@@ -116,4 +117,5 @@ def _chat_encoder(request: RunRequest) -> Callable[[str], list[int]]:
 
 
 def provide(request: RunRequest) -> tuple[SGLangGenerator, str]:
-    return SGLangGenerator.load(request), request.revision or ""
+    generator = SGLangGenerator.load(request)
+    return generator, resolve_revision(request.model_id, request.revision)
