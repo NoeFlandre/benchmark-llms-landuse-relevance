@@ -90,3 +90,16 @@ def test_a_plain_string_from_a_generator_is_treated_as_finished() -> None:
     (prediction,) = predict_all(ITEMS[:1], TEMPLATE, ScriptedGenerator(["no"]))
     assert prediction.predicted is Label.NO
     assert prediction.truncated is False
+
+
+def test_each_prediction_carries_its_batch_latency_and_token_counts() -> None:
+    ticks = iter([10.0, 10.5, 20.0, 20.25])
+    generator = ScriptedGenerator(
+        [
+            Generation("yes", generated_tokens=3, verify_steps=2),
+            Generation("no", generated_tokens=4, accepted_drafts=5, proposed_drafts=8),
+        ]
+    )
+    first, second = predict_all(ITEMS, TEMPLATE, generator, batch_size=1, clock=lambda: next(ticks))
+    assert (first.latency_seconds, first.generated_tokens, first.verify_steps) == (0.5, 3, 2)
+    assert (second.latency_seconds, second.accepted_drafts, second.proposed_drafts) == (0.25, 5, 8)

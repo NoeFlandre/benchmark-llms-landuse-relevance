@@ -32,6 +32,11 @@ def test_the_serialised_keys_are_the_published_schema() -> None:
         "predicted": "yes",
         "raw_output": "yes",
         "truncated": False,
+        "latency_seconds": None,
+        "generated_tokens": None,
+        "verify_steps": None,
+        "accepted_drafts": None,
+        "proposed_drafts": None,
     }
 
 
@@ -50,6 +55,27 @@ def test_a_truncated_prediction_reads_back_as_truncated() -> None:
 def test_a_result_file_written_before_truncation_was_tracked_still_loads() -> None:
     legacy = {"item_id": "0" * 16, "expected": "yes", "predicted": "no", "raw_output": "no"}
     assert Prediction.from_dict(legacy).truncated is False
+
+
+def test_a_result_file_from_before_speed_was_tracked_still_loads_and_reports_wall_time() -> None:
+    legacy_meta = {
+        k: v
+        for k, v in META.to_dict().items()
+        if k not in {"run_id", "runtime", "draft_model_id", "draft_model_revision", "speculative"}
+    }
+    legacy = {
+        "metadata": legacy_meta,
+        "metrics": evaluate([(Label.YES, Label.YES)]).to_dict(),
+        "predictions": [
+            {"item_id": "0" * 16, "expected": "yes", "predicted": "yes", "raw_output": "yes"}
+        ],
+    }
+    result = RunResult.from_dict(legacy)
+    assert result.metadata.name == META.model_id
+    assert result.metadata.runtime == "transformers"
+    assert result.speed.wall_seconds == 12.5
+    assert result.speed.latency_p50_seconds is None
+    assert result.speed.generated_tokens is None
 
 
 def test_run_result_round_trips_through_a_plain_dict() -> None:
