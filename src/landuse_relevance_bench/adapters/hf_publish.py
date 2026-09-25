@@ -5,7 +5,11 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from landuse_relevance_bench.adapters.results_store import (
+    SPEED_KEYS,
+    by_f1_then_name,
     read_run,
+    rounded,
+    score_columns,
     speed_columns,
 )
 from landuse_relevance_bench.domain.agreement import speculative_agreements
@@ -29,13 +33,7 @@ SPEED_COLUMNS = (
     "runtime",
     "batch_size",
     "wall_seconds",
-    "sentences_per_second",
-    "latency_p50_seconds",
-    "latency_p95_seconds",
-    "generated_tokens",
-    "output_tokens_per_second",
-    "mean_accept_length",
-    "draft_accept_rate",
+    *SPEED_KEYS,
 )
 
 
@@ -85,14 +83,10 @@ def _dspark_row(result: RunResult, baseline_tps: float | None, identical: str) -
     tps = speed.output_tokens_per_second
     return {
         "run": result.metadata.name,
-        "output_tokens_per_second": None if tps is None else round(tps, 1),
-        "latency_mean_seconds": (
-            None if speed.latency_mean_seconds is None else round(speed.latency_mean_seconds, 4)
-        ),
+        "output_tokens_per_second": rounded(tps, 1),
+        "latency_mean_seconds": rounded(speed.latency_mean_seconds, 4),
         "speedup": None if tps is None or not baseline_tps else f"{tps / baseline_tps:.2f}x",
-        "mean_accept_length": (
-            None if speed.mean_accept_length is None else round(speed.mean_accept_length, 3)
-        ),
+        "mean_accept_length": rounded(speed.mean_accept_length, 3),
         "identical_predictions": identical,
         **{
             name: round(getattr(result.metrics, name), 4)
@@ -190,19 +184,9 @@ def _card_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
         if derived != result.metrics:
             raise ValueError(f"{result.metadata.name} metrics do not match predictions")
         rows.append(
-            {
-                "model_id": result.metadata.name,
-                "accuracy": round(derived.accuracy, 4),
-                "balanced_accuracy": round(derived.balanced_accuracy, 4),
-                "f1": round(derived.f1, 4),
-                "precision": round(derived.precision, 4),
-                "recall": round(derived.recall, 4),
-                "matthews_corrcoef": round(derived.matthews_corrcoef, 4),
-                "unparsed_rate": round(derived.unparsed_rate, 4),
-                "truncated": sum(prediction.truncated for prediction in result.predictions),
-            }
+            {"model_id": result.metadata.name, **score_columns(derived, result.predictions)}
         )
-    return sorted(rows, key=lambda row: (-row["f1"], row["model_id"]))
+    return sorted(rows, key=by_f1_then_name)
 
 
 def publish_results(

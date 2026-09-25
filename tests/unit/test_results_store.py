@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from factories import make_result
 from landuse_relevance_bench.adapters.results_store import (
     leaderboard_rows,
     read_run,
@@ -12,29 +13,17 @@ from landuse_relevance_bench.adapters.results_store import (
 )
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
-from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
+from landuse_relevance_bench.domain.records import Prediction, RunResult
 
 
-def _result(model_id: str = "LiquidAI/LFM2.5-350M", accuracy_pair: tuple = (Label.YES, Label.YES)):
-    metadata = RunMetadata(
-        model_id=model_id,
-        model_revision="abc123",
-        prompt_sha256="p" * 64,
-        benchmark_sha256="b" * 64,
-        max_new_tokens=8,
-        batch_size=16,
-        seed=0,
-        decoding="greedy",
-        dtype="bfloat16",
-        started_at="2026-09-13T10:00:00Z",
-        duration_seconds=1.0,
-    )
+def _result(
+    model_id: str = "LiquidAI/LFM2.5-350M",
+    accuracy_pair: tuple[Label, Label] = (Label.YES, Label.YES),
+) -> RunResult:
     prediction = Prediction(
         item_id="0" * 16, expected=accuracy_pair[0], predicted=accuracy_pair[1], raw_output="yes"
     )
-    return RunResult(
-        metadata=metadata, predictions=(prediction,), metrics=evaluate([accuracy_pair])
-    )
+    return make_result(model_id, (prediction,))
 
 
 def test_a_written_run_reads_back_identically(tmp_path: Path) -> None:

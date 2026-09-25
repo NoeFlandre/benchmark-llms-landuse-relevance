@@ -1,7 +1,6 @@
-from collections.abc import Sequence
-
 import pytest
 
+from factories import ScriptedGenerator
 from landuse_relevance_bench.domain.dataset import build_item
 from landuse_relevance_bench.domain.engine import Generation
 from landuse_relevance_bench.domain.labels import Label
@@ -14,25 +13,10 @@ ITEMS = (
 )
 
 
-class ScriptedGenerator:
-    """Returns queued outputs and records the prompts and batch shapes it saw."""
-
-    def __init__(self, outputs: Sequence[str | Generation]) -> None:
-        self._outputs: list[str | Generation] = list(outputs)
-        self.seen_prompts: list[str] = []
-        self.batch_sizes: list[int] = []
-
-    def generate(self, prompts: Sequence[str]) -> Sequence[str | Generation]:
-        self.seen_prompts.extend(prompts)
-        self.batch_sizes.append(len(prompts))
-        taken, self._outputs = self._outputs[: len(prompts)], self._outputs[len(prompts) :]
-        return taken
-
-
 def test_renders_one_prompt_per_item_in_order() -> None:
     generator = ScriptedGenerator(["yes", "no"])
     predict_all(ITEMS, TEMPLATE, generator)
-    assert generator.seen_prompts == [
+    assert generator.prompts == [
         "SENTENCE: Dense forest covers the ridge.",
         "SENTENCE: He was elected in 1974.",
     ]
