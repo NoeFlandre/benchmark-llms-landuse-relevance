@@ -16,12 +16,15 @@ from landuse_relevance_bench.adapters.pipeline import (
 )
 from landuse_relevance_bench.adapters.prompt_file import PromptFileError
 from landuse_relevance_bench.adapters.results_store import (
+    describe_agreement,
     leaderboard_rows,
     read_runs,
     write_leaderboard_csv,
 )
+from landuse_relevance_bench.domain.agreement import speculative_agreements
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
 from landuse_relevance_bench.domain.roster import ROSTER, model_ids
+from landuse_relevance_bench.domain.speed import SpeedMetrics
 
 DEFAULT_BENCHMARK = Path("data/benchmark.csv")
 DEFAULT_PROMPT = Path("data/prompt.txt")
@@ -36,7 +39,7 @@ Results = Annotated[Path, typer.Option("--out", help="Directory to write run res
 
 def generator_provider() -> GeneratorProvider:
     """Imported lazily so the CLI stays usable without a model runtime installed."""
-    from landuse_relevance_bench.adapters.hf_generator import provide
+    from landuse_relevance_bench.adapters.generators import provide
 
     return provide
 
@@ -62,32 +65,52 @@ def _benchmark_one(request: RunRequest) -> None:
     typer.echo(
         f"{request.model_id}  accuracy={metrics.accuracy:.3f}  f1={metrics.f1:.3f}  "
         f"mcc={metrics.matthews_corrcoef:.3f}  unparsed={metrics.unparsed_rate:.3f}  "
-        f"({result.metadata.duration_seconds:.1f}s)"
+        f"({result.metadata.duration_seconds:.1f}s, {_speed_summary(result.speed)})"
     )
+
+
+def _speed_summary(speed: SpeedMetrics) -> str:
+    parts = [f"{speed.sentences_per_second or 0:.2f} sent/s"]
+    if speed.latency_p50_seconds is not None:
+        parts.append(f"p50={speed.latency_p50_seconds:.3f}s p95={speed.latency_p95_seconds:.3f}s")
+    if speed.output_tokens_per_second is not None:
+        parts.append(f"{speed.output_tokens_per_second:.1f} tok/s")
+    if speed.mean_accept_length is not None:
+        parts.append(f"accept={speed.mean_accept_length:.2f}")
+    if speed.draft_accept_rate is not None:
+        parts.append(f"accept_rate={speed.draft_accept_rate:.3f}")
+    return " ".join(parts)
 
 
 @app.command()
 def models() -> None:
     """List the models in the benchmark roster."""
     for spec in ROSTER:
-        typer.echo(f"{spec.model_id}\t{spec.total_parameters / 1e9:.2f}B\t{spec.note}")
+        typer.echo(f"{spec.name}\t{spec.total_parameters / 1e9:.2f}B\t{spec.runtime}\t{spec.note}")
 
 
 @app.command()
 def run(
-    model_id: Annotated[str, typer.Argument(help="Hugging Face model repository id.")],
+    model_id: Annotated[
+        str, typer.Argument(help="A rostered run name, or any Hugging Face model id.")
+    ],
     benchmark: Benchmark = DEFAULT_BENCHMARK,
     prompt: Prompt = DEFAULT_PROMPT,
     out: Results = DEFAULT_RESULTS,
     revision: Annotated[str | None, typer.Option(help="Pin the model to a commit.")] = None,
-    batch_size: Annotated[int, typer.Option(help="Prompts per forward pass.")] = DEFAULT_BATCH_SIZE,
+    batch_size: Annotated[
+        int | None,
+        typer.Option(
+            help=f"Prompts per forward pass [default: roster's, else {DEFAULT_BATCH_SIZE}]."
+        ),
+    ] = None,
     max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
     seed: Annotated[int, typer.Option()] = 0,
     dtype: Annotated[str, typer.Option(help="Torch dtype name.")] = DEFAULT_DTYPE,
 ) -> None:
     """Benchmark one model and write its result under --out."""
-    request = RunRequest(
-        model_id=model_id,
+    request = RunRequest.for_run(
+        model_id,
         benchmark_path=benchmark,
         prompt_path=prompt,
         output_dir=out,
@@ -105,7 +128,7 @@ def run_all(
     benchmark: Benchmark = DEFAULT_BENCHMARK,
     prompt: Prompt = DEFAULT_PROMPT,
     out: Results = DEFAULT_RESULTS,
-    batch_size: Annotated[int, typer.Option()] = DEFAULT_BATCH_SIZE,
+    batch_size: Annotated[int | None, typer.Option()] = None,
     max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
     seed: Annotated[int, typer.Option()] = 0,
     dtype: Annotated[str, typer.Option()] = DEFAULT_DTYPE,
@@ -113,8 +136,8 @@ def run_all(
     """Benchmark every rostered model in turn."""
     for model in model_ids():
         _benchmark_one(
-            RunRequest(
-                model_id=model,
+            RunRequest.for_run(
+                model,
                 benchmark_path=benchmark,
                 prompt_path=prompt,
                 output_dir=out,
@@ -142,9 +165,33 @@ def report(
     for row in leaderboard_rows(runs):
         typer.echo(
             f"{row['model_id']:<34} f1={row['f1']:.3f} acc={row['accuracy']:.3f} "
-            f"mcc={row['matthews_corrcoef']:.3f} unparsed={row['unparsed_rate']:.3f}"
+            f"mcc={row['matthews_corrcoef']:.3f} unparsed={row['unparsed_rate']:.3f}  "
+            f"{_speed_cells(row)}"
         )
+    agreements = speculative_agreements(runs)
+    for agreement in agreements:
+        typer.echo(f"speculative check: {describe_agreement(agreement)}")
+    mismatched = [a for a in agreements if a.same_runtime and not a.lossless]
     typer.echo(f"\nleaderboard written to {destination}")
+    if mismatched:
+        typer.echo("speculative run disagrees with its same-runtime baseline", err=True)
+        raise typer.Exit(code=1)
+
+
+def _speed_cells(row: dict[str, object]) -> str:
+    cells = [
+        f"{label}={row[key]}"
+        for label, key in (
+            ("sent/s", "sentences_per_second"),
+            ("p50", "latency_p50_seconds"),
+            ("p95", "latency_p95_seconds"),
+            ("tok/s", "output_tokens_per_second"),
+            ("accept", "mean_accept_length"),
+            ("accept_rate", "draft_accept_rate"),
+        )
+        if row[key] is not None
+    ]
+    return " ".join(cells)
 
 
 @app.command()

@@ -4,7 +4,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from landuse_relevance_bench.adapters.results_store import read_run
+from landuse_relevance_bench.adapters.results_store import (
+    describe_agreement,
+    read_run,
+    speed_columns,
+)
+from landuse_relevance_bench.domain.agreement import speculative_agreements
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
 
@@ -20,6 +25,59 @@ CARD_COLUMNS = (
     "truncated",
 )
 
+SPEED_COLUMNS = (
+    "model_id",
+    "runtime",
+    "batch_size",
+    "wall_seconds",
+    "sentences_per_second",
+    "latency_p50_seconds",
+    "latency_p95_seconds",
+    "generated_tokens",
+    "output_tokens_per_second",
+    "mean_accept_length",
+    "draft_accept_rate",
+)
+
+
+def _table(columns: Sequence[str], rows: Sequence[dict[str, Any]]) -> str:
+    header = "| " + " | ".join(columns) + " |"
+    divider = "|" + "|".join(["---"] * len(columns)) + "|"
+    body = [
+        "| " + " | ".join("" if row[c] is None else str(row[c]) for c in columns) + " |"
+        for row in rows
+    ]
+    return "\n".join([header, divider, *body])
+
+
+def _speed_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
+    rows = [
+        {
+            "model_id": r.metadata.name,
+            "runtime": r.metadata.runtime,
+            "batch_size": r.metadata.batch_size,
+            "wall_seconds": round(r.metadata.duration_seconds, 2),
+            **speed_columns(r),
+        }
+        for r in results
+    ]
+    return sorted(rows, key=lambda row: row["model_id"])
+
+
+def _agreement_section(results: Sequence[RunResult]) -> str:
+    agreements = speculative_agreements(results)
+    if not agreements:
+        return ""
+    lines = "\n".join(f"- {describe_agreement(a)}" for a in agreements)
+    return f"""
+## Speculative decoding check
+
+Under greedy decoding a speculative draft must not change the target's output; a
+mismatch against the same-runtime baseline means the runs were not equivalent.
+
+{lines}
+"""
+
 
 class DatasetHub(Protocol):
     """The slice of :class:`huggingface_hub.HfApi` this project depends on."""
@@ -31,7 +89,7 @@ class DatasetHub(Protocol):
 def read_published_runs(results_dir: Path) -> tuple[RunResult, ...]:
     """Read every result below ``results_dir`` in stable model-id order."""
     runs = [read_run(path) for path in sorted(results_dir.rglob("*.json"))]
-    return tuple(sorted(runs, key=lambda result: result.metadata.model_id))
+    return tuple(sorted(runs, key=lambda result: result.metadata.name))
 
 
 def dataset_card(
@@ -45,11 +103,6 @@ def dataset_card(
     rows = _card_rows(results)
     reference = results[0].metadata
     n_items = results[0].metrics.n_items
-    header = "| " + " | ".join(CARD_COLUMNS) + " |"
-    divider = "|" + "|".join(["---"] * len(CARD_COLUMNS)) + "|"
-    body = "\n".join(
-        "| " + " | ".join(str(row[column]) for column in CARD_COLUMNS) + " |" for row in rows
-    )
     return f"""---
 license: mit
 task_categories:
@@ -72,10 +125,16 @@ Scores are recomputed from the published predictions.
 
 ## Scores
 
-{header}
-{divider}
-{body}
-"""
+{_table(CARD_COLUMNS, rows)}
+
+## Speed
+
+Wall time covers generation only (model loading excluded). Latency is the wall time
+of the generator call that answered a sentence, so with batching it is the batch's
+latency. Throughput is not comparable across GPUs; each file records its settings.
+
+{_table(SPEED_COLUMNS, _speed_rows(results))}
+{_agreement_section(results)}"""
 
 
 def _card_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
@@ -83,10 +142,10 @@ def _card_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     for result in results:
         derived = evaluate(outcomes_of(result.predictions))
         if derived != result.metrics:
-            raise ValueError(f"{result.metadata.model_id} metrics do not match predictions")
+            raise ValueError(f"{result.metadata.name} metrics do not match predictions")
         rows.append(
             {
-                "model_id": result.metadata.model_id,
+                "model_id": result.metadata.name,
                 "accuracy": round(derived.accuracy, 4),
                 "balanced_accuracy": round(derived.balanced_accuracy, 4),
                 "f1": round(derived.f1, 4),

@@ -15,6 +15,15 @@ inference = [
     "torch>=2.6",
     "transformers>=4.57",
     "accelerate>=1.0",
+    # LFM2.5-VL's processor loads its image processor even for text-only prompts.
+    "torchvision>=0.21",
+]
+# SGLang pins its own torch and transformers, so it cannot share an environment with
+# `inference`; the uv `conflicts` table below keeps the two resolutions apart.
+speculative = [
+    "sglang>=0.5.20",  # DSpark with LFM2 and LFM2-VL targets
+    "cuda-tile>=1.6.0rc5",
+    "flash-attn-4>=4.0.0b18",
 ]
 publish = [
     "huggingface-hub>=0.35",
@@ -36,6 +45,11 @@ dev = [
     "mutmut>=3.2",
     "pyyaml>=6.0.3",
 ]
+
+[tool.uv]
+conflicts = [[{ extra = "inference" }, { extra = "speculative" }]]
+# SGLang pins pre-release builds; naming them in `speculative` allows only those.
+prerelease = "if-necessary-or-explicit"
 
 [build-system]
 requires = ["hatchling"]
@@ -59,6 +73,8 @@ select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", 
 "src/landuse_relevance_bench/cli.py" = ["PLC0415", "PLR0913", "PLR0917"]
 "src/landuse_relevance_bench/adapters/hf_generator.py" = ["PLC0415"]
 "src/landuse_relevance_bench/adapters/hf_publish.py" = ["PLC0415", "PLR0913"]
+"src/landuse_relevance_bench/adapters/sglang_generator.py" = ["PLC0415"]
+"src/landuse_relevance_bench/adapters/generators.py" = ["PLC0415"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -95,6 +111,7 @@ forbidden_modules = [
     "torch",
     "transformers",
     "huggingface_hub",
+    "sglang",
     "requests",
 ]
 

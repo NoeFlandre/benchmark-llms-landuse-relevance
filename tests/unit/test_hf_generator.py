@@ -105,3 +105,52 @@ def test_provide_prefers_an_explicit_revision_over_the_resolved_one(
     _, revision = hf_generator.provide(_request(requested))
     assert revision == expected
     assert loads == [requested]
+
+
+def test_the_generated_length_stops_at_the_first_stop_token() -> None:
+    assert hf_generator.generated_length([5, EOS, EOS, EOS], {EOS}) == 2
+    assert hf_generator.generated_length([5, 6, 7], {EOS}) == 3
+
+
+def test_a_completion_reports_how_many_tokens_the_model_produced() -> None:
+    assert _generator()._as_generation(FakeCompletion([5, EOS, EOS])).generated_tokens == 2
+
+
+class FakeProcessor:
+    tokenizer = FakeTokenizer()
+
+    def __init__(self) -> None:
+        self.messages: list[Any] = []
+
+    def apply_chat_template(self, messages: Any, **kwargs: Any) -> str:
+        assert kwargs == {"tokenize": False, "add_generation_prompt": True}
+        self.messages.append(messages)
+        return "rendered"
+
+
+def test_a_vision_language_model_gets_a_text_only_typed_user_turn() -> None:
+    processor = FakeProcessor()
+    generator = hf_generator.VisionLanguageGenerator(processor, SimpleNamespace(), SETTINGS)
+    assert generator._as_chat("Is this land use?") == "rendered"
+    assert processor.messages == [
+        [{"role": "user", "content": [{"type": "text", "text": "Is this land use?"}]}]
+    ]
+
+
+def test_provide_loads_a_vision_language_model_through_its_own_loader(monkeypatch) -> None:
+    loaded: list[str] = []
+
+    def fake_load(model_id: str, settings: GeneratorSettings, revision: str | None = None) -> Any:
+        loaded.append(model_id)
+        return _generator(commit="resolved")
+
+    monkeypatch.setattr(hf_generator.VisionLanguageGenerator, "load", staticmethod(fake_load))
+    request = RunRequest.for_run(
+        "LiquidAI/LFM2.5-VL-3B",
+        benchmark_path=Path("unused"),
+        prompt_path=Path("unused"),
+        output_dir=Path("unused"),
+    )
+    _, revision = hf_generator.provide(request)
+    assert loaded == ["LiquidAI/LFM2.5-VL-3B"]
+    assert revision == "35a118d938ce6d123ac2d371649f24a8efb69058"
