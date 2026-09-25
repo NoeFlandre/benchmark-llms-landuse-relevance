@@ -16,20 +16,25 @@ from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunR
 
 
 def _result(
-    model_id: str = "LiquidAI/LFM2.5-350M", predictions: tuple[Prediction, ...] | None = None
+    model_id: str = "LiquidAI/LFM2.5-350M",
+    predictions: tuple[Prediction, ...] | None = None,
+    **metadata_overrides: object,
 ) -> RunResult:
-    metadata = RunMetadata(
-        model_id=model_id,
-        model_revision="abc123",
-        prompt_sha256="p" * 64,
-        benchmark_sha256="b" * 64,
-        max_new_tokens=8,
-        batch_size=16,
-        seed=0,
-        decoding="greedy",
-        dtype="bfloat16",
-        started_at="2026-09-13T10:00:00Z",
-        duration_seconds=1.0,
+    metadata = replace(
+        RunMetadata(
+            model_id=model_id,
+            model_revision="abc123",
+            prompt_sha256="p" * 64,
+            benchmark_sha256="b" * 64,
+            max_new_tokens=8,
+            batch_size=16,
+            seed=0,
+            decoding="greedy",
+            dtype="bfloat16",
+            started_at="2026-09-13T10:00:00Z",
+            duration_seconds=1.0,
+        ),
+        **metadata_overrides,
     )
     if predictions is None:
         predictions = (
@@ -55,10 +60,9 @@ def _predictions(pairs: list[tuple[Label, Label | None]], truncated: int = 0) ->
     )
 
 
-def _score_rows(card: str) -> list[dict[str, str]]:
-    table = [
-        line for line in card.split("## Scores", 1)[1].splitlines() if line.strip().startswith("|")
-    ]
+def _score_rows(card: str, section: str = "Scores") -> list[dict[str, str]]:
+    body = card.split(f"## {section}\n", 1)[1].split("\n## ", 1)[0]
+    table = [line for line in body.splitlines() if line.strip().startswith("|")]
     cells = [[cell.strip() for cell in line.strip().strip("|").split("|")] for line in table]
     header, rows = cells[0], cells[2:]
     return [dict(zip(header, row, strict=True)) for row in rows]
@@ -149,3 +153,87 @@ def test_the_card_front_matter_declares_what_the_hub_needs() -> None:
     front_matter = yaml.safe_load(card.split("---")[1])
     assert front_matter["license"]
     assert front_matter["task_categories"]
+
+
+def test_the_card_reports_speed_recorded_in_the_predictions() -> None:
+    timed = tuple(
+        replace(p, latency_seconds=0.5, generated_tokens=10, verify_steps=4)
+        for p in _predictions([(Label.YES, Label.YES), (Label.NO, Label.NO)])
+    )
+    run = _result("a/fast", timed, runtime="sglang", duration_seconds=2.0)
+    (row,) = _score_rows(dataset_card([run], benchmark_name="benchmark.csv"), "Speed")
+    assert row["runtime"] == "sglang"
+    assert row["generated_tokens"] == "20"
+    assert row["output_tokens_per_second"] == "10.0"
+    assert row["mean_accept_length"] == "2.5"
+
+
+def test_the_card_leaves_speed_blank_for_a_run_that_did_not_record_it() -> None:
+    (row,) = _score_rows(dataset_card([_result()], benchmark_name="benchmark.csv"), "Speed")
+    assert row["wall_seconds"] == "1.0"
+    assert row["latency_p50_seconds"] == ""
+
+
+def _timed(pairs: list[tuple[Label, Label | None]], tokens: int, steps: int | None) -> tuple:
+    return tuple(
+        replace(p, latency_seconds=1.0, generated_tokens=tokens, verify_steps=steps)
+        for p in _predictions(pairs)
+    )
+
+
+PAIRS: list[tuple[Label, Label | None]] = [(Label.YES, Label.YES), (Label.NO, Label.NO)]
+
+
+def _dspark_card(drafted_pairs: list[tuple[Label, Label | None]]) -> str:
+    runs = [
+        _result("t/vl", _timed(PAIRS, 10, None), duration_seconds=2.0),
+        _result(
+            "t/vl",
+            _timed(PAIRS, 10, None),
+            run_id="t/vl@sglang",
+            runtime="sglang",
+            duration_seconds=2.0,
+        ),
+        _result(
+            "t/vl",
+            _timed(drafted_pairs, 10, 4),
+            run_id="t/vl+DSpark",
+            runtime="sglang",
+            draft_model_id="t/draft",
+            duration_seconds=0.5,
+        ),
+    ]
+    return dataset_card(runs, benchmark_name="benchmark.csv")
+
+
+def test_the_card_compares_each_dspark_run_with_its_sglang_baseline_only() -> None:
+    card = _dspark_card(PAIRS)
+    baseline, drafted = _score_rows(card.replace("### t/vl\n", ""), "DSpark speculative decoding")
+    assert baseline["run"] == "t/vl@sglang"
+    assert drafted == {
+        "run": "t/vl+DSpark",
+        "output_tokens_per_second": "40.0",
+        "latency_mean_seconds": "1.0",
+        "speedup": "4.00x",
+        "mean_accept_length": "2.5",
+        "identical_predictions": "yes",
+        "accuracy": "1.0",
+        "precision": "1.0",
+        "recall": "1.0",
+        "f1": "1.0",
+        "balanced_accuracy": "1.0",
+        "matthews_corrcoef": "1.0",
+        "unparsed_rate": "0.0",
+    }
+
+
+def test_the_card_says_when_a_dspark_run_changed_the_predictions() -> None:
+    changed: list[tuple[Label, Label | None]] = [(Label.YES, Label.YES), (Label.NO, Label.YES)]
+    card = _dspark_card(changed)
+    rows = _score_rows(card.replace("### t/vl\n", ""), "DSpark speculative decoding")
+    assert rows[-1]["identical_predictions"] == "no"
+    assert (rows[0]["accuracy"], rows[-1]["accuracy"]) == ("1.0", "0.5")
+
+
+def test_the_card_omits_the_speculative_check_without_a_speculative_run() -> None:
+    assert "DSpark" not in dataset_card([_result()], benchmark_name="benchmark.csv")

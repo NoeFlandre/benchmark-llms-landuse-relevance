@@ -15,6 +15,13 @@ class Generation:
 
     text: str
     truncated: bool = False
+    #: Tokens the model produced for this completion, when the runtime can count them.
+    generated_tokens: int | None = None
+    #: Target verification passes under speculative decoding; ``None`` without a draft.
+    verify_steps: int | None = None
+    #: Draft tokens the target accepted, and the draft tokens proposed, when reported.
+    accepted_drafts: int | None = None
+    proposed_drafts: int | None = None
 
     @classmethod
     def of(cls, output: "str | Generation") -> "Generation":

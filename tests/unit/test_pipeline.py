@@ -90,3 +90,46 @@ def test_unparsable_generations_survive_into_the_stored_result(request_for) -> N
     assert result.predictions[0].predicted is None
     assert result.predictions[0].raw_output == "I cannot tell"
     assert result.metrics.unparsed_rate == 0.5
+
+
+def test_a_rostered_run_resolves_its_pins_and_records_its_draft(request_for) -> None:
+    rostered = RunRequest.for_run(
+        "LiquidAI/LFM2.5-2.6B+DSpark",
+        benchmark_path=request_for().benchmark_path,
+        prompt_path=request_for().prompt_path,
+        output_dir=request_for().output_dir,
+    )
+    assert (rostered.batch_size, rostered.runtime) == (1, "sglang")
+    metadata = execute(rostered, _provider(["yes", "no"], "654f")).metadata
+    assert metadata.name == "LiquidAI/LFM2.5-2.6B+DSpark"
+    assert metadata.draft_model_id == "LiquidAI/LFM2.5-2.6B-DSpark"
+    assert metadata.draft_model_revision == "458cedab07d0f7b2b05700c77e1aa463d43d6f04"
+    assert metadata.speculative["speculative_algorithm"] == "DSPARK"
+    assert (request_for().output_dir / "LiquidAI__LFM2.5-2.6B+DSpark.json").exists()
+
+
+def test_explicit_settings_override_the_roster_and_unknown_models_run_plainly() -> None:
+    def for_run(name: str, **overrides: Any) -> RunRequest:
+        return RunRequest.for_run(
+            name,
+            benchmark_path=Path("b"),
+            prompt_path=Path("p"),
+            output_dir=Path("o"),
+            **overrides,
+        )
+
+    overridden = for_run("LiquidAI/LFM2.5-VL-3B+DSpark", revision="main", batch_size=4)
+    assert (overridden.revision, overridden.batch_size) == ("main", 4)
+    plain = for_run("some/model")
+    assert (plain.model_id, plain.runtime, plain.revision, plain.batch_size) == (
+        "some/model",
+        "transformers",
+        None,
+        16,
+    )
+
+
+def test_the_result_records_each_sentence_s_latency(request_for) -> None:
+    result = execute(request_for(batch_size=1), _provider(["yes", "no"]))
+    assert all(p.latency_seconds is not None for p in result.predictions)
+    assert result.speed.latency_p50_seconds is not None

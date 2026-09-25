@@ -32,6 +32,11 @@ def test_the_serialised_keys_are_the_published_schema() -> None:
         "predicted": "yes",
         "raw_output": "yes",
         "truncated": False,
+        "latency_seconds": None,
+        "generated_tokens": None,
+        "verify_steps": None,
+        "accepted_drafts": None,
+        "proposed_drafts": None,
     }
 
 
@@ -52,6 +57,27 @@ def test_a_result_file_written_before_truncation_was_tracked_still_loads() -> No
     assert Prediction.from_dict(legacy).truncated is False
 
 
+def test_a_result_file_from_before_speed_was_tracked_still_loads_and_reports_wall_time() -> None:
+    legacy_meta = {
+        k: v
+        for k, v in META.to_dict().items()
+        if k not in {"run_id", "runtime", "draft_model_id", "draft_model_revision", "speculative"}
+    }
+    legacy = {
+        "metadata": legacy_meta,
+        "metrics": evaluate([(Label.YES, Label.YES)]).to_dict(),
+        "predictions": [
+            {"item_id": "0" * 16, "expected": "yes", "predicted": "yes", "raw_output": "yes"}
+        ],
+    }
+    result = RunResult.from_dict(legacy)
+    assert result.metadata.name == META.model_id
+    assert result.metadata.runtime == "transformers"
+    assert result.speed.wall_seconds == 12.5
+    assert result.speed.latency_p50_seconds is None
+    assert result.speed.generated_tokens is None
+
+
 def test_run_result_round_trips_through_a_plain_dict() -> None:
     result = RunResult(
         metadata=META,
@@ -68,3 +94,24 @@ def test_run_result_rejects_metrics_that_disagree_with_its_predictions() -> None
             predictions=(_prediction(), _prediction()),
             metrics=evaluate([(Label.YES, Label.YES)]),
         )
+
+
+def test_a_timed_prediction_round_trips_and_the_run_file_carries_its_speed() -> None:
+    timed = Prediction(
+        item_id="1" * 16,
+        expected=Label.NO,
+        predicted=Label.NO,
+        raw_output="no",
+        truncated=False,
+        latency_seconds=0.25,
+        generated_tokens=4,
+        verify_steps=2,
+        accepted_drafts=3,
+        proposed_drafts=16,
+    )
+    assert Prediction.from_dict(timed.to_dict()) == timed
+    payload = RunResult(
+        metadata=META, predictions=(timed,), metrics=evaluate([(Label.NO, Label.NO)])
+    ).to_dict()
+    assert payload["speed"]["generated_tokens"] == 4
+    assert payload["speed"]["mean_accept_length"] == 2.0

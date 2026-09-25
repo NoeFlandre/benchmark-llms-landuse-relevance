@@ -21,3 +21,10 @@ Run through `transformers` with a batched, left-padded greedy decode, behind the
   support can lag, and a benchmark that cannot load the model measures nothing.
 - Swapping in a vLLM engine later is a new class implementing `TextGenerator`; nothing
   in the domain changes.
+
+## Addendum · 2026-09-25
+
+Transformers stays the runtime for every plain run. The DSpark speculative drafters
+are published for SGLang only, so SGLang is added as a second runtime behind the same
+protocol, for the drafted runs and their like-for-like baselines. See
+[ADR-0007](0007-dspark-speculative-decoding.md).

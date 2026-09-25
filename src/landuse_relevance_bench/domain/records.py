@@ -1,11 +1,12 @@
 """Serialisable records describing one model's run over the benchmark."""
 
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import ClassificationMetrics, Outcome
+from landuse_relevance_bench.domain.speed import SpeedMetrics, summarise_speed
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +18,12 @@ class Prediction:
     predicted: Label | None
     raw_output: str
     truncated: bool = False
+    #: Wall time of the generator call that produced this answer (its whole batch).
+    latency_seconds: float | None = None
+    generated_tokens: int | None = None
+    verify_steps: int | None = None
+    accepted_drafts: int | None = None
+    proposed_drafts: int | None = None
 
     @property
     def outcome(self) -> Outcome:
@@ -29,6 +36,11 @@ class Prediction:
             "predicted": None if self.predicted is None else self.predicted.value,
             "raw_output": self.raw_output,
             "truncated": self.truncated,
+            "latency_seconds": self.latency_seconds,
+            "generated_tokens": self.generated_tokens,
+            "verify_steps": self.verify_steps,
+            "accepted_drafts": self.accepted_drafts,
+            "proposed_drafts": self.proposed_drafts,
         }
 
     @classmethod
@@ -40,6 +52,11 @@ class Prediction:
             predicted=None if predicted is None else Label(predicted),
             raw_output=payload["raw_output"],
             truncated=payload.get("truncated", False),
+            latency_seconds=payload.get("latency_seconds"),
+            generated_tokens=payload.get("generated_tokens"),
+            verify_steps=payload.get("verify_steps"),
+            accepted_drafts=payload.get("accepted_drafts"),
+            proposed_drafts=payload.get("proposed_drafts"),
         )
 
 
@@ -59,9 +76,22 @@ class RunMetadata:
     started_at: str
     duration_seconds: float
     source_commit: str = ""
+    #: The roster name of the run; differs from ``model_id`` when one model is run
+    #: several ways (e.g. with and without a speculative draft).
+    run_id: str = ""
+    runtime: str = "transformers"
+    draft_model_id: str = ""
+    draft_model_revision: str = ""
+    speculative: Mapping[str, Any] = field(default_factory=dict)
+
+    @property
+    def name(self) -> str:
+        return self.run_id or self.model_id
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["speculative"] = dict(self.speculative)
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "RunMetadata":
@@ -83,10 +113,16 @@ class RunResult:
                 f"{len(self.predictions)} predictions"
             )
 
+    @property
+    def speed(self) -> SpeedMetrics:
+        """Derived from the stored predictions, so older result files still yield one."""
+        return summarise_speed(self.predictions, self.metadata.duration_seconds)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "metadata": self.metadata.to_dict(),
             "metrics": self.metrics.to_dict(),
+            "speed": self.speed.to_dict(),
             "predictions": [p.to_dict() for p in self.predictions],
         }
 

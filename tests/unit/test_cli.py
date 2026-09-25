@@ -225,3 +225,36 @@ def test_report_only_reads_runs_at_the_top_of_the_results_directory(
     board = (results_dir / "leaderboard.csv").read_text(encoding="utf-8")
     assert "top/model" in board
     assert "nested/model" not in board
+
+
+class AlwaysNo:
+    def generate(self, prompts: Sequence[str]) -> Sequence[str]:
+        return ["no"] * len(prompts)
+
+
+def _run_pair(monkeypatch, tmp_path: Path, benchmark: Path, prompt: Path, drafted: type) -> Result:
+    def provider(request: RunRequest) -> tuple[object, str]:
+        return (drafted() if request.draft_model_id else AlwaysYes()), "rev"
+
+    monkeypatch.setattr(cli, "generator_provider", lambda: provider)
+    for name in ("LiquidAI/LFM2.5-2.6B@sglang", "LiquidAI/LFM2.5-2.6B+DSpark"):
+        assert _run(name, benchmark, prompt, tmp_path).exit_code == 0
+    return runner.invoke(cli.app, ["report", "--results-dir", str(tmp_path)])
+
+
+def test_report_confirms_a_lossless_speculative_run(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    report = _run_pair(monkeypatch, tmp_path, benchmark_path, prompt_path, AlwaysYes)
+    assert report.exit_code == 0, report.stdout
+    assert "LiquidAI/LFM2.5-2.6B+DSpark vs LiquidAI/LFM2.5-2.6B@sglang" in report.stdout
+    assert "lossless" in report.stdout
+    assert "p50=" in report.stdout
+
+
+def test_report_fails_when_a_speculative_run_changed_its_target_s_output(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    report = _run_pair(monkeypatch, tmp_path, benchmark_path, prompt_path, AlwaysNo)
+    assert report.exit_code == 1
+    assert "MISMATCH, 2/2 verdicts" in report.stdout
