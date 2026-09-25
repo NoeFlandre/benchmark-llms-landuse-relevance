@@ -70,6 +70,13 @@ DSPARK_COLUMNS = (
     "speedup",
     "mean_accept_length",
     "identical_predictions",
+    "accuracy",
+    "precision",
+    "recall",
+    "f1",
+    "balanced_accuracy",
+    "matthews_corrcoef",
+    "unparsed_rate",
 )
 
 
@@ -87,6 +94,10 @@ def _dspark_row(result: RunResult, baseline_tps: float | None, identical: str) -
             None if speed.mean_accept_length is None else round(speed.mean_accept_length, 3)
         ),
         "identical_predictions": identical,
+        **{
+            name: round(getattr(result.metrics, name), 4)
+            for name in DSPARK_COLUMNS[DSPARK_COLUMNS.index("accuracy") :]
+        },
     }
 
 

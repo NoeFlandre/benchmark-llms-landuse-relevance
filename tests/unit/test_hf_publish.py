@@ -217,6 +217,13 @@ def test_the_card_compares_each_dspark_run_with_its_sglang_baseline_only() -> No
         "speedup": "4.00x",
         "mean_accept_length": "2.5",
         "identical_predictions": "yes",
+        "accuracy": "1.0",
+        "precision": "1.0",
+        "recall": "1.0",
+        "f1": "1.0",
+        "balanced_accuracy": "1.0",
+        "matthews_corrcoef": "1.0",
+        "unparsed_rate": "0.0",
     }
 
 
@@ -225,6 +232,7 @@ def test_the_card_says_when_a_dspark_run_changed_the_predictions() -> None:
     card = _dspark_card(changed)
     rows = _score_rows(card.replace("### t/vl\n", ""), "DSpark speculative decoding")
     assert rows[-1]["identical_predictions"] == "no"
+    assert (rows[0]["accuracy"], rows[-1]["accuracy"]) == ("1.0", "0.5")
 
 
 def test_the_card_omits_the_speculative_check_without_a_speculative_run() -> None:
