@@ -1,6 +1,7 @@
 """Scriptable entry points for running, scoring and publishing the benchmark."""
 
 import subprocess
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Annotated
 
@@ -23,6 +24,7 @@ from landuse_relevance_bench.adapters.results_store import (
 )
 from landuse_relevance_bench.domain.agreement import speculative_agreements
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
+from landuse_relevance_bench.domain.records import RunResult
 from landuse_relevance_bench.domain.roster import ROSTER, model_ids
 from landuse_relevance_bench.domain.speed import SpeedMetrics
 
@@ -155,11 +157,7 @@ def report(
     out: Annotated[Path | None, typer.Option("--out", help="Leaderboard CSV path.")] = None,
 ) -> None:
     """Aggregate stored runs into a leaderboard."""
-    if not results_dir.is_dir():
-        raise typer.BadParameter(f"no run results directory at {results_dir}")
-    runs = read_runs(results_dir)
-    if not runs:
-        raise typer.BadParameter(f"no run results found in {results_dir}")
+    runs = _load_runs(results_dir, read_runs)
     destination = out or results_dir / "leaderboard.csv"
     write_leaderboard_csv(runs, destination)
     for row in leaderboard_rows(runs):
@@ -176,6 +174,16 @@ def report(
     if mismatched:
         typer.echo("speculative run disagrees with its same-runtime baseline", err=True)
         raise typer.Exit(code=1)
+
+
+def _load_runs(results_dir: Path, reader: Callable[[Path], Iterable[RunResult]]) -> list[RunResult]:
+    """Read stored runs, reporting a missing or empty directory as a usage error."""
+    if not results_dir.is_dir():
+        raise typer.BadParameter(f"no run results directory at {results_dir}")
+    runs = list(reader(results_dir))
+    if not runs:
+        raise typer.BadParameter(f"no run results found in {results_dir}")
+    return runs
 
 
 def _speed_cells(row: dict[str, object]) -> str:
@@ -204,12 +212,7 @@ def publish(
     """Push the stored runs, leaderboard and a generated card to the Hub."""
     from landuse_relevance_bench.adapters.hf_publish import publish_results, read_published_runs
 
-    if not results_dir.is_dir():
-        raise typer.BadParameter(f"no run results directory at {results_dir}")
-    published = read_published_runs(results_dir)
-    runs = list(published)
-    if not runs:
-        raise typer.BadParameter(f"no run results found in {results_dir}")
+    runs = _load_runs(results_dir, read_published_runs)
     write_leaderboard_csv(runs, results_dir / "leaderboard.csv")
     url = publish_results(
         repo_id,

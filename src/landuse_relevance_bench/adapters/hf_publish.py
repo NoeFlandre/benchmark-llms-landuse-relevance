@@ -7,7 +7,7 @@ from typing import Any, Protocol, cast
 from landuse_relevance_bench.adapters.results_store import (
     SPEED_KEYS,
     by_f1_then_name,
-    read_run,
+    read_runs,
     rounded,
     score_columns,
     speed_columns,
@@ -127,8 +127,8 @@ class DatasetHub(Protocol):
 
 
 def read_published_runs(results_dir: Path) -> tuple[RunResult, ...]:
-    """Read every result below ``results_dir`` in stable model-id order."""
-    runs = [read_run(path) for path in sorted(results_dir.rglob("*.json"))]
+    """Read every result below ``results_dir``, subfolders included, in stable model-id order."""
+    runs = read_runs(results_dir, recursive=True)
     return tuple(sorted(runs, key=lambda result: result.metadata.name))
 
 
