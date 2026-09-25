@@ -2,8 +2,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from click.testing import Result
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from landuse_relevance_bench import cli
 from landuse_relevance_bench.adapters.pipeline import RunRequest
