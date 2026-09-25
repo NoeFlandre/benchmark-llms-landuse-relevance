@@ -112,6 +112,17 @@ show_missing = true
 [tool.ty.src]
 include = ["src", "tests"]
 
+# Warnings fail the gate, and these rules are errors outright, so the type check cannot
+# weaken silently as diagnostics accumulate.
+[tool.ty.terminal]
+error-on-warning = true
+
+[tool.ty.rules]
+possibly-unresolved-reference = "error"
+unused-ignore-comment = "error"
+redundant-cast = "error"
+division-by-zero = "error"
+
 [tool.importlinter]
 root_packages = ["landuse_relevance_bench"]
 include_external_packages = true
