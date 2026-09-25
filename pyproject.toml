@@ -63,14 +63,32 @@ line-length = 100
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", "PL", "RUF"]
+select = [
+    "E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", "PL", "RUF",
+    # Guards against regressions (zero violations when enabled).
+    "C90", "PIE", "PERF", "BLE", "DTZ", "ERA", "PGH", "TID",
+    # print/assert/boolean-trap/security/annotation guards, scoped by per-file-ignores.
+    "T20", "FBT", "S", "ANN",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["PLR2004", "ARG001", "PLC0415"]
+# Tests assert, and their fakes and fixtures are left unannotated (ratchet: ANN).
+"tests/**" = ["PLR2004", "ARG001", "PLC0415", "S101", "ANN"]
+# The scripts are command-line tools: printing is their output.
+"scripts/**" = ["T20"]
+# The optional-runtime adapters wrap untyped torch/transformers/sglang objects.
+"src/**/adapters/*" = ["ANN401"]
 # Optional runtimes (torch, transformers, huggingface_hub) are imported inside the
 # functions that need them, so the CLI and the domain stay usable without them.
 # A command's parameters are its user interface; typer needs them in the signature.
-"src/landuse_relevance_bench/cli.py" = ["PLC0415", "PLR0913", "PLR0917"]
+# Typer maps boolean flags to boolean parameters (FBT001/FBT002).
+"src/landuse_relevance_bench/cli.py" = ["PLC0415", "PLR0913", "PLR0917", "FBT001", "FBT002"]
 "src/landuse_relevance_bench/adapters/hf_generator.py" = ["PLC0415"]
 "src/landuse_relevance_bench/adapters/hf_publish.py" = ["PLC0415", "PLR0913"]
 "src/landuse_relevance_bench/adapters/sglang_generator.py" = ["PLC0415"]

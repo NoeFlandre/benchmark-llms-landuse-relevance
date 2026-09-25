@@ -46,7 +46,7 @@ class ModelSpec:
         return self.run_id or self.model_id
 
 
-def dspark_settings(mem_fraction_static: float, **extra: Any) -> dict[str, Any]:
+def dspark_settings(mem_fraction_static: float, **extra: object) -> dict[str, Any]:
     return {
         "speculative_algorithm": "DSPARK",
         "speculative_draft_attention_backend": "flashinfer",

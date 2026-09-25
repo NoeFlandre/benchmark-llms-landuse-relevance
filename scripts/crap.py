@@ -21,7 +21,8 @@ def crap(complexity: int, coverage: float) -> float:
 
 
 def radon_blocks(target: Path) -> dict[str, list[dict]]:
-    completed = subprocess.run(
+    # Runs radon from this interpreter over a repository path; no untrusted input.
+    completed = subprocess.run(  # noqa: S603
         [sys.executable, "-m", "radon", "cc", "-s", "-j", str(target)],
         cwd=PROJECT_ROOT,
         capture_output=True,

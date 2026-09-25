@@ -144,8 +144,12 @@ def source_commit() -> str:
     if pinned:
         return pinned
     try:
+        # git is looked up on PATH on purpose: it is wherever the user installed it.
         completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+            ["git", "rev-parse", "HEAD"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=True,
         )
     except (OSError, subprocess.CalledProcessError):
         completed = None

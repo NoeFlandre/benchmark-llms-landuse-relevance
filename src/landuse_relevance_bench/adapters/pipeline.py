@@ -96,7 +96,9 @@ GeneratorProvider = Callable[[RunRequest], tuple[TextGenerator, str]]
 class ProgressReporting:
     """Wraps a generator to log each batch as it is sent, so long runs show progress."""
 
-    def __init__(self, inner: TextGenerator, name: str, total_prompts: int, batch_size: int):
+    def __init__(
+        self, inner: TextGenerator, name: str, total_prompts: int, batch_size: int
+    ) -> None:
         self._inner = inner
         self._name = name
         self._total_prompts = total_prompts
