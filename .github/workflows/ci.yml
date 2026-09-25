@@ -23,9 +23,6 @@ jobs:
           enable-cache: true
       - run: uv sync --extra inference --extra publish
 
-      - name: Baseline
-        run: uv run --no-sync pytest
-
       - name: Lint and format
         run: |
           uv run --no-sync ruff format --check .
@@ -34,11 +31,8 @@ jobs:
       - name: Types
         run: uv run --no-sync ty check
 
-      - name: Unit tests with coverage
-        run: uv run --no-sync pytest tests/unit --cov --cov-report=term-missing --cov-report=json
-
-      - name: Property tests
-        run: uv run --no-sync pytest tests/property
+      - name: Unit and property tests with coverage
+        run: uv run --no-sync pytest tests/unit tests/property --cov --cov-report=term-missing --cov-report=json
 
       - name: Acceptance scenarios
         run: uv run --no-sync pytest tests/acceptance
@@ -47,9 +41,7 @@ jobs:
         run: uv run --no-sync pytest tests/architecture
 
       - name: CRAP score
-        run: |
-          uv run --no-sync pytest tests/unit tests/property --cov --cov-report=json -q
-          uv run --no-sync python scripts/crap.py --max 6
+        run: uv run --no-sync python scripts/crap.py --max 6
 
       - name: Mutation testing
         run: |

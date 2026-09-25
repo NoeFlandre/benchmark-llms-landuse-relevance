@@ -1,7 +1,7 @@
 UV ?= uv
 RUN := $(UV) run --no-sync
 
-.PHONY: help install baseline lint types test property acceptance architecture crap mutation smoke check docs docker
+.PHONY: help install baseline lint format types test property acceptance architecture integration crap mutation smoke check docs docs-build docker
 
 help:
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/'
@@ -24,7 +24,7 @@ types:  ## Static type check
 	$(RUN) ty check
 
 test:  ## Unit tests with coverage
-	$(RUN) pytest tests/unit --cov --cov-report=term-missing --cov-report=xml
+	$(RUN) pytest tests/unit --cov --cov-report=term-missing --cov-report=json
 
 property:  ## Property-based tests
 	$(RUN) pytest tests/property
