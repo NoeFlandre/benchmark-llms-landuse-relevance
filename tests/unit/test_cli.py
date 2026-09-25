@@ -467,3 +467,101 @@ def test_models_runtime_filter() -> None:
     assert result.exit_code == 0, result.output
     runtimes = {row["runtime"] for row in json.loads(result.stdout)}
     assert runtimes == {"sglang"}
+
+
+class RecordingHub:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.calls: list[str] = []
+        self._error = error
+
+    def create_repo(self, **kwargs) -> None:
+        self.calls.append(f"create_repo:{kwargs['repo_id']}")
+        if self._error is not None:
+            raise self._error
+
+    def upload_folder(self, **kwargs) -> None:
+        self.calls.append(f"upload_folder:{kwargs['commit_message']}")
+
+
+def _stored_results(monkeypatch, tmp_path: Path, benchmark: Path, prompt: Path) -> Path:
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    results_dir = tmp_path / "results"
+    _run("some/model", benchmark, prompt, results_dir)
+    return results_dir
+
+
+def _snapshot(directory: Path) -> dict[str, bytes]:
+    return {str(p): p.read_bytes() for p in sorted(directory.rglob("*")) if p.is_file()}
+
+
+def test_publish_dry_run_touches_neither_the_hub_nor_the_files(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    from landuse_relevance_bench.adapters import hf_publish
+
+    results_dir = _stored_results(monkeypatch, tmp_path, benchmark_path, prompt_path)
+    hub = RecordingHub()
+    monkeypatch.setattr(hf_publish, "_default_api", lambda: hub)
+    before = _snapshot(results_dir)
+    result = runner.invoke(
+        cli.app, ["publish", "me/bench", "--results-dir", str(results_dir), "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+    assert hub.calls == []
+    assert _snapshot(results_dir) == before
+    assert "me/bench (public)" in result.stdout
+    assert "some__model.json" in result.stdout
+    assert "leaderboard.csv  (generated)" in result.stdout
+    assert "some/model" in result.stdout.split("--- README.md ---")[1]
+
+
+def test_publish_passes_the_commit_message(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    from landuse_relevance_bench.adapters import hf_publish
+
+    results_dir = _stored_results(monkeypatch, tmp_path, benchmark_path, prompt_path)
+    hub = RecordingHub()
+    monkeypatch.setattr(hf_publish, "_default_api", lambda: hub)
+    result = runner.invoke(
+        cli.app,
+        ["publish", "me/bench", "--results-dir", str(results_dir), "--commit-message", "Add X"],
+    )
+    assert result.exit_code == 0, result.output
+    assert hub.calls == ["create_repo:me/bench", "upload_folder:Add X"]
+
+
+def test_publish_without_the_extra_exits_cleanly(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    from landuse_relevance_bench.adapters import hf_publish
+
+    results_dir = _stored_results(monkeypatch, tmp_path, benchmark_path, prompt_path)
+
+    def missing() -> None:
+        raise ImportError("No module named 'huggingface_hub'")
+
+    monkeypatch.setattr(hf_publish, "_default_api", missing)
+    result = runner.invoke(cli.app, ["publish", "me/bench", "--results-dir", str(results_dir)])
+    assert result.exit_code == 1
+    assert "--extra publish" in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_publish_reports_a_hub_auth_failure_in_one_line(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    import httpx
+    from huggingface_hub.errors import HfHubHTTPError
+
+    from landuse_relevance_bench.adapters import hf_publish
+
+    results_dir = _stored_results(monkeypatch, tmp_path, benchmark_path, prompt_path)
+    response = httpx.Response(401, request=httpx.Request("POST", "https://huggingface.co"))
+    error = HfHubHTTPError("401 Client Error: Unauthorized\nInvalid token", response=response)
+    monkeypatch.setattr(hf_publish, "_default_api", lambda: RecordingHub(error))
+    result = runner.invoke(cli.app, ["publish", "me/bench", "--results-dir", str(results_dir)])
+    assert result.exit_code == 1
+    assert result.stderr.strip() == (
+        "Error: publishing to me/bench failed: 401 Client Error: Unauthorized"
+    )

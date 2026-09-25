@@ -42,6 +42,10 @@ when a model is actually loaded.
   (repeatable), `--skip-existing` (skip runs whose result file is already written) and
   `--keep-going` (continue past a failed run, exit 1 at the end). `lrb models --runtime`
   filters the roster the same way.
+- `lrb publish REPO --dry-run` prints the target repo, its visibility, the files that
+  would be uploaded and the generated card, without calling the Hub or writing a file.
+  `--commit-message` sets the upload's message. A missing `publish` extra or a Hub
+  auth/network error exits 1 with a one-line message instead of a traceback.
 - `run` and `run-all` accept `--results-dir` as an alias of `--out`, matching `report`
   and `publish`.
 

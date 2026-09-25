@@ -7,7 +7,7 @@ import re
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 import typer
 
@@ -398,23 +398,76 @@ def _speed_cells(row: dict[str, object]) -> str:
     return " ".join(cells)
 
 
-@app.command(epilog="Examples:  lrb publish me/landuse-bench --results-dir results")
+DEFAULT_COMMIT_MESSAGE = "Publish small-LLM land-use relevance benchmark results"
+
+
+@app.command(
+    epilog="Examples:  lrb publish me/landuse-bench --results-dir results --dry-run  |  "
+    "lrb publish me/landuse-bench --commit-message 'Add LFM2.5-VL runs'"
+)
 def publish(
     repo_id: Annotated[str, typer.Argument(help="Hugging Face dataset repository id.")],
     results_dir: ResultsDir = DEFAULT_RESULTS,
     benchmark: Benchmark = DEFAULT_BENCHMARK,
     private: Annotated[bool, typer.Option(help="Create the dataset repository private.")] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Show the target, files and card that would be pushed; touch nothing.",
+        ),
+    ] = False,
+    commit_message: Annotated[
+        str, typer.Option("--commit-message", help="Commit message for the Hub upload.")
+    ] = DEFAULT_COMMIT_MESSAGE,
 ) -> None:
     """Push the stored runs, leaderboard and a generated card to the Hub."""
-    from landuse_relevance_bench.adapters.hf_publish import publish_results, read_published_runs
+    from landuse_relevance_bench.adapters import hf_publish
 
-    runs = _load_runs(results_dir, read_published_runs)
+    runs = _load_runs(results_dir, hf_publish.read_published_runs)
+    if dry_run:
+        _preview_publish(repo_id, results_dir, runs, private=private, benchmark=benchmark)
+        return
     write_leaderboard_csv(runs, results_dir / "leaderboard.csv")
-    url = publish_results(
-        repo_id,
-        results_dir,
-        runs,
-        private=private,
-        benchmark_name=benchmark.name,
-    )
+    try:
+        url = hf_publish.publish_results(
+            repo_id,
+            results_dir,
+            runs,
+            private=private,
+            commit_message=commit_message,
+            benchmark_name=benchmark.name,
+        )
+    except ImportError as exc:
+        _fail(f"publishing needs huggingface-hub; install with --extra publish ({exc})")
+    except OSError as exc:  # huggingface_hub HTTP, auth and network errors are OSErrors
+        _fail(f"publishing to {repo_id} failed: {_first_line(exc)}")
     typer.echo(f"published {len(runs)} run(s) to {url}")
+
+
+def _preview_publish(
+    repo_id: str, results_dir: Path, runs: Sequence[RunResult], *, private: bool, benchmark: Path
+) -> None:
+    """What ``publish`` would do, computed without the Hub and without writing a file."""
+    from landuse_relevance_bench.adapters.hf_publish import dataset_card
+
+    generated = {"README.md", "leaderboard.csv"}
+    existing = {
+        p.relative_to(results_dir).as_posix() for p in results_dir.rglob("*") if p.is_file()
+    }
+    visibility = "private" if private else "public"
+    typer.echo(f"dry run: would publish {len(runs)} run(s) to dataset {repo_id} ({visibility})")
+    typer.echo("files that would be uploaded:")
+    for name in sorted(existing | generated):
+        typer.echo(f"  {name}{'  (generated)' if name in generated else ''}")
+    typer.echo("\n--- README.md ---")
+    typer.echo(dataset_card(runs, benchmark_name=benchmark.name))
+
+
+def _first_line(exc: BaseException) -> str:
+    return (str(exc).strip().splitlines() or [type(exc).__name__])[0]
+
+
+def _fail(message: str) -> NoReturn:
+    typer.echo(f"Error: {message}", err=True)
+    raise typer.Exit(code=1)
