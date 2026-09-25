@@ -1,7 +1,9 @@
 """Scriptable entry points for running, scoring and publishing the benchmark."""
 
+import enum
 import json
 import logging
+import re
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
@@ -23,12 +25,19 @@ from landuse_relevance_bench.adapters.results_store import (
     describe_agreement,
     leaderboard_rows,
     read_runs,
+    run_filename,
     write_leaderboard_csv,
 )
 from landuse_relevance_bench.domain.agreement import Agreement, speculative_agreements
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
 from landuse_relevance_bench.domain.records import RunResult
-from landuse_relevance_bench.domain.roster import ROSTER, model_ids
+from landuse_relevance_bench.domain.roster import (
+    ROSTER,
+    RUNTIMES,
+    TRANSFORMERS,
+    model_ids,
+    spec_for,
+)
 from landuse_relevance_bench.domain.speed import SpeedMetrics
 
 DEFAULT_BENCHMARK = Path("data/benchmark.csv")
@@ -36,6 +45,8 @@ DEFAULT_PROMPT = Path("data/prompt.txt")
 DEFAULT_RESULTS = Path("results")
 
 app = typer.Typer(help=__doc__)
+
+Runtime = enum.StrEnum("Runtime", {name: name for name in RUNTIMES})
 
 LOGGER_NAME = "landuse_relevance_bench"
 
@@ -57,6 +68,11 @@ BatchSize = Annotated[
 MaxNewTokens = Annotated[int, typer.Option(help="Generation budget per prompt, in tokens.")]
 Seed = Annotated[int, typer.Option(help="Random seed set before loading the model.")]
 Dtype = Annotated[str, typer.Option(help="Torch dtype name.")]
+Only = Annotated[str | None, typer.Option("--only", help="Regex; keep only run names it matches.")]
+RuntimeFilter = Annotated[
+    list[Runtime] | None,
+    typer.Option("--runtime", help="Keep only runs on this runtime; repeatable."),
+]
 Json = Annotated[bool, typer.Option("--json", help="Print machine-readable JSON instead of text.")]
 
 
@@ -162,9 +178,10 @@ def _speed_summary(speed: SpeedMetrics) -> str:
     return " ".join(parts)
 
 
-@app.command(epilog="Examples:  lrb models  |  lrb models --json")
-def models(as_json: Json = False) -> None:
+@app.command(epilog="Examples:  lrb models  |  lrb models --runtime sglang --json")
+def models(runtime: RuntimeFilter = None, as_json: Json = False) -> None:
     """List the models in the benchmark roster (name, size, runtime, note; tab-separated)."""
+    specs = [spec for spec in ROSTER if not runtime or spec.runtime in runtime]
     if as_json:
         _echo_json(
             [
@@ -175,11 +192,11 @@ def models(as_json: Json = False) -> None:
                     "runtime": spec.runtime,
                     "note": spec.note,
                 }
-                for spec in ROSTER
+                for spec in specs
             ]
         )
         return
-    for spec in ROSTER:
+    for spec in specs:
         typer.echo(f"{spec.name}\t{spec.total_parameters / 1e9:.2f}B\t{spec.runtime}\t{spec.note}")
 
 
@@ -216,7 +233,11 @@ def run(
     _benchmark_one(request, as_json=as_json)
 
 
-@app.command(name="run-all", epilog="Examples:  lrb run-all --results-dir results")
+@app.command(
+    name="run-all",
+    epilog="Examples:  lrb run-all --results-dir results  |  "
+    "lrb run-all --runtime transformers --only 'LFM2.5-VL' --skip-existing --keep-going",
+)
 def run_all(
     benchmark: Benchmark = DEFAULT_BENCHMARK,
     prompt: Prompt = DEFAULT_PROMPT,
@@ -225,21 +246,84 @@ def run_all(
     max_new_tokens: MaxNewTokens = DEFAULT_MAX_NEW_TOKENS,
     seed: Seed = 0,
     dtype: Dtype = DEFAULT_DTYPE,
+    only: Only = None,
+    runtime: RuntimeFilter = None,
+    skip_existing: Annotated[
+        bool,
+        typer.Option(
+            "--skip-existing", help="Skip runs whose result file already exists and is non-empty."
+        ),
+    ] = False,
+    keep_going: Annotated[
+        bool,
+        typer.Option(
+            "--keep-going", help="Carry on after a failed run; exit 1 at the end if any failed."
+        ),
+    ] = False,
 ) -> None:
-    """Benchmark every rostered model in turn."""
-    for model in model_ids():
-        _benchmark_one(
-            RunRequest.for_run(
-                model,
-                benchmark_path=benchmark,
-                prompt_path=prompt,
-                output_dir=out,
-                batch_size=batch_size,
-                max_new_tokens=max_new_tokens,
-                seed=seed,
-                dtype=dtype,
-            )
+    """Benchmark every rostered model in turn, optionally filtered and resumable."""
+    failed: list[str] = []
+    for model in _selected(model_ids(), only, runtime):
+        if skip_existing and _has_result(out, model):
+            typer.echo(f"skip {model} (result already in {out})")
+            continue
+        request = RunRequest.for_run(
+            model,
+            benchmark_path=benchmark,
+            prompt_path=prompt,
+            output_dir=out,
+            batch_size=batch_size,
+            max_new_tokens=max_new_tokens,
+            seed=seed,
+            dtype=dtype,
         )
+        if not keep_going:
+            _benchmark_one(request)
+            continue
+        try:
+            _benchmark_one(request)
+        except RUN_FAILURES as exc:
+            typer.echo(f"FAILED {model}: {exc}", err=True)
+            failed.append(model)
+    if failed:
+        typer.echo(f"{len(failed)} run(s) failed: {', '.join(failed)}", err=True)
+        raise typer.Exit(code=1)
+
+
+#: What ``--keep-going`` survives: bad input, runtime and CUDA errors, a missing runtime.
+RUN_FAILURES = (typer.BadParameter, RuntimeError, OSError, ValueError, ImportError)
+
+
+def _runtime_of(name: str) -> str:
+    try:
+        return spec_for(name).runtime
+    except KeyError:
+        return TRANSFORMERS
+
+
+def _selected(names: Iterable[str], only: str | None, runtimes: Sequence[str] | None) -> list[str]:
+    """The run names matching the ``--only`` regex and any of the ``--runtime`` choices."""
+    pattern = _compile(only)
+    return [
+        name
+        for name in names
+        if (pattern is None or pattern.search(name))
+        and (not runtimes or _runtime_of(name) in runtimes)
+    ]
+
+
+def _compile(only: str | None) -> re.Pattern[str] | None:
+    if only is None:
+        return None
+    try:
+        return re.compile(only)
+    except re.error as exc:
+        raise typer.BadParameter(f"invalid --only regex {only!r}: {exc}") from exc
+
+
+def _has_result(directory: Path, name: str) -> bool:
+    path = directory / run_filename(name)
+    return path.is_file() and path.stat().st_size > 0
 
 
 @app.command(

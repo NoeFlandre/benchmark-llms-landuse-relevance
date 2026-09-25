@@ -38,6 +38,10 @@ when a model is actually loaded.
   `lrb report --json | python -m json.tool`.
 - `-v` logs model loading and per-batch progress to stderr (`-vv` for debug detail);
   `-q` shows errors only. Warnings are shown by default.
+- `run-all` filters and resumes: `--only REGEX`, `--runtime transformers|sglang`
+  (repeatable), `--skip-existing` (skip runs whose result file is already written) and
+  `--keep-going` (continue past a failed run, exit 1 at the end). `lrb models --runtime`
+  filters the roster the same way.
 - `run` and `run-all` accept `--results-dir` as an alias of `--out`, matching `report`
   and `publish`.
 

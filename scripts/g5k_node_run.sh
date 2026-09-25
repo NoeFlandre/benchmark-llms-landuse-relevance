@@ -38,6 +38,7 @@ if [[ -n "$LRB_BATCH_SIZE" ]]; then
   batch_args=(--batch-size "$LRB_BATCH_SIZE")
 fi
 
+failed=0
 for runtime in $LRB_RUNTIMES; do
   case "$runtime" in
     transformers) extra=inference ;;
@@ -47,23 +48,21 @@ for runtime in $LRB_RUNTIMES; do
   echo "== environment: $runtime (extra: $extra)"
   uv sync --extra "$extra" --frozen --no-dev
 
-  uv run --no-sync lrb models | awk -F'\t' -v r="$runtime" '$3 == r { print $1 }' \
-    | grep -E "$LRB_ONLY" | while read -r name; do
-    target="$LRB_RESULTS/${name//\//__}.json"
-    if [[ -s "$target" ]]; then
-      echo "== skip $name (result already checkpointed)"
-      continue
-    fi
-    echo "== run $name"
-    uv run --no-sync lrb run "$name" \
-      --benchmark data/benchmark.csv \
-      --prompt data/prompt.txt \
-      --out "$LRB_RESULTS" \
-      --max-new-tokens "$LRB_MAX_NEW_TOKENS" \
-      "${batch_args[@]}"
-  done
+  # `lrb run-all` filters by runtime and name, skips checkpointed results and keeps
+  # going past a failed run, reporting it in the exit code.
+  uv run --no-sync lrb run-all \
+    --runtime "$runtime" \
+    --only "$LRB_ONLY" \
+    --skip-existing \
+    --keep-going \
+    --benchmark data/benchmark.csv \
+    --prompt data/prompt.txt \
+    --out "$LRB_RESULTS" \
+    --max-new-tokens "$LRB_MAX_NEW_TOKENS" \
+    "${batch_args[@]}" || failed=1
 done
 
 # A same-runtime DSpark mismatch makes `report` exit non-zero; keep the job's
 # results either way and surface the failure in the OAR log.
 uv run --no-sync lrb report --results-dir "$LRB_RESULTS"
+exit "$failed"

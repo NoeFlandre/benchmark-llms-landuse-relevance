@@ -372,3 +372,98 @@ def test_every_option_has_help_text() -> None:
         for param in sub.params:
             if param.param_type_name == "option":
                 assert getattr(param, "help", None), f"{sub.name} {param.opts} has no help"
+
+
+def _run_all(benchmark: Path, prompt: Path, out: Path, *extra: str) -> Result:
+    return runner.invoke(
+        cli.app,
+        [
+            "run-all",
+            "--benchmark",
+            str(benchmark),
+            "--prompt",
+            str(prompt),
+            "--out",
+            str(out),
+            *list(extra),
+        ],
+    )
+
+
+def test_run_all_only_keeps_matching_runs(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "model_ids", lambda: ("a/one", "b/two"))
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    result = _run_all(benchmark_path, prompt_path, tmp_path, "--only", "^b/")
+    assert result.exit_code == 0, result.output
+    assert [p.name for p in tmp_path.glob("*.json")] == ["b__two.json"]
+
+
+def test_run_all_rejects_an_invalid_only_regex(
+    tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    result = _run_all(benchmark_path, prompt_path, tmp_path, "--only", "(")
+    assert result.exit_code == 2
+    assert "invalid --only regex" in result.stderr
+
+
+def test_run_all_runtime_filter_uses_the_roster(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    provider = RecordingProvider()
+    monkeypatch.setattr(cli, "generator_provider", lambda: provider)
+    result = _run_all(
+        benchmark_path, prompt_path, tmp_path, "--runtime", "sglang", "--only", "2.6B"
+    )
+    assert result.exit_code == 0, result.output
+    assert {r.runtime for r in provider.requests} == {"sglang"}
+    assert provider.requests
+
+
+def test_run_all_skip_existing_runs_only_missing_models(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "model_ids", lambda: ("a/one", "b/two"))
+    provider = RecordingProvider()
+    monkeypatch.setattr(cli, "generator_provider", lambda: provider)
+    (tmp_path / "a__one.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "b__two.json").write_text("", encoding="utf-8")  # interrupted, empty
+    result = _run_all(benchmark_path, prompt_path, tmp_path, "--skip-existing")
+    assert result.exit_code == 0, result.output
+    assert [r.model_id for r in provider.requests] == ["b/two"]
+    assert "skip a/one" in result.stdout
+
+
+def test_run_all_keep_going_runs_the_rest_and_exits_1(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "model_ids", lambda: ("a/one", "b/two", "c/three"))
+
+    def flaky(request: RunRequest) -> tuple[AlwaysYes, str]:
+        if request.model_id == "b/two":
+            raise RuntimeError("CUDA out of memory")
+        return AlwaysYes(), "rev"
+
+    monkeypatch.setattr(cli, "generator_provider", lambda: flaky)
+    result = _run_all(benchmark_path, prompt_path, tmp_path, "--keep-going")
+    assert result.exit_code == 1
+    assert sorted(p.name for p in tmp_path.glob("*.json")) == ["a__one.json", "c__three.json"]
+    assert "1 run(s) failed: b/two" in result.stderr
+
+
+def test_run_all_without_keep_going_stops_at_the_first_failure(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "model_ids", lambda: ("a/one", "b/two"))
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    result = _run_all(benchmark_path, tmp_path / "missing.txt", tmp_path / "out")
+    assert result.exit_code == 2
+    assert not (tmp_path / "out").exists() or not list((tmp_path / "out").glob("*.json"))
+
+
+def test_models_runtime_filter() -> None:
+    result = runner.invoke(cli.app, ["models", "--runtime", "sglang", "--json"])
+    assert result.exit_code == 0, result.output
+    runtimes = {row["runtime"] for row in json.loads(result.stdout)}
+    assert runtimes == {"sglang"}
