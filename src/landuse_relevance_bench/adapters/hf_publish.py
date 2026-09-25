@@ -83,9 +83,7 @@ def _card_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     for result in results:
         derived = evaluate(outcomes_of(result.predictions))
         if derived != result.metrics:
-            raise ValueError(
-                f"{result.metadata.model_id} metrics do not match predictions"
-            )
+            raise ValueError(f"{result.metadata.model_id} metrics do not match predictions")
         rows.append(
             {
                 "model_id": result.metadata.model_id,

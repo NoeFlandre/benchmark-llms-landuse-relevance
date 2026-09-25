@@ -11,8 +11,16 @@ DOMAIN = PROJECT_ROOT / "src" / "landuse_relevance_bench" / "domain"
 
 
 def test_import_contracts_hold() -> None:
+    # ``python -m importlinter.cli`` has no ``__main__`` hook and exits 0 without
+    # linting, so the console-script entry point is invoked directly instead.
     completed = subprocess.run(
-        [sys.executable, "-m", "importlinter.cli", "lint"],
+        [
+            sys.executable,
+            "-c",
+            "import sys; from importlinter.cli import lint_imports_command;"
+            " sys.exit(lint_imports_command())",
+            "--no-cache",
+        ],
         cwd=PROJECT_ROOT,
         capture_output=True,
         text=True,

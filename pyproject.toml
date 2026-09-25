@@ -78,6 +78,7 @@ include = ["src", "tests"]
 
 [tool.importlinter]
 root_packages = ["landuse_relevance_bench"]
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Domain is pure (no adapters, no I/O libraries)"
@@ -87,11 +88,13 @@ forbidden_modules = [
     "landuse_relevance_bench.adapters",
     "landuse_relevance_bench.cli",
     "csv",
+    "json",
     "pathlib",
     "typer",
     "torch",
     "transformers",
     "huggingface_hub",
+    "requests",
 ]
 
 [[tool.importlinter.contracts]]
