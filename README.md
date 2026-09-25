@@ -30,6 +30,17 @@ uv run lrb publish NoeFlandre/benchmark-llms-landuse-relevance
 Without a GPU, `lrb report` and `lrb models` still work — `torch` is imported only
 when a model is actually loaded.
 
+### Scripting the CLI
+
+- `lrb --version` prints the package version; `lrb --install-completion` sets up shell
+  completion. Every command's `--help` ends with examples.
+- `--json` on `models`, `run` and `report` prints machine-readable output, e.g.
+  `lrb report --json | python -m json.tool`.
+- `-v` logs model loading and per-batch progress to stderr (`-vv` for debug detail);
+  `-q` shows errors only. Warnings are shown by default.
+- `run` and `run-all` accept `--results-dir` as an alias of `--out`, matching `report`
+  and `publish`.
+
 ## What gets measured
 
 Positive class is `yes`. Each run reports accuracy, precision, recall, F1, balanced

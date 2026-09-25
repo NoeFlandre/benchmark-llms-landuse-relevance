@@ -2,6 +2,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+import typer
 from typer.testing import CliRunner, Result
 
 from landuse_relevance_bench import cli
@@ -258,3 +259,116 @@ def test_report_fails_when_a_speculative_run_changed_its_target_s_output(
     report = _run_pair(monkeypatch, tmp_path, benchmark_path, prompt_path, AlwaysNo)
     assert report.exit_code == 1
     assert "MISMATCH, 2/2 verdicts" in report.stdout
+
+
+def test_version_prints_the_package_version() -> None:
+    result = runner.invoke(cli.app, ["--version"])
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "0.1.0"
+
+
+def test_models_json_lists_every_rostered_run() -> None:
+    result = runner.invoke(cli.app, ["models", "--json"])
+    assert result.exit_code == 0
+    rows = json.loads(result.stdout)
+    assert "LiquidAI/LFM2.5-350M" in [r["name"] for r in rows]
+    assert {"name", "model_id", "total_parameters", "runtime", "note"} <= set(rows[0])
+
+
+def test_run_json_prints_the_metrics(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    result = _run("some/model", benchmark_path, prompt_path, tmp_path, "--json")
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["model_id"] == "some/model"
+    assert payload["metrics"]["n_items"] == 2
+
+
+def test_run_accepts_results_dir_as_an_alias_of_out(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    result = runner.invoke(
+        cli.app,
+        [
+            "run",
+            "some/model",
+            "--benchmark",
+            str(benchmark_path),
+            "--prompt",
+            str(prompt_path),
+            "--results-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "some__model.json").exists()
+
+
+def test_report_json_is_valid_json(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    _run("a/one", benchmark_path, prompt_path, tmp_path)
+    report = runner.invoke(cli.app, ["report", "--results-dir", str(tmp_path), "--json"])
+    assert report.exit_code == 0, report.output
+    payload = json.loads(report.stdout)
+    assert [row["model_id"] for row in payload["leaderboard"]] == ["a/one"]
+
+
+def test_verbose_run_reports_batch_progress(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    result = runner.invoke(
+        cli.app,
+        [
+            "-v",
+            "run",
+            "some/model",
+            "--benchmark",
+            str(benchmark_path),
+            "--prompt",
+            str(prompt_path),
+            "--out",
+            str(tmp_path),
+            "--batch-size",
+            "1",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "batch 2/2 (2/2 prompts)" in result.stderr
+
+
+def test_quiet_hides_progress(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    result = runner.invoke(
+        cli.app,
+        [
+            "-q",
+            "run",
+            "some/model",
+            "--benchmark",
+            str(benchmark_path),
+            "--prompt",
+            str(prompt_path),
+            "--out",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "batch" not in result.stderr
+
+
+def test_every_option_has_help_text() -> None:
+    command = typer.main.get_command(cli.app)
+    subcommands = getattr(command, "commands", {})
+    assert subcommands
+    for sub in (command, *subcommands.values()):
+        for param in sub.params:
+            if param.param_type_name == "option":
+                assert getattr(param, "help", None), f"{sub.name} {param.opts} has no help"

@@ -1,7 +1,9 @@
 """Wiring one model to the benchmark and persisting what came out."""
 
+import logging
+import math
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,7 +13,7 @@ from landuse_relevance_bench.adapters.benchmark_csv import load_benchmark
 from landuse_relevance_bench.adapters.hashing import sha256_of_file, sha256_of_text
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
 from landuse_relevance_bench.adapters.results_store import write_run
-from landuse_relevance_bench.domain.engine import TextGenerator
+from landuse_relevance_bench.domain.engine import Generation, TextGenerator
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE, predict_all
 from landuse_relevance_bench.domain.records import RunMetadata, RunResult, outcomes_of
@@ -19,6 +21,8 @@ from landuse_relevance_bench.domain.roster import TRANSFORMERS, ModelSpec, spec_
 
 DEFAULT_MAX_NEW_TOKENS = 4096
 DEFAULT_DTYPE = "bfloat16"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +87,31 @@ def _first_set(*values: int | None) -> int:
 GeneratorProvider = Callable[[RunRequest], tuple[TextGenerator, str]]
 
 
+class ProgressReporting:
+    """Wraps a generator to log each batch as it is sent, so long runs show progress."""
+
+    def __init__(self, inner: TextGenerator, name: str, total_prompts: int, batch_size: int):
+        self._inner = inner
+        self._name = name
+        self._total_prompts = total_prompts
+        self._batches = max(1, math.ceil(total_prompts / max(1, batch_size)))
+        self._done = 0
+        self._batch = 0
+
+    def generate(self, prompts: Sequence[str]) -> Sequence[Generation | str]:
+        self._batch += 1
+        self._done += len(prompts)
+        logger.info(
+            "%s: batch %d/%d (%d/%d prompts)",
+            self._name,
+            self._batch,
+            self._batches,
+            self._done,
+            self._total_prompts,
+        )
+        return self._inner.generate(prompts)
+
+
 def execute(
     request: RunRequest,
     provide_generator: GeneratorProvider,
@@ -92,7 +121,9 @@ def execute(
     """Run the benchmark for one model and write the result next to the others."""
     items = load_benchmark(request.benchmark_path)
     template = load_prompt(request.prompt_path)
+    logger.info("%s: loading model (%d prompts)", request.name, len(items))
     generator, revision = provide_generator(request)
+    generator = ProgressReporting(generator, request.name, len(items), request.batch_size)
 
     started_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     started = time.monotonic()
