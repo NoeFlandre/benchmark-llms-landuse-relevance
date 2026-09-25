@@ -10,7 +10,7 @@
 #   LRB_ROOT        project checkout on the node        (default: $HOME/benchmark-llms-landuse-relevance)
 #   LRB_RESULTS     directory for run results           (default: $LRB_ROOT/results)
 #   LRB_BATCH_SIZE  prompts per forward pass            (default: each run's roster setting)
-#   LRB_MAX_NEW_TOKENS  generation budget per prompt     (default: 1024)
+#   LRB_MAX_NEW_TOKENS  generation budget per prompt     (default: 4096)
 #   LRB_RUNTIMES    runtimes to run, in order           (default: "transformers sglang")
 #   LRB_ONLY        regex; run only matching run names  (default: every run)
 #   HF_HOME         Hugging Face cache                  (default: node-local /tmp scratch)
@@ -20,7 +20,7 @@ export PATH="$HOME/.local/bin:$PATH"   # oarsub runs a non-login shell
 LRB_ROOT="${LRB_ROOT:-$HOME/benchmark-llms-landuse-relevance}"
 LRB_RESULTS="${LRB_RESULTS:-$LRB_ROOT/results}"
 LRB_BATCH_SIZE="${LRB_BATCH_SIZE:-}"
-LRB_MAX_NEW_TOKENS="${LRB_MAX_NEW_TOKENS:-1024}"
+LRB_MAX_NEW_TOKENS="${LRB_MAX_NEW_TOKENS:-4096}"
 LRB_RUNTIMES="${LRB_RUNTIMES:-transformers sglang}"
 LRB_ONLY="${LRB_ONLY:-.}"
 export HF_HOME="${HF_HOME:-/tmp/$USER/hf-cache}"

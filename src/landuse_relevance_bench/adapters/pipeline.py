@@ -17,7 +17,7 @@ from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE, pre
 from landuse_relevance_bench.domain.records import RunMetadata, RunResult, outcomes_of
 from landuse_relevance_bench.domain.roster import TRANSFORMERS, ModelSpec, spec_for
 
-DEFAULT_MAX_NEW_TOKENS = 1024
+DEFAULT_MAX_NEW_TOKENS = 4096
 DEFAULT_DTYPE = "bfloat16"
 
 

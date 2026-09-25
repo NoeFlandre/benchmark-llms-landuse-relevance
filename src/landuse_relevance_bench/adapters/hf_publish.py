@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from landuse_relevance_bench.adapters.results_store import (
-    describe_agreement,
     read_run,
     speed_columns,
 )
@@ -64,19 +63,55 @@ def _speed_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: row["model_id"])
 
 
+DSPARK_COLUMNS = (
+    "run",
+    "output_tokens_per_second",
+    "latency_mean_seconds",
+    "speedup",
+    "mean_accept_length",
+    "identical_predictions",
+)
+
+
+def _dspark_row(result: RunResult, baseline_tps: float | None, identical: str) -> dict[str, Any]:
+    speed = result.speed
+    tps = speed.output_tokens_per_second
+    return {
+        "run": result.metadata.name,
+        "output_tokens_per_second": None if tps is None else round(tps, 1),
+        "latency_mean_seconds": (
+            None if speed.latency_mean_seconds is None else round(speed.latency_mean_seconds, 4)
+        ),
+        "speedup": None if tps is None or not baseline_tps else f"{tps / baseline_tps:.2f}x",
+        "mean_accept_length": (
+            None if speed.mean_accept_length is None else round(speed.mean_accept_length, 3)
+        ),
+        "identical_predictions": identical,
+    }
+
+
 def _agreement_section(results: Sequence[RunResult]) -> str:
-    agreements = speculative_agreements(results)
-    if not agreements:
+    """One table per target: its same-runtime baseline against its DSpark run."""
+    by_name = {r.metadata.name: r for r in results}
+    tables = []
+    for agreement in speculative_agreements(results):
+        if not agreement.same_runtime:
+            continue
+        baseline = by_name[agreement.baseline_run]
+        drafted = by_name[agreement.speculative_run]
+        base_tps = baseline.speed.output_tokens_per_second
+        identical = "yes" if agreement.lossless else "no"
+        rows = [_dspark_row(baseline, base_tps, "-"), _dspark_row(drafted, base_tps, identical)]
+        tables.append(f"### {drafted.metadata.model_id}\n\n{_table(DSPARK_COLUMNS, rows)}\n")
+    if not tables:
         return ""
-    lines = "\n".join(f"- {describe_agreement(a)}" for a in agreements)
+    body = "\n".join(tables)
     return f"""
-## Speculative decoding check
+## DSpark speculative decoding
 
-Under greedy decoding a speculative draft must not change the target's output; a
-mismatch against the same-runtime baseline means the runs were not equivalent.
+Same SGLang launch with and without the draft; greedy, so predictions must be identical.
 
-{lines}
-"""
+{body}"""
 
 
 class DatasetHub(Protocol):
