@@ -33,5 +33,7 @@ lazily, so `lrb report` works on a laptop with no `torch` installed.
 
 ## Quality gates
 
-`make check` runs the gauntlet: ruff → ty → unit → property → acceptance →
-architecture → CRAP → mutation. CI runs the same commands.
+`make check` runs the gauntlet: ruff → ty → unit + property (with a coverage floor) →
+acceptance → architecture → CRAP → mutation → CLI smoke → docs build → lockfile check →
+pip-audit. CI calls the same Makefile targets, so the two cannot drift; CodeQL runs
+in its own workflow.

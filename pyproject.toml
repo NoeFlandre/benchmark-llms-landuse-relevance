@@ -112,6 +112,8 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
+# The floor is the current coverage rounded down; raise it as coverage grows.
+fail_under = 95
 
 [tool.ty.src]
 include = ["src", "tests"]

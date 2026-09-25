@@ -32,51 +32,45 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: uv sync --extra inference --extra publish
 
+      # Each step is a Makefile target, so `make check` runs exactly these gates.
       - name: Lint and format
-        run: |
-          uv run --no-sync ruff format --check .
-          uv run --no-sync ruff check .
+        run: make lint
 
       - name: Types
-        run: uv run --no-sync ty check
+        run: make types
 
       - name: Unit and property tests with coverage
-        run: uv run --no-sync pytest tests/unit tests/property --cov --cov-report=term-missing --cov-report=json
+        run: make test
 
       - name: Acceptance scenarios
-        run: uv run --no-sync pytest tests/acceptance
+        run: make acceptance
 
       - name: Architecture boundaries
-        run: uv run --no-sync pytest tests/architecture
+        run: make architecture
 
+      # -o test: reuse the coverage the step above just produced.
       - name: CRAP score
-        run: uv run --no-sync python scripts/crap.py --max 6
+        run: make crap -o test
 
       # mutmut exits 0 when mutants merely survive and nonzero only when the run itself
       # breaks, so its exit code is kept; check_mutants.py gates the survivors.
       - name: Mutation testing
-        run: |
-          uv run --no-sync mutmut run --max-children 4
-          uv run --no-sync python scripts/check_mutants.py --max-survivors 4
+        run: make mutation
 
       - name: CLI smoke test
-        run: uv run --no-sync lrb models
+        run: make smoke
 
   lockfile:
     name: Lockfile and speculative extra resolve
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      UV_FROZEN: "0"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
-      - name: uv.lock is up to date with pyproject.toml
-        run: uv lock --check
-      - name: The speculative (SGLang) extra resolves on Linux
-        run: uv sync --locked --extra speculative --dry-run
+      - name: uv.lock is current and the speculative (SGLang) extra resolves on Linux
+        run: make lockfile
 
   docs:
     name: Documentation builds
@@ -89,7 +83,19 @@ jobs:
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
-      - run: uv run --only-group docs mkdocs build --strict
+      - run: make docs-build
+
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - name: pip-audit over every locked environment
+        run: make security
 
   image:
     name: Container builds
@@ -111,7 +117,7 @@ jobs:
   all-green:
     name: All green
     if: always()
-    needs: [gauntlet, lockfile, docs, image]
+    needs: [gauntlet, lockfile, docs, security, image]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

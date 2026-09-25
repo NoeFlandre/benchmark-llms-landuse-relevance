@@ -111,8 +111,9 @@ done, so an overrun job is resumed rather than repeated. See
 ## Development
 
 ```bash
-make check     # ruff → ty → unit → property → acceptance → architecture → CRAP
-make mutation  # mutation testing over the domain
+make check     # every CI gate: ruff → ty → unit+property (coverage floor) → acceptance →
+               # architecture → CRAP → mutation → smoke → docs → lockfile → pip-audit
+make mutation  # mutation testing over the domain alone
 make docker    # reproducible runtime image
 ```
 
