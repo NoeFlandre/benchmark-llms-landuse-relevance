@@ -9,7 +9,7 @@ is an optional extra imported only when a model is loaded. See ADR-0007.
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Protocol
 
-from landuse_relevance_bench.adapters.hf_generator import user_turn
+from landuse_relevance_bench.adapters.hf_generator import chat_template_kwargs, user_turn
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.domain.engine import Generation
 
@@ -101,7 +101,7 @@ def _chat_encoder(request: RunRequest) -> Callable[[str], list[int]]:
     loader: Any = AutoProcessor if request.vision else AutoTokenizer
     template: Any = loader.from_pretrained(request.model_id, revision=request.revision)
     tokenizer: Any = template.tokenizer if request.vision else template
-    extra = {} if request.vision else {"enable_thinking": False}
+    extra = chat_template_kwargs(vision=request.vision)
 
     def encode(prompt: str) -> list[int]:
         text = template.apply_chat_template(

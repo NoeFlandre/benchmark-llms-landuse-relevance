@@ -37,6 +37,13 @@ app = typer.Typer(add_completion=False, help=__doc__)
 Benchmark = Annotated[Path, typer.Option("--benchmark", help="Labelled benchmark CSV.")]
 Prompt = Annotated[Path, typer.Option("--prompt", help="Prompt template with a {} placeholder.")]
 Results = Annotated[Path, typer.Option("--out", help="Directory to write run results into.")]
+BatchSize = Annotated[
+    int | None,
+    typer.Option(help=f"Prompts per forward pass [default: roster's, else {DEFAULT_BATCH_SIZE}]."),
+]
+MaxNewTokens = Annotated[int, typer.Option()]
+Seed = Annotated[int, typer.Option()]
+Dtype = Annotated[str, typer.Option(help="Torch dtype name.")]
 
 
 def generator_provider() -> GeneratorProvider:
@@ -100,15 +107,10 @@ def run(
     prompt: Prompt = DEFAULT_PROMPT,
     out: Results = DEFAULT_RESULTS,
     revision: Annotated[str | None, typer.Option(help="Pin the model to a commit.")] = None,
-    batch_size: Annotated[
-        int | None,
-        typer.Option(
-            help=f"Prompts per forward pass [default: roster's, else {DEFAULT_BATCH_SIZE}]."
-        ),
-    ] = None,
-    max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
-    seed: Annotated[int, typer.Option()] = 0,
-    dtype: Annotated[str, typer.Option(help="Torch dtype name.")] = DEFAULT_DTYPE,
+    batch_size: BatchSize = None,
+    max_new_tokens: MaxNewTokens = DEFAULT_MAX_NEW_TOKENS,
+    seed: Seed = 0,
+    dtype: Dtype = DEFAULT_DTYPE,
 ) -> None:
     """Benchmark one model and write its result under --out."""
     request = RunRequest.for_run(
@@ -130,10 +132,10 @@ def run_all(
     benchmark: Benchmark = DEFAULT_BENCHMARK,
     prompt: Prompt = DEFAULT_PROMPT,
     out: Results = DEFAULT_RESULTS,
-    batch_size: Annotated[int | None, typer.Option()] = None,
-    max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
-    seed: Annotated[int, typer.Option()] = 0,
-    dtype: Annotated[str, typer.Option()] = DEFAULT_DTYPE,
+    batch_size: BatchSize = None,
+    max_new_tokens: MaxNewTokens = DEFAULT_MAX_NEW_TOKENS,
+    seed: Seed = 0,
+    dtype: Dtype = DEFAULT_DTYPE,
 ) -> None:
     """Benchmark every rostered model in turn."""
     for model in model_ids():
