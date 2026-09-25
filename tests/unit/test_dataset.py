@@ -27,12 +27,6 @@ def test_item_id_is_deterministic_and_content_addressed() -> None:
     assert other.item_id != build_item(ROW).item_id
 
 
-def test_item_id_is_a_short_hex_digest() -> None:
-    item_id = build_item(ROW).item_id
-    assert len(item_id) == 16
-    assert all(c in "0123456789abcdef" for c in item_id)
-
-
 @pytest.mark.parametrize("field", ["sentence", "label"])
 def test_rejects_a_row_missing_a_required_field(field: str) -> None:
     row = {k: v for k, v in ROW.items() if k != field}

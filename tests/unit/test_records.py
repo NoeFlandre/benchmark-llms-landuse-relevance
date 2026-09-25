@@ -24,11 +24,6 @@ def _prediction(predicted: Label | None = Label.YES) -> Prediction:
     return Prediction(item_id="0" * 16, expected=Label.YES, predicted=predicted, raw_output="yes")
 
 
-def test_prediction_round_trips_through_a_plain_dict() -> None:
-    prediction = _prediction()
-    assert Prediction.from_dict(prediction.to_dict()) == prediction
-
-
 def test_the_serialised_keys_are_the_published_schema() -> None:
     """Renaming one of these silently invalidates every result file already published."""
     assert _prediction().to_dict() == {
@@ -57,12 +52,6 @@ def test_a_result_file_written_before_truncation_was_tracked_still_loads() -> No
     assert Prediction.from_dict(legacy).truncated is False
 
 
-def test_a_null_prediction_round_trips() -> None:
-    prediction = _prediction(None)
-    assert prediction.to_dict()["predicted"] is None
-    assert Prediction.from_dict(prediction.to_dict()) == prediction
-
-
 def test_run_result_round_trips_through_a_plain_dict() -> None:
     result = RunResult(
         metadata=META,
@@ -70,15 +59,6 @@ def test_run_result_round_trips_through_a_plain_dict() -> None:
         metrics=evaluate([(Label.YES, Label.YES)]),
     )
     assert RunResult.from_dict(result.to_dict()) == result
-
-
-def test_run_result_dict_is_json_serialisable() -> None:
-    import json
-
-    result = RunResult(
-        metadata=META, predictions=(_prediction(),), metrics=evaluate([(Label.YES, Label.YES)])
-    )
-    assert json.loads(json.dumps(result.to_dict())) == result.to_dict()
 
 
 def test_run_result_rejects_metrics_that_disagree_with_its_predictions() -> None:

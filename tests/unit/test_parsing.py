@@ -9,6 +9,7 @@ from landuse_relevance_bench.domain.parsing import parse_label
     [
         ("yes", Label.YES),
         ("no", Label.NO),
+        ("no\n", Label.NO),
         ("YES", Label.YES),
         ("  No  ", Label.NO),
         ("yes.", Label.YES),
@@ -36,11 +37,6 @@ def test_the_verdict_is_the_last_decision_token_not_the_first() -> None:
         "Answer: no"
     )
     assert parse_label(reasoning) is Label.NO
-
-
-def test_a_direct_answer_is_unaffected_by_reading_from_the_end() -> None:
-    assert parse_label("yes") is Label.YES
-    assert parse_label("no\n") is Label.NO
 
 
 def test_does_not_match_a_token_inside_a_word() -> None:
