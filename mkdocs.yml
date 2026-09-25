@@ -20,6 +20,8 @@ nav:
       - ADR-0003 Transformers rather than vLLM: adr/0003-transformers-runtime.md
       - ADR-0004 Content-addressed item ids: adr/0004-content-addressed-ids.md
       - ADR-0005 The generation budget: adr/0005-generation-budget.md
+      - ADR-0006 Measuring speed: adr/0006-speed-measurement.md
+      - ADR-0007 DSpark speculative decoding: adr/0007-dspark-speculative-decoding.md
   - Technical debt: debt.md
 markdown_extensions:
   - admonition

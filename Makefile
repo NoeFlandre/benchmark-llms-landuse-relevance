@@ -7,7 +7,7 @@ help:
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/'
 
 install:  ## Sync the pinned environment
-	$(UV) sync --all-extras
+	$(UV) sync --extra inference --extra publish
 
 baseline:  ## Run the existing suite before touching anything
 	$(RUN) pytest

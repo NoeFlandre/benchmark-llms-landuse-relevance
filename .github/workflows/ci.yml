@@ -21,7 +21,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --all-extras
+      - run: uv sync --extra inference --extra publish
 
       - name: Baseline
         run: uv run --no-sync pytest

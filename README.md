@@ -7,7 +7,8 @@ satellite could see?
 labelled `yes` if it carries land-use, land-cover, or geographic-environment signal —
 vegetation, water, terrain, buildings, roads, mining, managed land — and `no` if it
 only concerns history, administration, people, or events. One prompt, one token of
-expected output, four Liquid AI LFM2.5 models, scored end to end on a Grid'5000 GPU.
+expected output, five Liquid AI LFM2.5 models — four of them also run with a DSpark
+speculative-decoding draft — scored and timed end to end on a Grid'5000 GPU.
 
 - **Code:** this repository
 - **Results:** [NoeFlandre/benchmark-llms-landuse-relevance](https://huggingface.co/datasets/NoeFlandre/benchmark-llms-landuse-relevance)
@@ -16,9 +17,11 @@ expected output, four Liquid AI LFM2.5 models, scored end to end on a Grid'5000 
 ## Quick start
 
 ```bash
-uv sync --all-extras
+uv sync --extra inference --extra publish
 uv run lrb models                      # the roster
 uv run lrb run LiquidAI/LFM2.5-350M    # one model
+uv sync --extra speculative            # SGLang runtime (conflicts with `inference`)
+uv run lrb run LiquidAI/LFM2.5-VL-3B+DSpark
 uv run lrb run-all                     # every model
 uv run lrb report                      # leaderboard from stored runs
 uv run lrb publish NoeFlandre/benchmark-llms-landuse-relevance
@@ -30,7 +33,10 @@ when a model is actually loaded.
 ## What gets measured
 
 Positive class is `yes`. Each run reports accuracy, precision, recall, F1, balanced
-accuracy, Matthews correlation, and `unparsed_rate`.
+accuracy, Matthews correlation, and `unparsed_rate`, and alongside them how fast the
+answers came: wall time, sentences/s, per-sentence latency (mean, p50, p95), generated
+tokens and output tokens/s, and for speculative runs the mean accept length and draft
+accept rate ([ADR-0006](docs/adr/0006-speed-measurement.md)).
 
 Decoding is greedy, so a run replays exactly. The verdict is the last standalone
 `yes`/`no` in the generation — two of these models open with an analysis preamble that
@@ -50,12 +56,24 @@ decoding settings, the seed, and the source commit.
 
 ## Models
 
-| model | parameters |
-|---|---|
-| `LiquidAI/LFM2.5-350M` | 0.35B |
-| `LiquidAI/LFM2.5-1.2B-Instruct` | 1.2B |
-| `LiquidAI/LFM2.5-2.6B` | 2.7B |
-| `LiquidAI/LFM2.5-8B-A1B` | 8.5B total, ~1B active (MoE) |
+| run | runtime | parameters |
+|---|---|---|
+| `LiquidAI/LFM2.5-350M` | Transformers | 0.35B |
+| `LiquidAI/LFM2.5-1.2B-Instruct` | Transformers | 1.2B |
+| `LiquidAI/LFM2.5-2.6B` | Transformers | 2.7B |
+| `LiquidAI/LFM2.5-8B-A1B` | Transformers | 8.5B total, ~1B active (MoE) |
+| `LiquidAI/LFM2.5-VL-3B` | Transformers, text-only prompts | 3.1B |
+| `<target>@sglang` for the four targets below | SGLang, no draft | as the target |
+| `LiquidAI/LFM2.5-1.2B-Instruct+DSpark` | SGLang + `LFM2.5-1.2B-Instruct-DSpark` | 1.2B + 0.30B draft |
+| `LiquidAI/LFM2.5-2.6B+DSpark` | SGLang + `LFM2.5-2.6B-DSpark` | 2.7B + 0.33B draft |
+| `LiquidAI/LFM2.5-8B-A1B+DSpark` | SGLang + `LFM2.5-8B-A1B-DSpark` | 8.5B + 0.33B draft |
+| `LiquidAI/LFM2.5-VL-3B+DSpark` | SGLang + `LFM2.5-VL-3B-DSpark` | 3.1B + 0.28B draft |
+
+Every run pins its weights (and its draft's) to a commit. Each `+DSpark` run follows
+its model card's SGLang recipe; `@sglang` is the same launch without the speculative
+flags. Under greedy decoding a draft cannot change the output, so `lrb report` checks
+each `+DSpark` run against its `@sglang` baseline item by item and fails if they
+disagree ([ADR-0007](docs/adr/0007-dspark-speculative-decoding.md)).
 
 ## Grid'5000
 
@@ -64,7 +82,7 @@ ssh nancy
 git clone https://github.com/NoeFlandre/benchmark-llms-landuse-relevance.git
 cd benchmark-llms-landuse-relevance
 usagepolicycheck -t
-scripts/g5k_submit.sh 1:00
+scripts/g5k_submit.sh 4:00
 ```
 
 The node script checkpoints each model's result as it finishes and skips models already
