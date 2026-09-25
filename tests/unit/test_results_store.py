@@ -112,3 +112,30 @@ def test_the_leaderboard_separates_truncated_generations_from_other_failures() -
     (row,) = leaderboard_rows([result])
     assert row["unparsed_rate"] == 1.0
     assert row["truncated"] == 1
+
+
+def test_reading_a_run_without_metadata_names_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "no_metadata.json"
+    payload = _result().to_dict()
+    del payload["metadata"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"no_metadata\.json"):
+        read_run(path)
+
+
+def test_reading_a_run_with_an_unknown_metadata_key_names_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "extra_key.json"
+    payload = _result().to_dict()
+    payload["metadata"]["surprise"] = 1
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"extra_key\.json"):
+        read_run(path)
+
+
+def test_reading_a_run_whose_metrics_disagree_with_its_predictions_fails(tmp_path: Path) -> None:
+    path = tmp_path / "tampered.json"
+    payload = _result().to_dict()
+    payload["metrics"] = evaluate([(Label.YES, Label.YES), (Label.NO, Label.NO)]).to_dict()
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError):
+        read_run(path)
