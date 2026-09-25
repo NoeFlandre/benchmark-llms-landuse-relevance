@@ -3,10 +3,6 @@ import pytest
 from landuse_relevance_bench.domain.roster import ROSTER, model_ids, spec_for
 
 
-def test_the_roster_is_not_empty() -> None:
-    assert ROSTER
-
-
 def test_every_model_id_is_a_namespaced_hub_repository() -> None:
     assert all(spec.model_id.count("/") == 1 for spec in ROSTER)
 

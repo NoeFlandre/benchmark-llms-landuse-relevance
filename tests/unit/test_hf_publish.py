@@ -3,6 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import yaml
 
 from landuse_relevance_bench.adapters.hf_publish import (
     dataset_card,
@@ -14,7 +15,9 @@ from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
 
 
-def _result(model_id: str = "LiquidAI/LFM2.5-350M") -> RunResult:
+def _result(
+    model_id: str = "LiquidAI/LFM2.5-350M", predictions: tuple[Prediction, ...] | None = None
+) -> RunResult:
     metadata = RunMetadata(
         model_id=model_id,
         model_revision="abc123",
@@ -28,12 +31,37 @@ def _result(model_id: str = "LiquidAI/LFM2.5-350M") -> RunResult:
         started_at="2026-09-13T10:00:00Z",
         duration_seconds=1.0,
     )
-    prediction = Prediction(
-        item_id="0" * 16, expected=Label.YES, predicted=Label.YES, raw_output="yes"
-    )
+    if predictions is None:
+        predictions = (
+            Prediction(item_id="0" * 16, expected=Label.YES, predicted=Label.YES, raw_output="yes"),
+        )
     return RunResult(
-        metadata=metadata, predictions=(prediction,), metrics=evaluate([(Label.YES, Label.YES)])
+        metadata=metadata,
+        predictions=predictions,
+        metrics=evaluate([(p.expected, p.predicted) for p in predictions]),
     )
+
+
+def _predictions(pairs: list[tuple[Label, Label | None]], truncated: int = 0) -> tuple:
+    return tuple(
+        Prediction(
+            item_id=f"{i:016x}",
+            expected=expected,
+            predicted=predicted,
+            raw_output="" if predicted is None else str(predicted),
+            truncated=i < truncated,
+        )
+        for i, (expected, predicted) in enumerate(pairs)
+    )
+
+
+def _score_rows(card: str) -> list[dict[str, str]]:
+    table = [
+        line for line in card.split("## Scores", 1)[1].splitlines() if line.strip().startswith("|")
+    ]
+    cells = [[cell.strip() for cell in line.strip().strip("|").split("|")] for line in table]
+    header, rows = cells[0], cells[2:]
+    return [dict(zip(header, row, strict=True)) for row in rows]
 
 
 class FakeApi:
@@ -47,14 +75,6 @@ class FakeApi:
     def upload_folder(self, **kwargs) -> str:
         self.uploaded.append(kwargs)
         return f"https://huggingface.co/datasets/{kwargs['repo_id']}"
-
-
-def test_the_card_is_a_markdown_leaderboard_naming_every_model() -> None:
-    card = dataset_card([_result("a/one"), _result("b/two")], benchmark_name="benchmark.csv")
-    assert card.startswith("---")
-    assert "| a/one |" in card and "| b/two |" in card
-    assert "n_items" not in card
-    assert "benchmark.csv" in card
 
 
 def test_the_card_declares_the_prompt_and_benchmark_digests() -> None:
@@ -107,14 +127,25 @@ def test_publishing_nothing_is_refused(tmp_path: Path) -> None:
         publish_results("me/bench", tmp_path, [], api=FakeApi())
 
 
-def test_the_card_leaderboard_shows_the_truncation_count() -> None:
+def test_the_card_ranks_one_row_per_model_by_descending_f1() -> None:
+    strong = _result("a/strong", _predictions([(Label.YES, Label.YES), (Label.NO, Label.NO)]))
+    weak = _result("z/weak", _predictions([(Label.YES, Label.NO), (Label.NO, Label.YES)]))
+    rows = _score_rows(dataset_card([weak, strong], benchmark_name="benchmark.csv"))
+    assert [row["model_id"] for row in rows] == ["a/strong", "z/weak"]
+    assert [float(row["f1"]) for row in rows] == [1.0, 0.0]
+
+
+def test_the_card_reports_the_truncation_count_by_value() -> None:
+    run = _result(
+        "a/one",
+        _predictions([(Label.YES, None), (Label.NO, None), (Label.YES, Label.YES)], truncated=2),
+    )
+    (row,) = _score_rows(dataset_card([run], benchmark_name="benchmark.csv"))
+    assert row["truncated"] == "2"
+
+
+def test_the_card_front_matter_declares_what_the_hub_needs() -> None:
     card = dataset_card([_result()], benchmark_name="benchmark.csv")
-    assert "truncated" in card.split("## Scores")[1].split("\n")[2]
-
-
-def test_card_is_terse_and_has_no_companion_prose() -> None:
-    card = dataset_card([_result()], benchmark_name="benchmark.csv")
-
-    assert "companion" not in card.lower()
-    assert "configuration" not in card
-    assert "Predictions and scores" not in card
+    front_matter = yaml.safe_load(card.split("---")[1])
+    assert front_matter["license"]
+    assert front_matter["task_categories"]

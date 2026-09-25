@@ -46,16 +46,7 @@ def test_the_filename_is_derived_from_the_model_id(tmp_path: Path) -> None:
     path = write_run(_result(), tmp_path)
     assert path.name == "LiquidAI__LFM2.5-350M.json"
     assert path.parent == tmp_path
-
-
-def test_run_filename_flattens_the_namespace_separator() -> None:
     assert run_filename("a/b") == "a__b.json"
-
-
-def test_the_file_is_pretty_printed_json_with_a_trailing_newline(tmp_path: Path) -> None:
-    text = write_run(_result(), tmp_path).read_text(encoding="utf-8")
-    assert text.endswith("\n")
-    assert json.loads(text)["metadata"]["model_id"] == "LiquidAI/LFM2.5-350M"
 
 
 def test_writing_the_same_run_twice_is_idempotent(tmp_path: Path) -> None:

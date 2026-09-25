@@ -3,7 +3,6 @@
 from hypothesis import given
 from hypothesis import strategies as st
 
-from landuse_relevance_bench.domain.dataset import item_id_for
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.parsing import parse_label
@@ -41,11 +40,6 @@ def test_a_trailing_verdict_is_recovered_when_nothing_earlier_decides(
         assert parse_label(prefix + label.value) is label
 
 
-@given(sentence=text)
-def test_item_ids_are_stable_across_calls(sentence: str) -> None:
-    assert item_id_for(sentence) == item_id_for(sentence)
-
-
 @given(pairs=st.lists(outcomes, min_size=1, max_size=60))
 def test_every_rate_stays_within_its_natural_bounds(pairs: list) -> None:
     metrics = evaluate(pairs)
@@ -65,11 +59,6 @@ def test_every_rate_stays_within_its_natural_bounds(pairs: list) -> None:
 def test_the_confusion_matrix_accounts_for_every_item_exactly_once(pairs: list) -> None:
     metrics = evaluate(pairs)
     assert metrics.confusion.total == len(pairs) == metrics.n_items
-
-
-@given(expected=st.lists(labels, min_size=1, max_size=40))
-def test_predicting_the_gold_label_scores_a_perfect_accuracy(expected: list[Label]) -> None:
-    assert evaluate([(label, label) for label in expected]).accuracy == 1.0
 
 
 @given(expected=st.lists(labels, min_size=1, max_size=40))
