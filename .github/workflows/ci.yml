@@ -9,6 +9,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   UV_FROZEN: "1"
 
@@ -16,6 +19,7 @@ jobs:
   gauntlet:
     name: Deterministic quality gates (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -61,6 +65,7 @@ jobs:
   lockfile:
     name: Lockfile and speculative extra resolve
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       UV_FROZEN: "0"
     steps:
@@ -75,7 +80,10 @@ jobs:
 
   docs:
     name: Documentation builds
+    # docs.yml builds (and deploys) the site on every push to main.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
@@ -86,10 +94,43 @@ jobs:
   image:
     name: Container builds
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           push: false
           build-args: LRB_SOURCE_COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # The one check to mark required: it fails if any job failed, was cancelled or was
+  # skipped unexpectedly, so renaming a job cannot silently drop it from protection.
+  all-green:
+    name: All green
+    if: always()
+    needs: [gauntlet, lockfile, docs, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          echo "$RESULTS"
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["RESULTS"])
+          allowed_skips = {"docs"} if os.environ["EVENT"] != "pull_request" else set()
+          bad = {
+              name: need["result"]
+              for name, need in needs.items()
+              if need["result"] != "success"
+              and not (need["result"] == "skipped" and name in allowed_skips)
+          }
+          if bad:
+              sys.exit(f"jobs not green: {bad}")
+          PY
