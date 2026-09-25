@@ -68,7 +68,7 @@ def _complete(values: Sequence[T | None]) -> list[T] | None:
     return present if values and len(present) == len(values) else None
 
 
-def _ratio(numerators: list[int] | None, denominators: list[int] | None) -> float | None:
+def _pooled_ratio(numerators: list[int] | None, denominators: list[int] | None) -> float | None:
     """Pooled ratio over the run: long generations weigh by their length."""
     if numerators is None or denominators is None or sum(denominators) == 0:
         return None
@@ -104,8 +104,8 @@ def summarise_speed(predictions: Sequence[Timed], wall_seconds: float) -> SpeedM
         latency_p95_seconds=p95,
         generated_tokens=total_tokens,
         output_tokens_per_second=_rate(total_tokens, wall_seconds),
-        mean_accept_length=_ratio(tokens, _complete([p.verify_steps for p in predictions])),
-        draft_accept_rate=_ratio(
+        mean_accept_length=_pooled_ratio(tokens, _complete([p.verify_steps for p in predictions])),
+        draft_accept_rate=_pooled_ratio(
             _complete([p.accepted_drafts for p in predictions]),
             _complete([p.proposed_drafts for p in predictions]),
         ),
