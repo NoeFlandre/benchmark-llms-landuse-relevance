@@ -49,7 +49,7 @@ dev = [
 [tool.uv]
 conflicts = [[{ extra = "inference" }, { extra = "speculative" }]]
 # SGLang pins pre-release builds; naming them in `speculative` allows only those.
-prerelease = "if-necessary-or-explicit"
+prerelease = "if-necessary"
 
 [build-system]
 requires = ["hatchling"]
