@@ -14,13 +14,18 @@ env:
 
 jobs:
   gauntlet:
-    name: Deterministic quality gates
+    name: Deterministic quality gates (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
+          python-version: ${{ matrix.python-version }}
       - run: uv sync --extra inference --extra publish
 
       - name: Lint and format
@@ -43,28 +48,48 @@ jobs:
       - name: CRAP score
         run: uv run --no-sync python scripts/crap.py --max 6
 
+      # mutmut exits 0 when mutants merely survive and nonzero only when the run itself
+      # breaks, so its exit code is kept; check_mutants.py gates the survivors.
       - name: Mutation testing
         run: |
-          uv run --no-sync mutmut run --max-children 4 || true
+          uv run --no-sync mutmut run --max-children 4
           uv run --no-sync python scripts/check_mutants.py --max-survivors 4
 
       - name: CLI smoke test
         run: uv run --no-sync lrb models
 
+  lockfile:
+    name: Lockfile and speculative extra resolve
+    runs-on: ubuntu-latest
+    env:
+      UV_FROZEN: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - name: uv.lock is up to date with pyproject.toml
+        run: uv lock --check
+      - name: The speculative (SGLang) extra resolves on Linux
+        run: uv sync --locked --extra speculative --dry-run
+
   docs:
     name: Documentation builds
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv run --with mkdocs-material mkdocs build --strict
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - run: uv run --only-group docs mkdocs build --strict
 
   image:
     name: Container builds
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           push: false
+          build-args: LRB_SOURCE_COMMIT=${{ github.sha }}

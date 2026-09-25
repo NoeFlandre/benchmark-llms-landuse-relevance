@@ -53,10 +53,10 @@ smoke:  ## End-to-end CLI smoke test against a stub-free tiny model
 check: lint types test property acceptance architecture crap  ## The deterministic gauntlet
 
 docs:  ## Serve the documentation locally
-	$(UV) run --with mkdocs-material mkdocs serve
+	$(UV) run --group docs mkdocs serve
 
 docs-build:
-	$(UV) run --with mkdocs-material mkdocs build --strict
+	$(UV) run --group docs mkdocs build --strict
 
 docker:  ## Build the runtime image
 	docker build -t landuse-relevance-bench .
