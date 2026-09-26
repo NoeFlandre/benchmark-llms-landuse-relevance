@@ -176,6 +176,8 @@ also_copy = [
     "src/landuse_relevance_bench/cli.py",
     "src/landuse_relevance_bench/adapters/",
     "scripts/",
+    "results/",
+    "docs/",
     "tests/",
     "data/",
     "pyproject.toml",
