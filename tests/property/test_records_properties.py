@@ -1,5 +1,6 @@
 """Record round trips preserve Unicode names and nullable model revisions."""
 
+import tempfile
 from pathlib import Path
 
 from hypothesis import given
@@ -18,6 +19,7 @@ def test_run_metadata_and_result_round_trip_in_memory(result: RunResult) -> None
 
 
 @given(result=run_results())
-def test_a_run_round_trips_through_the_results_store(tmp_path: Path, result: RunResult) -> None:
-    path = write_run(result, tmp_path)
-    assert read_run(path) == result
+def test_a_run_round_trips_through_the_results_store(result: RunResult) -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        path = write_run(result, Path(directory))
+        assert read_run(path) == result

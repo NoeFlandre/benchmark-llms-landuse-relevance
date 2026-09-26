@@ -1,5 +1,7 @@
 """Leaderboard shape and ordering invariants."""
 
+from unittest.mock import patch
+
 from hypothesis import given
 from hypothesis import strategies as st
 from strategies import comparable_leaderboards
@@ -9,19 +11,17 @@ from landuse_relevance_bench.adapters.results_store import leaderboard_rows, rou
 
 
 @given(results=comparable_leaderboards())
-def test_leaderboard_has_one_descending_f1_row_per_input_and_ignores_input_order(
-    results, monkeypatch
-) -> None:
-    monkeypatch.setattr(
+def test_leaderboard_has_one_descending_f1_row_per_input_and_ignores_input_order(results) -> None:
+    with patch.object(
         results_store,
         "bootstrap_interval",
         lambda *_args, **_kwargs: (0.0, 0.0),
-    )
-    rows = leaderboard_rows(results)
-    reversed_rows = leaderboard_rows(list(reversed(results)))
-    assert [row["model_id"] for row in rows] == [row["model_id"] for row in reversed_rows]
-    assert len(rows) == len(results)
-    assert [row["f1"] for row in rows] == sorted((row["f1"] for row in rows), reverse=True)
+    ):
+        rows = leaderboard_rows(results)
+        reversed_rows = leaderboard_rows(list(reversed(results)))
+        assert [row["model_id"] for row in rows] == [row["model_id"] for row in reversed_rows]
+        assert len(rows) == len(results)
+        assert [row["f1"] for row in rows] == sorted((row["f1"] for row in rows), reverse=True)
 
 
 @given(
