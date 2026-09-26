@@ -5,6 +5,7 @@ import pytest
 
 from factories import make_result
 from landuse_relevance_bench.adapters.results_store import (
+    has_result,
     leaderboard_rows,
     read_run,
     run_filename,
@@ -38,6 +39,14 @@ def test_the_filename_is_derived_from_the_model_id(tmp_path: Path) -> None:
     assert run_filename("a/b") == "a__b.json"
 
 
+def test_has_result_only_accepts_a_non_empty_result_file(tmp_path: Path) -> None:
+    assert not has_result(tmp_path, "a/model")
+    (tmp_path / "a__model.json").write_text("", encoding="utf-8")
+    assert not has_result(tmp_path, "a/model")
+    (tmp_path / "a__model.json").write_text("{}", encoding="utf-8")
+    assert has_result(tmp_path, "a/model")
+
+
 def test_writing_the_same_run_twice_is_idempotent(tmp_path: Path) -> None:
     first = write_run(_result(), tmp_path).read_text(encoding="utf-8")
     second = write_run(_result(), tmp_path).read_text(encoding="utf-8")
@@ -49,6 +58,11 @@ def test_the_leaderboard_ranks_models_by_descending_f1(tmp_path: Path) -> None:
     strong = _result("strong/model", (Label.YES, Label.YES))
     rows = leaderboard_rows([weak, strong])
     assert [r["model_id"] for r in rows] == ["strong/model", "weak/model"]
+
+
+def test_the_leaderboard_identifies_each_run_generation_mode() -> None:
+    row = leaderboard_rows([_result("a/model")])[0]
+    assert row["generation_mode"] == "static-batched"
 
 
 def test_the_leaderboard_csv_has_a_header_and_one_row_per_model(tmp_path: Path) -> None:
@@ -118,4 +132,14 @@ def test_reading_a_run_whose_metrics_disagree_with_its_predictions_fails(tmp_pat
     payload["metrics"] = evaluate([(Label.YES, Label.YES), (Label.NO, Label.NO)]).to_dict()
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError):
+        read_run(path)
+
+
+def test_reading_a_run_with_duplicate_item_ids_names_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "duplicates.json"
+    payload = _result().to_dict()
+    payload["predictions"].append(payload["predictions"][0])
+    payload["metrics"] = evaluate([(Label.YES, Label.YES), (Label.YES, Label.YES)]).to_dict()
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"duplicates\.json.*duplicate item id"):
         read_run(path)

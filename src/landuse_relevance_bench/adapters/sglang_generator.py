@@ -6,13 +6,17 @@ engine without the ``speculative_*`` arguments is the like-for-like baseline. SG
 is an optional extra imported only when a model is loaded. See ADR-0007.
 """
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from typing import Any, Protocol
 
 from landuse_relevance_bench.adapters.hf_generator import chat_template_kwargs, user_turn
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.adapters.revision import resolve_revision
 from landuse_relevance_bench.domain.engine import Generation
+
+logger = logging.getLogger(__name__)
 
 
 class Engine(Protocol):
@@ -56,6 +60,7 @@ def as_generation(output: Mapping[str, Any]) -> Generation:
         verify_steps=int(steps) if steps else None,
         accepted_drafts=meta.get("spec_num_correct_drafts"),
         proposed_drafts=meta.get("spec_num_proposed_drafts"),
+        latency_seconds=(None if meta.get("e2e_latency") is None else float(meta["e2e_latency"])),
     )
 
 
@@ -63,11 +68,17 @@ class SGLangGenerator:
     """Completes chat-templated prompts with greedy decoding on an SGLang engine."""
 
     def __init__(
-        self, engine: Engine, encode: Callable[[str], list[int]], max_new_tokens: int
+        self,
+        engine: Engine,
+        encode: Callable[[str], list[int]],
+        max_new_tokens: int,
+        *,
+        draft_revision: str = "",
     ) -> None:
         self._engine = engine
         self._encode = encode
         self._max_new_tokens = max_new_tokens
+        self.draft_revision = draft_revision
 
     @classmethod
     def load(cls, request: RunRequest) -> "SGLangGenerator":
@@ -117,5 +128,19 @@ def _chat_encoder(request: RunRequest) -> Callable[[str], list[int]]:
 
 
 def provide(request: RunRequest) -> tuple[SGLangGenerator, str]:
-    generator = SGLangGenerator.load(request)
-    return generator, resolve_revision(request.model_id, request.revision)
+    """Load target and draft weights at pinned revisions where available."""
+    resolved_request = request
+    if request.draft_model_id:
+        draft_revision = resolve_revision(request.draft_model_id, request.draft_revision)
+        resolved_request = replace(request, draft_revision=draft_revision or None)
+    generator = SGLangGenerator.load(resolved_request)
+    generator.draft_revision = resolved_request.draft_revision or ""
+    try:
+        target_revision = resolve_revision(request.model_id, request.revision)
+    except BaseException:
+        try:
+            generator.close()
+        except Exception:
+            logger.exception("SGLang engine cleanup failed after revision lookup error")
+        raise
+    return generator, target_revision

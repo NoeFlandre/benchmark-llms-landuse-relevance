@@ -1,0 +1,49 @@
+name: Benchmark or methodology proposal
+description: Discuss a change to the benchmark data, prompt, scoring, or comparison protocol.
+title: "[Methodology]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Methodology changes can alter the meaning of existing scores. Explain the evidence and how old and new runs should be compared.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Benchmark items or labels
+        - Prompt or answer parsing
+        - Metrics or statistical uncertainty
+        - Runtime, decoding, or timing
+        - Comparability or reporting
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or research question
+      description: Describe the limitation in the current protocol and who it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Be specific about the protocol and the expected interpretation of results.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and examples
+      description: Include representative cases, references, or a small reproducible analysis.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Effect on existing results and comparability
+      description: Say whether prior outputs can be re-scored or runs must be repeated, and what artifacts should be versioned.
+    validations:
+      required: true

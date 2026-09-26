@@ -1,5 +1,5 @@
 ---
-license: mit
+license: other
 task_categories:
 - text-classification
 tags:
@@ -11,32 +11,83 @@ tags:
 
 # Land-use relevance benchmark
 
-`benchmark.csv`; 154 labelled sentences; greedy decoding;
-`max_new_tokens=4096`; seed 0.
+Published from `benchmark.csv`. Each run's sample count and settings appear below.
 Scores are recomputed from the published predictions.
 
-- Benchmark sha256: `ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd`; prompt sha256: `2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097`
 - Code: https://github.com/NoeFlandre/benchmark-llms-landuse-relevance
 
 ## Scores
 
-| model_id | accuracy | balanced_accuracy | f1 | precision | recall | matthews_corrcoef | unparsed_rate | truncated |
+| model_id | n_items | accuracy | accuracy_ci95 | balanced_accuracy | f1 | f1_ci95 | precision | precision_ci95 | recall | recall_ci95 | matthews_corrcoef | matthews_corrcoef_ci95 | unparsed_rate | truncated | mcnemar_top_run | mcnemar_p_vs_top |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| LiquidAI/LFM2.5-2.6B | 154 | 0.8571 | [0.7932, 0.9037] | 0.8574 | 0.8608 | [0.7971, 0.9157] | 0.8718 | [0.7798, 0.9288] | 0.85 | [0.7559, 0.9121] | 0.7144 | [0.6005, 0.8208] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 1.0 |
+| Qwen/Qwen3-4B-Instruct-2507 | 154 | 0.8506 | [0.7859, 0.8984] | 0.8492 | 0.8606 | [0.8000, 0.9153] | 0.8353 | [0.7423, 0.8993] | 0.8875 | [0.7998, 0.9397] | 0.7016 | [0.5870, 0.8147] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 1.0 |
+| Qwen/Qwen3-8B | 154 | 0.8506 | [0.7859, 0.8984] | 0.8537 | 0.8435 | [0.7714, 0.8993] | 0.9254 | [0.8369, 0.9677] | 0.775 | [0.6721, 0.8527] | 0.7129 | [0.6024, 0.8096] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 1.0 |
+| google/gemma-4-E4B-it | 154 | 0.8182 | [0.7498, 0.8711] | 0.8189 | 0.8205 | [0.7532, 0.8805] | 0.8421 | [0.7440, 0.9073] | 0.8 | [0.6995, 0.8730] | 0.6374 | [0.5167, 0.7532] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 0.32693958282470703 |
+| LiquidAI/LFM2.5-8B-A1B | 154 | 0.7727 | [0.7004, 0.8318] | 0.7757 | 0.7619 | [0.6765, 0.8312] | 0.8358 | [0.7294, 0.9058] | 0.7 | [0.5923, 0.7894] | 0.5556 | [0.4219, 0.6753] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 0.004425048828125 |
+| Qwen/Qwen3-4B | 154 | 0.7727 | [0.7004, 0.8318] | 0.7762 | 0.7586 | [0.6719, 0.8289] | 0.8462 | [0.7394, 0.9142] | 0.6875 | [0.5793, 0.7785] | 0.5588 | [0.4237, 0.6795] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 0.0659940344557981 |
+| LiquidAI/LFM2.5-350M | 154 | 0.5195 | [0.4411, 0.5970] | 0.5 | 0.6838 | [0.6126, 0.7480] | 0.5195 | [0.4411, 0.5970] | 1.0 | [0.9542, 1.0000] | 0.0 | [0.0000, 0.0000] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 1.0023457813247953e-09 |
+| Qwen/Qwen3-0.6B | 154 | 0.5195 | [0.4411, 0.5970] | 0.5 | 0.6838 | [0.6126, 0.7480] | 0.5195 | [0.4411, 0.5970] | 1.0 | [0.9542, 1.0000] | 0.0 | [0.0000, 0.0000] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 1.0023457813247953e-09 |
+| LiquidAI/LFM2.5-1.2B-Instruct | 154 | 0.7208 | [0.6452, 0.7856] | 0.7267 | 0.6815 | [0.5891, 0.7692] | 0.8364 | [0.7174, 0.9114] | 0.575 | [0.4657, 0.6774] | 0.4727 | [0.3386, 0.6007] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 0.003801654409748778 |
+| google/gemma-4-E2B-it | 154 | 0.7013 | [0.6248, 0.7680] | 0.71 | 0.629 | [0.5242, 0.7246] | 0.8864 | [0.7602, 0.9505] | 0.4875 | [0.3811, 0.5951] | 0.4644 | [0.3396, 0.5873] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 0.0001821658297558315 |
+| ibm-granite/granite-3.3-2b-instruct | 154 | 0.6364 | [0.5579, 0.7082] | 0.6449 | 0.5484 | [0.4363, 0.6457] | 0.7727 | [0.6301, 0.8716] | 0.425 | [0.3226, 0.5343] | 0.3206 | [0.1768, 0.4580] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 5.37831811014966e-06 |
+| tiiuae/Falcon3-3B-Instruct | 154 | 0.6558 | [0.5778, 0.7263] | 0.6687 | 0.5047 | [0.3838, 0.6111] | 1.0 | [0.8754, 1.0000] | 0.3375 | [0.2435, 0.4464] | 0.4435 | [0.3583, 0.5288] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 2.2475594023241285e-05 |
+| HuggingFaceTB/SmolLM3-3B | 154 | 0.6494 | [0.5712, 0.7202] | 0.6625 | 0.4906 | [0.3636, 0.6018] | 1.0 | [0.8713, 1.0000] | 0.325 | [0.2324, 0.4336] | 0.4335 | [0.3435, 0.5220] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 9.063271916964766e-06 |
+| allenai/Olmo-3-7B-Instruct | 154 | 0.6299 | [0.5513, 0.7021] | 0.6432 | 0.4571 | [0.3273, 0.5688] | 0.96 | [0.8046, 0.9929] | 0.3 | [0.2106, 0.4077] | 0.3882 | [0.2798, 0.4856] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 1.220851017613711e-06 |
+| tiiuae/Falcon3-7B-Instruct | 154 | 0.5974 | [0.5185, 0.6716] | 0.6125 | 0.3673 | [0.2418, 0.4792] | 1.0 | [0.8241, 1.0000] | 0.225 | [0.1473, 0.3279] | 0.3499 | [0.2665, 0.4304] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 1.6163814566157175e-07 |
+| tiiuae/Falcon3-1B-Instruct | 154 | 0.513 | [0.4347, 0.5906] | 0.5307 | 0.1379 | [0.0470, 0.2400] | 0.8571 | [0.4869, 0.9743] | 0.075 | [0.0348, 0.1541] | 0.1475 | [0.0030, 0.2564] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 3.108521862394645e-10 |
+| allenai/OLMo-2-1124-7B-Instruct | 154 | 0.5 | [0.4220, 0.5780] | 0.5188 | 0.0723 | [0.0000, 0.1573] | 1.0 | [0.4385, 1.0000] | 0.0375 | [0.0128, 0.1045] | 0.1356 | [0.0000, 0.2072] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 5.154208808246549e-11 |
+| Qwen/Qwen3-1.7B | 154 | 0.4935 | [0.4157, 0.5717] | 0.5125 | 0.0488 | [0.0000, 0.1220] | 1.0 | [0.3424, 1.0000] | 0.025 | [0.0069, 0.0866] | 0.1103 | [0.0000, 0.1790] | 0.0 | 0 | LiquidAI/LFM2.5-2.6B | 2.960046439225788e-11 |
+
+## Run settings
+
+Content hashes identify the exact benchmark and prompt for each row. Revisions identify
+the model weights; package versions identify the scoring implementation.
+
+| model_id | benchmark_sha256 | prompt_sha256 | max_new_tokens | decoding | dtype | model_revision | package_version | generation_mode |
 |---|---|---|---|---|---|---|---|---|
-| LiquidAI/LFM2.5-2.6B | 0.8571 | 0.8574 | 0.8608 | 0.8718 | 0.85 | 0.7144 | 0.0 | 0 |
-| Qwen/Qwen3-4B-Instruct-2507 | 0.8506 | 0.8492 | 0.8606 | 0.8353 | 0.8875 | 0.7016 | 0.0 | 0 |
-| Qwen/Qwen3-8B | 0.8506 | 0.8537 | 0.8435 | 0.9254 | 0.775 | 0.7129 | 0.0 | 0 |
-| google/gemma-4-E4B-it | 0.8182 | 0.8189 | 0.8205 | 0.8421 | 0.8 | 0.6374 | 0.0 | 0 |
-| LiquidAI/LFM2.5-8B-A1B | 0.7727 | 0.7757 | 0.7619 | 0.8358 | 0.7 | 0.5556 | 0.0 | 0 |
-| Qwen/Qwen3-4B | 0.7727 | 0.7762 | 0.7586 | 0.8462 | 0.6875 | 0.5588 | 0.0 | 0 |
-| LiquidAI/LFM2.5-350M | 0.5195 | 0.5 | 0.6838 | 0.5195 | 1.0 | 0.0 | 0.0 | 0 |
-| Qwen/Qwen3-0.6B | 0.5195 | 0.5 | 0.6838 | 0.5195 | 1.0 | 0.0 | 0.0 | 0 |
-| LiquidAI/LFM2.5-1.2B-Instruct | 0.7208 | 0.7267 | 0.6815 | 0.8364 | 0.575 | 0.4727 | 0.0 | 0 |
-| google/gemma-4-E2B-it | 0.7013 | 0.71 | 0.629 | 0.8864 | 0.4875 | 0.4644 | 0.0 | 0 |
-| ibm-granite/granite-3.3-2b-instruct | 0.6364 | 0.6449 | 0.5484 | 0.7727 | 0.425 | 0.3206 | 0.0 | 0 |
-| tiiuae/Falcon3-3B-Instruct | 0.6558 | 0.6687 | 0.5047 | 1.0 | 0.3375 | 0.4435 | 0.0 | 0 |
-| HuggingFaceTB/SmolLM3-3B | 0.6494 | 0.6625 | 0.4906 | 1.0 | 0.325 | 0.4335 | 0.0 | 0 |
-| allenai/Olmo-3-7B-Instruct | 0.6299 | 0.6432 | 0.4571 | 0.96 | 0.3 | 0.3882 | 0.0 | 0 |
-| tiiuae/Falcon3-7B-Instruct | 0.5974 | 0.6125 | 0.3673 | 1.0 | 0.225 | 0.3499 | 0.0 | 0 |
-| tiiuae/Falcon3-1B-Instruct | 0.513 | 0.5307 | 0.1379 | 0.8571 | 0.075 | 0.1475 | 0.0 | 0 |
-| allenai/OLMo-2-1124-7B-Instruct | 0.5 | 0.5188 | 0.0723 | 1.0 | 0.0375 | 0.1356 | 0.0 | 0 |
-| Qwen/Qwen3-1.7B | 0.4935 | 0.5125 | 0.0488 | 1.0 | 0.025 | 0.1103 | 0.0 | 0 |
+| HuggingFaceTB/SmolLM3-3B | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | a07cc9a04f16550a088caea529712d1d335b0ac1 | 0.1.0 | static-batched |
+| LiquidAI/LFM2.5-1.2B-Instruct | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 0f604ada3f766f9f257460c4c9f0b5d6f69d431b | 0.1.0 | static-batched |
+| LiquidAI/LFM2.5-2.6B | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 654f9463ce32b05d0429d76fe1f580b27d4c1ac0 | 0.1.0 | static-batched |
+| LiquidAI/LFM2.5-350M | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 9e6c6ccf47cd318696e137d381a7ded8fe4df09f | 0.1.0 | static-batched |
+| LiquidAI/LFM2.5-8B-A1B | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 5dd22602c2e9f6a097b1de4c4efe0658b605015c | 0.1.0 | static-batched |
+| Qwen/Qwen3-0.6B | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | c1899de289a04d12100db370d81485cdf75e47ca | 0.1.0 | static-batched |
+| Qwen/Qwen3-1.7B | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 70d244cc86ccca08cf5af4e1e306ecf908b1ad5e | 0.1.0 | static-batched |
+| Qwen/Qwen3-4B | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 1cfa9a7208912126459214e8b04321603b3df60c | 0.1.0 | static-batched |
+| Qwen/Qwen3-4B-Instruct-2507 | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | cdbee75f17c01a7cc42f958dc650907174af0554 | 0.1.0 | static-batched |
+| Qwen/Qwen3-8B | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | b968826d9c46dd6066d109eabc6255188de91218 | 0.1.0 | static-batched |
+| allenai/OLMo-2-1124-7B-Instruct | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 470b1fba1ae01581f270116362ee4aa1b97f4c84 | 0.1.0 | static-batched |
+| allenai/Olmo-3-7B-Instruct | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 6e5971d9eba42665f5bd5a0fcf047f299ce1dccc | 0.1.0 | static-batched |
+| google/gemma-4-E2B-it | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 3e22461f65e89153144f8adb70e3b8c2cc9845a7 | 0.1.0 | static-batched |
+| google/gemma-4-E4B-it | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | ee0ef6023621cff504d758262d4e04895a5af4a2 | 0.1.0 | static-batched |
+| ibm-granite/granite-3.3-2b-instruct | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 707f574c62054322f6b5b04b6d075f0a8f05e0f0 | 0.1.0 | static-batched |
+| tiiuae/Falcon3-1B-Instruct | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 28ba2251970a01dd1edc7ba7dad2eb71216ccfdf | 0.1.0 | static-batched |
+| tiiuae/Falcon3-3B-Instruct | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 411bb94318f94f7a5735b77109f456b1e74b42a1 | 0.1.0 | static-batched |
+| tiiuae/Falcon3-7B-Instruct | ac185e51835eb626c932744009873382aa80027d26e93615dbde28d23af1d5fd | 2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097 | 4096 | greedy | bfloat16 | 1e57a0ecd176c7c139f289c60a74e57f887c3dfb | 0.1.0 | static-batched |
+
+## Speed
+
+Wall time covers generation only (model loading excluded). Latency is per request when
+the runtime reports it; otherwise it is the wall time of the generator call, shared by
+the batch. Throughput is not comparable across GPUs; each file records its settings.
+
+| model_id | runtime | generation_mode | batch_size | wall_seconds | sentences_per_second | latency_p50_seconds | latency_p95_seconds | generated_tokens | output_tokens_per_second | mean_accept_length | draft_accept_rate |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| HuggingFaceTB/SmolLM3-3B | transformers | static-batched | 16 | 19.39 | 7.944 |  |  |  |  |  |  |
+| LiquidAI/LFM2.5-1.2B-Instruct | transformers | static-batched | 16 | 2.21 | 69.715 |  |  |  |  |  |  |
+| LiquidAI/LFM2.5-2.6B | transformers | static-batched | 16 | 507.49 | 0.303 |  |  |  |  |  |  |
+| LiquidAI/LFM2.5-350M | transformers | static-batched | 16 | 1.58 | 97.222 |  |  |  |  |  |  |
+| LiquidAI/LFM2.5-8B-A1B | transformers | static-batched | 16 | 853.21 | 0.18 |  |  |  |  |  |  |
+| Qwen/Qwen3-0.6B | transformers | static-batched | 16 | 2.91 | 52.848 |  |  |  |  |  |  |
+| Qwen/Qwen3-1.7B | transformers | static-batched | 16 | 3.12 | 49.327 |  |  |  |  |  |  |
+| Qwen/Qwen3-4B | transformers | static-batched | 16 | 5.47 | 28.174 |  |  |  |  |  |  |
+| Qwen/Qwen3-4B-Instruct-2507 | transformers | static-batched | 16 | 5.91 | 26.053 |  |  |  |  |  |  |
+| Qwen/Qwen3-8B | transformers | static-batched | 16 | 7.82 | 19.683 |  |  |  |  |  |  |
+| allenai/OLMo-2-1124-7B-Instruct | transformers | static-batched | 16 | 7.73 | 19.912 |  |  |  |  |  |  |
+| allenai/Olmo-3-7B-Instruct | transformers | static-batched | 16 | 8.6 | 17.907 |  |  |  |  |  |  |
+| google/gemma-4-E2B-it | transformers | static-batched | 16 | 8.78 | 17.534 |  |  |  |  |  |  |
+| google/gemma-4-E4B-it | transformers | static-batched | 16 | 5.98 | 25.744 |  |  |  |  |  |  |
+| ibm-granite/granite-3.3-2b-instruct | transformers | static-batched | 16 | 4.97 | 30.98 |  |  |  |  |  |  |
+| tiiuae/Falcon3-1B-Instruct | transformers | static-batched | 16 | 3.69 | 41.723 |  |  |  |  |  |  |
+| tiiuae/Falcon3-3B-Instruct | transformers | static-batched | 16 | 3.64 | 42.296 |  |  |  |  |  |  |
+| tiiuae/Falcon3-7B-Instruct | transformers | static-batched | 16 | 7.0 | 21.987 |  |  |  |  |  |  |

@@ -55,6 +55,7 @@ jobs:
       # mutmut exits 0 when mutants merely survive and nonzero only when the run itself
       # breaks, so its exit code is kept; check_mutants.py gates the survivors.
       - name: Mutation testing
+        if: matrix.python-version == '3.12'
         run: make mutation
 
       - name: CLI smoke test

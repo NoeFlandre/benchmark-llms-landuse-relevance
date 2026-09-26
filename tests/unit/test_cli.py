@@ -5,8 +5,10 @@ from pathlib import Path
 import typer
 from typer.testing import CliRunner, Result
 
+from factories import make_result
 from landuse_relevance_bench import cli
 from landuse_relevance_bench.adapters.pipeline import RunRequest
+from landuse_relevance_bench.adapters.results_store import write_run
 
 runner = CliRunner()
 
@@ -169,6 +171,54 @@ def test_run_passes_an_explicit_revision_to_the_provider(
     assert payload["metadata"]["model_revision"] == "c0ffee"
 
 
+def test_run_records_continuous_batching_as_a_separate_mode(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    provider = RecordingProvider()
+    monkeypatch.setattr(cli, "generator_provider", lambda: provider)
+
+    result = _run(
+        "LiquidAI/LFM2.5-2.6B",
+        benchmark_path,
+        prompt_path,
+        tmp_path,
+        "--continuous-batching",
+        "--batch-size",
+        "2",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert provider.requests[0].continuous_batching
+    payload = json.loads(
+        (tmp_path / "LiquidAI__LFM2.5-2.6B@continuous-b2.json").read_text(encoding="utf-8")
+    )
+    assert payload["metadata"]["generation_mode"] == "transformers-continuous-batching"
+
+
+def test_run_records_sglang_throughput_as_a_separate_mode(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    provider = RecordingProvider()
+    monkeypatch.setattr(cli, "generator_provider", lambda: provider)
+
+    result = _run(
+        "LiquidAI/LFM2.5-2.6B@sglang",
+        benchmark_path,
+        prompt_path,
+        tmp_path,
+        "--throughput",
+        "--batch-size",
+        "8",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert provider.requests[0].throughput_mode
+    payload = json.loads(
+        (tmp_path / "LiquidAI__LFM2.5-2.6B@sglang-throughput-b8.json").read_text(encoding="utf-8")
+    )
+    assert payload["metadata"]["generation_mode"] == "sglang-throughput"
+
+
 def test_run_reports_a_prompt_without_a_placeholder_without_a_traceback(
     monkeypatch, tmp_path: Path, benchmark_path: Path
 ) -> None:
@@ -210,6 +260,29 @@ def test_report_on_a_missing_directory_fails_clearly(tmp_path: Path) -> None:
     result = runner.invoke(cli.app, ["report", "--results-dir", str(tmp_path / "nowhere")])
     assert result.exit_code == 2
     assert "no run results directory" in result.stderr.lower()
+
+
+def test_report_refuses_mixed_run_settings_by_default(tmp_path: Path) -> None:
+    first = make_result("a/one")
+    second = make_result("b/two", prompt_sha256="different")
+    write_run(first, tmp_path)
+    write_run(second, tmp_path)
+    report = runner.invoke(cli.app, ["report", "--results-dir", str(tmp_path)])
+    assert report.exit_code == 2
+    assert "not comparable" in report.stderr
+    assert "b/two" in report.stderr
+
+
+def test_report_can_include_mixed_runs_when_explicitly_allowed(tmp_path: Path) -> None:
+    write_run(make_result("a/one"), tmp_path)
+    write_run(make_result("b/two", prompt_sha256="different"), tmp_path)
+    report = runner.invoke(
+        cli.app, ["report", "--results-dir", str(tmp_path), "--allow-mixed", "--json"]
+    )
+    assert report.exit_code == 0
+    payload = json.loads(report.stdout)
+    assert payload["comparability"]["comparable"] is False
+    assert "b/two" in payload["comparability"]["summary"]
 
 
 def test_report_only_reads_runs_at_the_top_of_the_results_directory(
@@ -264,7 +337,7 @@ def test_report_fails_when_a_speculative_run_changed_its_target_s_output(
 def test_version_prints_the_package_version() -> None:
     result = runner.invoke(cli.app, ["--version"])
     assert result.exit_code == 0
-    assert result.stdout.strip() == "0.1.0"
+    assert result.stdout.strip() == "0.2.0"
 
 
 def test_models_json_lists_every_rostered_run() -> None:

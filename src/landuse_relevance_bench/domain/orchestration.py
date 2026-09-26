@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterator, Sequence
 
 from landuse_relevance_bench.domain.dataset import BenchmarkItem
 from landuse_relevance_bench.domain.engine import Generation, TextGenerator
-from landuse_relevance_bench.domain.parsing import parse_label
+from landuse_relevance_bench.domain.parsing import parse_with_mode
 from landuse_relevance_bench.domain.prompting import render_prompt
 from landuse_relevance_bench.domain.records import Prediction
 
@@ -43,13 +43,17 @@ def predict_all(
 
 
 def _predict(item: BenchmarkItem, generation: Generation, latency: float) -> Prediction:
+    parsed = parse_with_mode(generation.text) if not generation.truncated else None
     return Prediction(
         item_id=item.item_id,
         expected=item.label,
-        predicted=None if generation.truncated else parse_label(generation.text),
+        predicted=None if parsed is None else parsed.label,
         raw_output=generation.text,
         truncated=generation.truncated,
-        latency_seconds=latency,
+        parse_mode=None if parsed is None else parsed.mode,
+        latency_seconds=(
+            latency if generation.latency_seconds is None else generation.latency_seconds
+        ),
         generated_tokens=generation.generated_tokens,
         verify_steps=generation.verify_steps,
         accepted_drafts=generation.accepted_drafts,

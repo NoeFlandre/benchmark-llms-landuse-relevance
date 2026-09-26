@@ -26,13 +26,17 @@ Constrained decoding would
 remove the heuristic entirely, at the cost of no longer measuring instruction-following
 — see [ADR-0001](adr/0001-greedy-generation.md).
 
-**Mutation testing covers the domain only.** Adapters are covered by tests but not
-mutated; their logic is thin, and mutating filesystem code mostly produces equivalent
-mutants. Revisit if an adapter grows real branching.
+**Mutation testing targets core decisions.** The mutation run covers the domain and
+the result-store scoring and ordering path. Other adapters are exercised by tests but
+are not mutated; most of their logic is runtime integration or filesystem plumbing.
 
-**Four mutants survive by construction.** `zip(..., strict=True)` in `predict_all` is
-unreachable defence — the explicit length check above it already guarantees equal
-lengths — so mutating `strict` changes nothing. The check is kept for its error message
-and `strict=True` for the lint rule that requires it. One further mutant rewrites
-`"utf-8"` as `"UTF-8"`, which Python treats as the same encoding. The mutation gate
-allows exactly these four.
+**Mutation survivors are pinned by identity.** `mutation-allowlist.txt` records the
+exact mutmut ID and review reason for every accepted equivalent survivor. The gate
+fails for a new survivor, a stale allowance, or any result that was not killed or
+explicitly reviewed. Revisit the list whenever mutmut or the source changes.
+
+**Scores are uncertain at this sample size.** Reports show Wilson 95% intervals for
+accuracy, precision and recall, seeded 2,000-resample bootstrap intervals for F1 and
+Matthews correlation, and exact paired McNemar p-values against the top-F1 run when full
+coverage matches. The intervals describe this 154-item benchmark; they do not estimate
+geographic representativeness.

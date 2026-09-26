@@ -1,5 +1,7 @@
 from dataclasses import replace
 
+import pytest
+
 from factories import make_metadata
 from landuse_relevance_bench.domain.agreement import speculative_agreements
 from landuse_relevance_bench.domain.labels import Label
@@ -68,3 +70,29 @@ def test_every_plain_run_of_the_target_is_a_baseline_and_runtimes_are_told_apart
 
 def test_runs_with_different_budgets_are_not_compared() -> None:
     assert speculative_agreements([PLAIN, _drafted(["yes", "no"], max_new_tokens=8)]) == []
+
+
+def test_partial_or_disjoint_coverage_cannot_be_lossless() -> None:
+    baseline = _run(["yes", "no"], run_id="t/model@sglang", runtime="sglang")
+    drafted = _run(
+        ["yes"],
+        run_id="t/model+DSpark",
+        runtime="sglang",
+        draft_model_id="t/draft",
+    )
+    (agreement,) = speculative_agreements([baseline, drafted])
+    assert not agreement.complete_coverage
+    assert not agreement.lossless
+    assert (agreement.n_speculative, agreement.n_baseline, agreement.n_compared) == (1, 2, 1)
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"benchmark_sha256": "other"},
+        {"dtype": "float16"},
+        {"model_revision": "new-revision"},
+    ],
+)
+def test_baseline_requires_matching_benchmark_dtype_and_target_revision(metadata) -> None:
+    assert speculative_agreements([PLAIN, _drafted(["yes", "no"], **metadata)]) == []

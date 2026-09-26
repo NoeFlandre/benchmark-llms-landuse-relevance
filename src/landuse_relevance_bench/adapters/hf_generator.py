@@ -4,7 +4,9 @@ Kept behind :class:`~landuse_relevance_bench.domain.engine.TextGenerator` so the
 benchmark itself never imports a model runtime.
 """
 
+import gc
 from collections.abc import Collection, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -65,6 +67,7 @@ class GeneratorSettings:
     dtype: str
     seed: int
     device_map: str = "auto"
+    continuous_batching: bool = False
 
 
 def _prepare_tokenizer(tokenizer: Any) -> None:
@@ -113,23 +116,26 @@ class TransformersGenerator:
 
     @property
     def _stop_token_ids(self) -> frozenset[int]:
-        return stop_token_ids(self._model.generation_config, self._tokenizer)
+        return stop_token_ids(self._require_model().generation_config, self._tokenizer)
 
     @property
     def revision(self) -> str:
         """The resolved weights commit, so a result names the exact artefact used."""
-        return str(getattr(self._model.config, "_commit_hash", "") or "")
+        return str(getattr(self._require_model().config, "_commit_hash", "") or "")
 
     def generate(self, prompts: Sequence[str]) -> list[Generation]:
-        import torch
-
         if not prompts:
             return []
+        if self._settings.continuous_batching:
+            return self._generate_continuously(prompts)
+        import torch
+
+        model = self._require_model()
         texts = [self._as_chat(p) for p in prompts]
         batch = self._tokenizer(texts, return_tensors="pt", padding=True, add_special_tokens=False)
-        batch = {k: v.to(self._model.device) for k, v in batch.items()}
+        batch = {k: v.to(model.device) for k, v in batch.items()}
         with torch.inference_mode():
-            generated = self._model.generate(
+            generated = model.generate(
                 **batch,
                 max_new_tokens=self._settings.max_new_tokens,
                 do_sample=False,
@@ -141,12 +147,68 @@ class TransformersGenerator:
         completions = generated[:, batch["input_ids"].shape[1] :]
         return [self._as_generation(row) for row in completions]
 
-    def _as_generation(self, completion: Any) -> Generation:
-        ids = completion.tolist()
+    def _generate_continuously(self, prompts: Sequence[str]) -> list[Generation]:
+        model = self._require_model()
+        texts = [self._as_chat(prompt) for prompt in prompts]
+        inputs = [self._tokenizer.encode(text, add_special_tokens=False) for text in texts]
+        generation_config = deepcopy(model.generation_config)
+        generation_config.max_new_tokens = self._settings.max_new_tokens
+        generation_config.do_sample = False
+        generation_config.temperature = None
+        generation_config.top_p = None
+        generation_config.top_k = None
+        generation_config.pad_token_id = self._tokenizer.pad_token_id
+        outputs = model.generate_batch(
+            inputs=inputs,
+            generation_config=generation_config,
+            progress_bar=False,
+            warmup=True,
+        )
+        if len(outputs) != len(prompts):
+            raise ValueError(
+                f"continuous batching returned {len(outputs)} outputs for {len(prompts)} prompts"
+            )
+        generations = []
+        for output in outputs.values():
+            if output.error is not None:
+                raise RuntimeError(
+                    f"continuous batch request {output.request_id} failed: {output.error}"
+                )
+            _start, end = output.lifespan
+            latency = end - output.created_time if end >= output.created_time else None
+            generations.append(
+                self._as_generation(output.generated_tokens, latency_seconds=latency)
+            )
+        return generations
+
+    def close(self) -> None:
+        """Release model references and return unused CUDA cache blocks to the driver."""
+        self._model = None
+        gc.collect()
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def _require_model(self) -> Any:
+        model = self._model
+        if model is None:
+            raise RuntimeError("generator is closed; load a model before generating")
+        return model
+
+    def _as_generation(
+        self, completion: Any, *, latency_seconds: float | None = None
+    ) -> Generation:
+        ids = (
+            completion.tolist()
+            if callable(getattr(completion, "tolist", None))
+            else list(completion)
+        )
         return Generation(
-            text=self._tokenizer.decode(completion, skip_special_tokens=True).strip(),
+            text=self._tokenizer.decode(ids, skip_special_tokens=True).strip(),
             truncated=is_truncated(ids, self._settings.max_new_tokens, self._stop_token_ids),
             generated_tokens=generated_length(ids, self._stop_token_ids),
+            latency_seconds=latency_seconds,
         )
 
     def _as_chat(self, prompt: str) -> str:
@@ -193,12 +255,19 @@ class VisionLanguageGenerator(TransformersGenerator):
 
 def _settings(request: RunRequest) -> GeneratorSettings:
     return GeneratorSettings(
-        max_new_tokens=request.max_new_tokens, dtype=request.dtype, seed=request.seed
+        max_new_tokens=request.max_new_tokens,
+        dtype=request.dtype,
+        seed=request.seed,
+        continuous_batching=request.continuous_batching,
     )
 
 
 def provide(request: RunRequest) -> tuple[TransformersGenerator, str]:
     """The Transformers generator provider; vision-language models load their own way."""
+    if request.continuous_batching and request.vision:
+        raise ValueError(
+            "continuous batching does not support the vision-language Transformers path"
+        )
     loader = VisionLanguageGenerator if request.vision else TransformersGenerator
     generator = loader.load(
         request.model_id,

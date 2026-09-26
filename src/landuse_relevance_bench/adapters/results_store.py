@@ -9,6 +9,13 @@ from typing import Any
 from landuse_relevance_bench.domain.agreement import Agreement
 from landuse_relevance_bench.domain.metrics import ClassificationMetrics
 from landuse_relevance_bench.domain.records import Prediction, RunResult
+from landuse_relevance_bench.domain.uncertainty import (
+    DEFAULT_BOOTSTRAP_SEED,
+    bootstrap_interval,
+    interval_text,
+    paired_mcnemar_p_value,
+    wilson_interval,
+)
 
 LEADERBOARD_COLUMNS = (
     "model_id",
@@ -30,7 +37,15 @@ LEADERBOARD_COLUMNS = (
     "mean_accept_length",
     "draft_accept_rate",
     "runtime",
+    "generation_mode",
     "model_revision",
+    "accuracy_ci95",
+    "precision_ci95",
+    "recall_ci95",
+    "f1_ci95",
+    "matthews_corrcoef_ci95",
+    "mcnemar_top_run",
+    "mcnemar_p_vs_top",
 )
 
 
@@ -58,7 +73,7 @@ def read_run(path: Path) -> RunResult:
         raise ValueError(f"{path} is not valid JSON: {exc}") from exc
     try:
         return RunResult.from_dict(payload)
-    except (KeyError, TypeError) as exc:
+    except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"{path} is not a valid run result: {exc}") from exc
 
 
@@ -84,10 +99,18 @@ def rounded(value: float | None, digits: int) -> float | None:
     return None if value is None else round(value, digits)
 
 
+def has_result(directory: Path, name: str) -> bool:
+    """Whether a non-empty result file for ``name`` already exists."""
+    path = directory / run_filename(name)
+    return path.is_file() and path.stat().st_size > 0
+
+
 def score_columns(
     metrics: ClassificationMetrics, predictions: Sequence[Prediction]
 ) -> dict[str, Any]:
     """The rounded scores and the truncation count shown for one run."""
+    matrix = metrics.confusion
+    outcomes = [prediction.outcome for prediction in predictions]
     return {
         "accuracy": round(metrics.accuracy, 4),
         "balanced_accuracy": round(metrics.balanced_accuracy, 4),
@@ -97,6 +120,19 @@ def score_columns(
         "matthews_corrcoef": round(metrics.matthews_corrcoef, 4),
         "unparsed_rate": round(metrics.unparsed_rate, 4),
         "truncated": sum(p.truncated for p in predictions),
+        "accuracy_ci95": interval_text(
+            wilson_interval(matrix.true_positive + matrix.true_negative, metrics.n_items)
+        ),
+        "precision_ci95": interval_text(
+            wilson_interval(matrix.true_positive, matrix.true_positive + matrix.false_positive)
+        ),
+        "recall_ci95": interval_text(
+            wilson_interval(matrix.true_positive, matrix.true_positive + matrix.false_negative)
+        ),
+        "f1_ci95": interval_text(bootstrap_interval(outcomes, "f1", seed=DEFAULT_BOOTSTRAP_SEED)),
+        "matthews_corrcoef_ci95": interval_text(
+            bootstrap_interval(outcomes, "matthews_corrcoef", seed=DEFAULT_BOOTSTRAP_SEED)
+        ),
     }
 
 
@@ -121,6 +157,10 @@ def speed_columns(result: RunResult) -> dict[str, Any]:
 
 def leaderboard_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     """One row per run, best F1 first, ties broken by run name for determinism."""
+    ranked = sorted(
+        results, key=lambda result: (-round(result.metrics.f1, 4), result.metadata.name)
+    )
+    top = ranked[0] if ranked else None
     rows = [
         {
             "model_id": r.metadata.name,
@@ -129,7 +169,14 @@ def leaderboard_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
             "duration_seconds": round(r.metadata.duration_seconds, 2),
             **speed_columns(r),
             "runtime": r.metadata.runtime,
+            "generation_mode": r.metadata.generation_mode,
             "model_revision": r.metadata.model_revision,
+            "mcnemar_top_run": None if top is None else top.metadata.name,
+            "mcnemar_p_vs_top": (
+                None
+                if top is None or r.metadata.benchmark_sha256 != top.metadata.benchmark_sha256
+                else paired_mcnemar_p_value(r.predictions, top.predictions)
+            ),
         }
         for r in results
     ]
@@ -139,7 +186,7 @@ def leaderboard_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
 def write_leaderboard_csv(results: Sequence[RunResult], path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(LEADERBOARD_COLUMNS))
+        writer = csv.DictWriter(handle, fieldnames=list(LEADERBOARD_COLUMNS), lineterminator="\n")
         writer.writeheader()
         writer.writerows(leaderboard_rows(results))
     return path
@@ -149,8 +196,15 @@ def describe_agreement(agreement: Agreement) -> str:
     """One line for the lossless check of a speculative run against its baseline."""
     verdict = "lossless" if agreement.lossless else "MISMATCH"
     runtime = "same runtime" if agreement.same_runtime else "different runtime"
+    coverage = (
+        f"{agreement.n_compared}/{agreement.n_speculative} speculative, "
+        f"{agreement.n_compared}/{agreement.n_baseline} baseline"
+        if not agreement.complete_coverage
+        else f"{agreement.n_compared} items"
+    )
     return (
         f"{agreement.speculative_run} vs {agreement.baseline_run} ({runtime}): {verdict}, "
         f"{agreement.verdicts_differ}/{agreement.n_compared} verdicts and "
-        f"{agreement.texts_differ}/{agreement.n_compared} generations differ"
+        f"{agreement.texts_differ}/{agreement.n_compared} generations differ; "
+        f"coverage {coverage}"
     )

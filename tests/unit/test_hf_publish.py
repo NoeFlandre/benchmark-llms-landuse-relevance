@@ -57,6 +57,45 @@ def test_the_card_declares_the_prompt_and_benchmark_digests() -> None:
     assert "p" * 64 in card
 
 
+def test_card_settings_preserve_an_unknown_model_revision_as_blank() -> None:
+    card = dataset_card(
+        [make_result(model_revision=None, package_version="")],
+        benchmark_name="benchmark.csv",
+    )
+    settings = _score_rows(card, "Run settings")
+    assert settings[0]["model_revision"] == ""
+    assert settings[0]["package_version"] == ""
+
+
+def test_card_identifies_continuous_batching_in_run_settings() -> None:
+    original = make_result()
+    result = replace(
+        original,
+        metadata=replace(original.metadata, generation_mode="transformers-continuous-batching"),
+    )
+    card = dataset_card([result], benchmark_name="benchmark.csv")
+    assert "transformers-continuous-batching" in card
+
+
+def test_card_rejects_mixed_comparison_settings_by_default() -> None:
+    with pytest.raises(ValueError, match="not comparable"):
+        dataset_card(
+            [make_result("a/one"), make_result("b/two", max_new_tokens=16)],
+            benchmark_name="benchmark.csv",
+        )
+
+
+def test_card_lists_per_run_settings_when_mixed_results_are_allowed() -> None:
+    card = dataset_card(
+        [make_result("a/one"), make_result("b/two", max_new_tokens=16)],
+        benchmark_name="benchmark.csv",
+        allow_mixed=True,
+    )
+    assert "## Run settings" in card
+    assert "max_new_tokens" in card
+    assert "not comparable" in card
+
+
 def test_published_runs_reads_nested_result_folders_in_stable_order(tmp_path: Path) -> None:
     (tmp_path / "root__one.json").write_text(
         json.dumps(make_result("a/one").to_dict()), encoding="utf-8"
@@ -73,10 +112,8 @@ def test_published_runs_reads_nested_result_folders_in_stable_order(tmp_path: Pa
 
 def test_card_rejects_metrics_that_are_not_derived_from_predictions() -> None:
     result = make_result()
-    tampered = replace(result, metrics=replace(result.metrics, accuracy=0.0))
-
     with pytest.raises(ValueError, match="metrics do not match predictions"):
-        dataset_card([tampered], benchmark_name="benchmark.csv")
+        replace(result, metrics=replace(result.metrics, accuracy=0.0))
 
 
 def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(

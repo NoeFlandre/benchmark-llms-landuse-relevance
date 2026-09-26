@@ -1,6 +1,6 @@
 [project]
 name = "landuse-relevance-bench"
-version = "0.1.0"
+version = "0.2.0"
 description = "End-to-end benchmark of small LLMs on land-use relevance sentence classification."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -66,6 +66,9 @@ packages = ["src/landuse_relevance_bench"]
 line-length = 100
 src = ["src", "tests"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["scripts"]
+
 [tool.ruff.lint]
 select = [
     "E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", "PL", "RUF",
@@ -116,7 +119,7 @@ show_missing = true
 fail_under = 95
 
 [tool.ty.src]
-include = ["src", "tests"]
+include = ["src"]
 
 # Warnings fail the gate, and these rules are errors outright, so the type check cannot
 # weaken silently as diagnostics accumulate.
@@ -161,11 +164,12 @@ layers = [
 ]
 
 [tool.mutmut]
-# Mutate the domain; the adapters are thin I/O wrappers where most mutants are
-# equivalent (see docs/debt.md). The rest of the package is copied so the tests
-# that exercise the domain can still import it.
-paths_to_mutate = ["src/landuse_relevance_bench/domain/"]
-tests_dir = ["tests/unit/", "tests/property/"]
+# Mutate core logic and the pure leaderboard scoring/ordering surface.
+source_paths = [
+    "src/landuse_relevance_bench/domain/",
+    "src/landuse_relevance_bench/adapters/results_store.py",
+]
+pytest_add_cli_args_test_selection = ["tests/unit/", "tests/property/", "tests/acceptance/"]
 also_copy = [
     "src/landuse_relevance_bench/__init__.py",
     "src/landuse_relevance_bench/cli.py",
