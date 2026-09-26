@@ -4,14 +4,32 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+import pytest
+import typer
 from typer.testing import CliRunner
 
 from landuse_relevance_bench import cli
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.adapters.translations import load_manifest
 from landuse_relevance_bench.domain.roster import model_ids
+from landuse_relevance_bench.domain.scorers import scorer_for
 
 runner = CliRunner()
+
+
+def test_scoring_language_selection_respects_encoder_coverage() -> None:
+    spec = scorer_for("LiquidAI/LFM2.5-Encoder-350M")
+
+    assert cli._languages_for_scorer(spec, ("af", "de", "en", "fr"), None) == (
+        "de",
+        "en",
+        "fr",
+    )
+    with pytest.raises(typer.BadParameter, match="only supports"):
+        cli._languages_for_scorer(spec, ("af", "en"), ["af", "en"])
+
+    general_scorer = scorer_for("Alibaba-NLP/gte-multilingual-reranker-base")
+    assert cli._languages_for_scorer(general_scorer, ("de", "en"), None) == ("de", "en")
 
 
 class AlwaysYes:

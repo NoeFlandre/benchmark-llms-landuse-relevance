@@ -622,6 +622,72 @@ class CausalLogprobScorer(_CausalScorer):
         ]
 
 
+class MaskedTokenScorer(_TransformersScorer):
+    """Read yes/no logits at one bidirectional masked-token position."""
+
+    MASK_SENTINEL = "[MASK]"
+
+    def __init__(self, tokenizer: Any, model: Any) -> None:
+        super().__init__(tokenizer, model)
+        if tokenizer.mask_token is None or tokenizer.mask_token_id is None:
+            raise ValueError("masked-LM tokenizer must define a mask token")
+        self._mask_token = tokenizer.mask_token
+        self._mask_token_id = int(tokenizer.mask_token_id)
+        self._yes_id, self._no_id = (
+            _single_token_id(tokenizer, "yes"),
+            _single_token_id(tokenizer, "no"),
+        )
+        if self._yes_id == self._no_id:
+            raise ValueError("yes and no must use distinct masked-LM tokens")
+
+    @classmethod
+    def load(cls, model_id: str, settings: ScorerSettings, revision: str | None = None) -> Any:
+        tokenizer = _load_transformers().AutoTokenizer.from_pretrained(
+            model_id, revision=revision, trust_remote_code=True
+        )
+        model = _pretrained(
+            "AutoModelForMaskedLM",
+            model_id,
+            settings,
+            revision,
+            trust_remote_code=True,
+        )
+        return cls(tokenizer, model)
+
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        import torch
+
+        if not inputs:
+            return []
+        texts: list[str] = []
+        for item in inputs:
+            if item.prompt.count(self.MASK_SENTINEL) != 1:
+                raise ValueError("masked-LM prompt must contain exactly one [MASK] sentinel")
+            texts.append(item.prompt.replace(self.MASK_SENTINEL, self._mask_token))
+        batch = self._batch(texts)
+        input_ids = batch["input_ids"]
+        mask_positions = input_ids.eq(self._mask_token_id)
+        mask_counts = mask_positions.sum(dim=1)
+        if not bool(torch.all(mask_counts == 1)):
+            raise ValueError("each masked-LM prompt must tokenize to exactly one mask token")
+        positions = mask_positions.to(dtype=torch.int64).argmax(dim=1)
+        with torch.inference_mode():
+            logits = self._model(**batch).logits
+        rows = torch.arange(len(inputs), device=logits.device)
+        masked_logits = logits[rows, positions]
+        no_logits = masked_logits[:, self._no_id]
+        yes_logits = masked_logits[:, self._yes_id]
+        pair = torch.stack([no_logits, yes_logits], dim=-1)
+        probabilities = torch.softmax(pair.float(), dim=-1)
+        return [
+            LabelScores(
+                {Label.NO: float(row[0]), Label.YES: float(row[1])},
+                native_score=float(yes_logit - no_logit),
+            )
+            for row, yes_logit, no_logit in zip(probabilities, yes_logits, no_logits, strict=True)
+        ]
+
+
 def _verdict_token_ids(tokenizer: Any, word: str) -> list[int]:
     """Single-token spellings of a verdict (case and leading-space variants)."""
     ids: set[int] = set()
@@ -666,6 +732,7 @@ def scorer_class_for(model_id: str) -> type[Any]:
         "Qwen/Qwen3-Reranker-0.6B": RerankerScorer,
         "Qwen/Qwen3-Reranker-4B": RerankerScorer,
         "LiquidAI/LFM2.5-2.6B@logprob": CausalLogprobScorer,
+        "LiquidAI/LFM2.5-Encoder-350M": MaskedTokenScorer,
         "knowledgator/gliclass-multilang-mini": GliClassScorer,
         "MoritzLaurer/bge-m3-zeroshot-v2.0": NliZeroShotScorer,
         "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7": NliZeroShotScorer,

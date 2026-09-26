@@ -41,6 +41,102 @@ def test_new_scorers_select_their_intended_adapters() -> None:
         assert scorer_for(model_id).prompt == "data/prompt_zeroshot.txt"
 
 
+def test_lfm_encoder_is_a_masked_lm_scorer_limited_to_its_supported_languages() -> None:
+    from landuse_relevance_bench.adapters.hf_scorer import MaskedTokenScorer
+
+    model_id = "LiquidAI/LFM2.5-Encoder-350M"
+    assert scorer_class_for(model_id) is MaskedTokenScorer
+    assert scorer_for(model_id).kind == "masked-lm"
+    assert scorer_for(model_id).supported_languages == (
+        "ar",
+        "de",
+        "en",
+        "es",
+        "fr",
+        "hi",
+        "it",
+        "ja",
+        "nl",
+        "pl",
+        "pt",
+        "ru",
+        "tr",
+        "vi",
+        "zh",
+    )
+    assert scorer_for(model_id).prompt == "data/prompt_masked_lm.txt"
+
+
+class FakeMaskTokenizer:
+    mask_token = "<MASK>"
+    mask_token_id = 7
+
+    def encode(self, text, add_special_tokens=False):
+        return {"yes": [1], "no": [2], " yes": [1], " no": [2]}.get(text, [8, 8])
+
+    def __call__(self, texts, **kwargs):
+        self.texts = list(texts)
+        import torch
+
+        ids = [
+            [3, self.mask_token_id, 4] if "forest" in text else [5, self.mask_token_id, 4]
+            for text in self.texts
+        ]
+        return {"input_ids": torch.tensor(ids)}
+
+
+class FakeMaskModel:
+    device = "cpu"
+
+    def __call__(self, **batch):
+        import torch
+
+        ids = batch["input_ids"]
+        logits = torch.zeros((len(ids), ids.shape[1], 9))
+        for row, values in enumerate(ids):
+            mask_position = int((values == FakeMaskTokenizer.mask_token_id).nonzero()[0])
+            if values[0] == 3:
+                logits[row, mask_position, 1] = 3.0
+                logits[row, mask_position, 2] = 1.0
+            else:
+                logits[row, mask_position, 1] = 0.5
+                logits[row, mask_position, 2] = 2.5
+        return type("ModelOutput", (), {"logits": logits})()
+
+
+def test_masked_lm_scores_verbalizers_at_the_single_mask_position() -> None:
+    from landuse_relevance_bench.adapters.hf_scorer import MaskedTokenScorer
+
+    tokenizer = FakeMaskTokenizer()
+    scorer = MaskedTokenScorer(tokenizer, FakeMaskModel())
+    scores = scorer.score(
+        [
+            ScoringInput("Sentence: forest\nAnswer: [MASK]", "forest"),
+            ScoringInput("Sentence: mayor\nAnswer: [MASK]", "mayor"),
+        ]
+    )
+
+    assert tokenizer.texts == [
+        "Sentence: forest\nAnswer: <MASK>",
+        "Sentence: mayor\nAnswer: <MASK>",
+    ]
+    assert [score.verdict for score in scores] == [Label.YES, Label.NO]
+    assert scores[0].scores[Label.YES] > scores[0].scores[Label.NO]
+    assert scores[0].native_score == pytest.approx(2.0)
+    assert scores[1].native_score == pytest.approx(-2.0)
+
+
+def test_masked_lm_requires_exactly_one_mask_sentinel_per_prompt() -> None:
+    from landuse_relevance_bench.adapters.hf_scorer import MaskedTokenScorer
+
+    scorer = MaskedTokenScorer(FakeMaskTokenizer(), FakeMaskModel())
+    with pytest.raises(ValueError, match=r"exactly one \[MASK\]"):
+        scorer.score([ScoringInput("Sentence: forest", "forest")])
+
+    with pytest.raises(ValueError, match=r"exactly one \[MASK\]"):
+        scorer.score([ScoringInput("[MASK] and [MASK]", "forest")])
+
+
 def test_a_variant_id_loads_its_plain_repository() -> None:
     assert repository_of("LiquidAI/LFM2.5-2.6B@logprob") == "LiquidAI/LFM2.5-2.6B"
     assert scorer_for("LiquidAI/LFM2.5-2.6B@logprob").prompt == "data/prompt.txt"

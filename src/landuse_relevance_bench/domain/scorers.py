@@ -28,11 +28,29 @@ LABEL_THRESHOLD = "zero-shot label probability at 0.5"
 RERANKER_PROMPT = "data/prompt_reranker.txt"
 GENERATIVE_PROMPT = "data/prompt.txt"
 ZEROSHOT_PROMPT = "data/prompt_zeroshot.txt"
+MASKED_LM_PROMPT = "data/prompt_masked_lm.txt"
 
 
 #: Card description for a scoring run whose model is no longer rostered.
 DEFAULT_CARD = ("scoring adapter", "recorded prompt + sentence", "normalized yes score")
 LOGPROB_KIND = "causal-lm-logprob"
+LFM25_ENCODER_LANGUAGES = (
+    "ar",
+    "de",
+    "en",
+    "es",
+    "fr",
+    "hi",
+    "it",
+    "ja",
+    "nl",
+    "pl",
+    "pt",
+    "ru",
+    "tr",
+    "vi",
+    "zh",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +65,8 @@ class ScorerSpec:
     prompt: str = RERANKER_PROMPT
     #: How the published card describes the adapter: (family, input handling, score).
     card: tuple[str, str, str] = DEFAULT_CARD
+    #: A model's declared language coverage, or None for the full benchmark inventory.
+    supported_languages: tuple[str, ...] | None = None
 
     @property
     def repository(self) -> str:
@@ -160,6 +180,20 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "GLiNER2.5 multilingual schema classifier; one land-use label.",
         ZEROSHOT_PROMPT,
         card=("GLiNER2 classify_text", "sentence + hypothesis label", "label confidence"),
+    ),
+    ScorerSpec(
+        "LiquidAI/LFM2.5-Encoder-350M",
+        354_500_000,
+        "masked-lm",
+        "argmax over the masked-token yes/no logits",
+        "Bidirectional masked-LM encoder; reads the yes/no verbalizer at one mask.",
+        MASKED_LM_PROMPT,
+        card=(
+            "bidirectional masked-LM encoder",
+            "task prompt + one mask; 15 supported languages",
+            "yes/no masked-token logits",
+        ),
+        supported_languages=LFM25_ENCODER_LANGUAGES,
     ),
 )
 

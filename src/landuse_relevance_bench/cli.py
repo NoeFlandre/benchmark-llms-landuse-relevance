@@ -33,7 +33,12 @@ from landuse_relevance_bench.adapters.translations import (
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
 from landuse_relevance_bench.domain.records import RunResult
 from landuse_relevance_bench.domain.roster import ROSTER, model_ids
-from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, scorer_for, scorer_ids
+from landuse_relevance_bench.domain.scorers import (
+    SCORER_ROSTER,
+    ScorerSpec,
+    scorer_for,
+    scorer_ids,
+)
 from landuse_relevance_bench.domain.sharding import (
     model_language_pairs,
     pair_statuses,
@@ -243,8 +248,10 @@ def score(
         raise typer.BadParameter(
             f"{model_id!r} is not in the scoring roster; `lrb run` benchmarks generative models"
         )
-    prompt = prompt or Path(scorer_for(model_id).prompt)
+    spec = scorer_for(model_id)
+    prompt = prompt or Path(spec.prompt)
     manifest, selected = _selected_languages(data_root, language)
+    selected = _languages_for_scorer(spec, selected, language)
     pairs = _planned_pairs((model_id,), selected, shard_index, shard_count)
     _print_run_plan((model_id,), selected, manifest, pairs, out)
     provider = _cached_scorer_provider()
@@ -508,6 +515,30 @@ def _selected_languages(
             f"unknown language(s) {', '.join(unknown)}; available: {', '.join(manifest.languages)}"
         )
     return manifest, tuple(selected or manifest.languages)
+
+
+def _languages_for_scorer(
+    spec: ScorerSpec, selected: tuple[str, ...], selectors: list[str] | None
+) -> tuple[str, ...]:
+    """Use only a scorer's declared language coverage, rejecting explicit mismatches."""
+    if spec.supported_languages is None:
+        return selected
+    supported = set(spec.supported_languages)
+    unsupported = sorted(set(selected) - supported)
+    if selectors is not None and unsupported:
+        raise typer.BadParameter(
+            f"{spec.model_id} only supports {', '.join(spec.supported_languages)}; "
+            f"unsupported requested languages: {', '.join(unsupported)}"
+        )
+    filtered = tuple(language for language in selected if language in supported)
+    if not filtered:
+        raise typer.BadParameter(f"no selected language is supported by {spec.model_id}")
+    if unsupported:
+        typer.echo(
+            f"{spec.model_id} supports {', '.join(spec.supported_languages)}; "
+            "running those languages only"
+        )
+    return filtered
 
 
 def _normalize_language_selectors(selectors: list[str] | None) -> list[str]:

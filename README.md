@@ -115,6 +115,7 @@ also contains `data/train.csv`, a single viewer-friendly multilingual split.
 | `MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7` | ~0.279B | NLI entailment probability |
 | `BalaRajesh1/mmbert-small-nli` | ~0.141B | NLI entailment probability |
 | `fastino/gliner2.5-multi-v1` | ~0.287B | GLiNER2 label confidence |
+| `LiquidAI/LFM2.5-Encoder-350M` | ~0.355B | yes/no masked-token logits (15 languages) |
 
 `LiquidAI/LFM2.5-2.6B@logprob` sends the generative prompt and chat turn, closes the
 template's opening `<think>` in the input, and reads P(yes) vs P(no) at the next
@@ -123,6 +124,10 @@ GLiNER2 models use their own zero-shot APIs with the sentence as input and one
 hypothesis taken from the LLM prompt (`data/prompt_zeroshot.txt`). The GGUF quant runs
 through llama.cpp with the generative prompt, template, greedy decoding and budget, and
 records its quant label in `quantization` rather than `dtype`.
+
+`LiquidAI/LFM2.5-Encoder-350M` is scored separately as a bidirectional masked-LM: its
+single `[MASK]` position ranks the `yes` and `no` tokens. Results cover only the model
+card's 15 supported languages.
 
 ## Grid'5000
 
