@@ -104,6 +104,7 @@ ban-relative-imports = "all"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-q --strict-markers -m 'not integration'"
 markers = [
     "integration: exercises a real model runtime and downloads weights (deselected by default)",
