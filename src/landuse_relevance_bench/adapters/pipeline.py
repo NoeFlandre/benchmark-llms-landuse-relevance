@@ -2,6 +2,8 @@
 
 import logging
 import math
+import shutil
+import subprocess
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -9,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from landuse_relevance_bench import __version__
 from landuse_relevance_bench.adapters.benchmark_csv import load_benchmark
 from landuse_relevance_bench.adapters.hashing import sha256_of_file, sha256_of_text
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
@@ -17,7 +20,7 @@ from landuse_relevance_bench.domain.engine import Generation, TextGenerator
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE, predict_all
 from landuse_relevance_bench.domain.records import RunMetadata, RunResult, outcomes_of
-from landuse_relevance_bench.domain.roster import TRANSFORMERS, ModelSpec, spec_for
+from landuse_relevance_bench.domain.roster import SGLANG, TRANSFORMERS, ModelSpec, spec_for
 
 DEFAULT_MAX_NEW_TOKENS = 4096
 DEFAULT_DTYPE = "bfloat16"
@@ -44,6 +47,8 @@ class RunRequest:
     draft_model_id: str = ""
     draft_revision: str | None = None
     speculative: Mapping[str, Any] = field(default_factory=dict)
+    continuous_batching: bool = False
+    throughput_mode: bool = False
 
     @property
     def name(self) -> str:
@@ -56,12 +61,16 @@ class RunRequest:
         *,
         revision: str | None = None,
         batch_size: int | None = None,
+        continuous_batching: bool = False,
+        throughput_mode: bool = False,
         **common: Any,
     ) -> "RunRequest":
         """A request for a rostered run, or a plain Transformers run of any Hub model.
 
         Explicit ``revision`` and ``batch_size`` override the roster's pins.
         """
+        if continuous_batching and throughput_mode:
+            raise ValueError("choose either continuous batching or SGLang throughput mode")
         try:
             spec = spec_for(name)
         except KeyError:
@@ -72,22 +81,76 @@ class RunRequest:
                 TRANSFORMERS,
             )
             spec = ModelSpec(name, 0, "unlisted")
+        resolved_batch_size = _first_set(batch_size, spec.batch_size, DEFAULT_BATCH_SIZE)
+        if continuous_batching and (spec.runtime != TRANSFORMERS or spec.vision):
+            raise ValueError("continuous batching requires the Transformers runtime")
+        if throughput_mode and spec.runtime != SGLANG:
+            raise ValueError("throughput mode requires the SGLang runtime")
+        if throughput_mode and resolved_batch_size <= 1:
+            raise ValueError("throughput mode requires batch_size > 1")
+        run_id = spec.run_id
+        if continuous_batching:
+            run_id = f"{spec.name}@continuous-b{resolved_batch_size}"
+        elif throughput_mode:
+            run_id = f"{spec.name}-throughput-b{resolved_batch_size}"
         return cls(
             model_id=spec.model_id,
-            run_id=spec.run_id,
+            run_id=run_id,
             revision=revision or spec.revision,
-            batch_size=_first_set(batch_size, spec.batch_size, DEFAULT_BATCH_SIZE),
+            batch_size=resolved_batch_size,
             runtime=spec.runtime,
             vision=spec.vision,
             draft_model_id=spec.draft_model_id,
             draft_revision=spec.draft_revision,
             speculative=spec.speculative,
+            continuous_batching=continuous_batching,
+            throughput_mode=throughput_mode,
             **common,
         )
 
 
 def _first_set(*values: int | None) -> int:
     return next(v for v in values if v is not None)
+
+
+def _free_gpu_memory_bytes() -> int | None:
+    """Return the least free NVIDIA GPU memory without importing the inference stack."""
+    executable = shutil.which("nvidia-smi")
+    if executable is None:
+        return None
+    try:
+        probe = subprocess.run(  # noqa: S603 - executable is resolved; arguments are fixed.
+            [
+                executable,
+                "--query-gpu=memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    readings = [line.strip() for line in probe.stdout.splitlines() if line.strip()]
+    if not readings:
+        return None
+    try:
+        return min(int(reading) for reading in readings) * 2**20
+    except ValueError:
+        logger.debug("Could not parse free NVIDIA GPU memory: %r", probe.stdout)
+        return None
+
+
+def _close_generator(generator: TextGenerator) -> None:
+    close = getattr(generator, "close", None)
+    if callable(close):
+        close()
+
+
+def _log_gpu_memory(name: str, stage: str, free_bytes: int | None) -> None:
+    if free_bytes is not None:
+        logger.info("%s: free GPU memory %s: %.1f MiB", name, stage, free_bytes / 2**20)
 
 
 GeneratorProvider = Callable[[RunRequest], tuple[TextGenerator, str]]
@@ -130,13 +193,33 @@ def execute(
     items = load_benchmark(request.benchmark_path)
     template = load_prompt(request.prompt_path)
     logger.info("%s: loading model (%d prompts)", request.name, len(items))
-    generator, revision = provide_generator(request)
-    generator = ProgressReporting(generator, request.name, len(items), request.batch_size)
+    free_before = _free_gpu_memory_bytes()
+    _log_gpu_memory(request.name, "before model load", free_before)
+    model_generator, revision = provide_generator(request)
+    progress_generator = ProgressReporting(
+        model_generator, request.name, len(items), request.batch_size
+    )
 
     started_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     started = time.monotonic()
-    predictions = predict_all(items, template, generator, batch_size=request.batch_size)
-    duration = time.monotonic() - started
+    try:
+        predictions = predict_all(
+            items, template, progress_generator, batch_size=request.batch_size
+        )
+        duration = time.monotonic() - started
+    except BaseException:
+        try:
+            _close_generator(model_generator)
+        except Exception:
+            logger.exception("%s: generator cleanup failed after prediction error", request.name)
+        _log_gpu_memory(request.name, "after failed run cleanup", _free_gpu_memory_bytes())
+        raise
+    else:
+        try:
+            _close_generator(model_generator)
+        except Exception:
+            logger.exception("%s: generator cleanup failed after prediction", request.name)
+        _log_gpu_memory(request.name, "after run cleanup", _free_gpu_memory_bytes())
 
     result = RunResult(
         metadata=RunMetadata(
@@ -155,8 +238,18 @@ def execute(
             run_id=request.run_id,
             runtime=request.runtime,
             draft_model_id=request.draft_model_id,
-            draft_model_revision=request.draft_revision or "",
+            draft_model_revision=(
+                getattr(model_generator, "draft_revision", "") or request.draft_revision or ""
+            ),
             speculative=dict(request.speculative),
+            package_version=__version__,
+            generation_mode=(
+                "transformers-continuous-batching"
+                if request.continuous_batching
+                else "sglang-throughput"
+                if request.throughput_mode
+                else "static-batched"
+            ),
         ),
         predictions=predictions,
         metrics=evaluate(outcomes_of(predictions)),

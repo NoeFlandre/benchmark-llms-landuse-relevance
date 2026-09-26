@@ -7,30 +7,54 @@ from typing import Any, Protocol, cast
 from landuse_relevance_bench.adapters.results_store import (
     SPEED_KEYS,
     by_f1_then_name,
+    leaderboard_rows,
     read_runs,
     rounded,
-    score_columns,
     speed_columns,
 )
 from landuse_relevance_bench.domain.agreement import speculative_agreements
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
+from landuse_relevance_bench.domain.selection import check_comparable
 
 CARD_COLUMNS = (
     "model_id",
+    "n_items",
     "accuracy",
+    "accuracy_ci95",
     "balanced_accuracy",
     "f1",
+    "f1_ci95",
     "precision",
+    "precision_ci95",
     "recall",
+    "recall_ci95",
     "matthews_corrcoef",
+    "matthews_corrcoef_ci95",
     "unparsed_rate",
     "truncated",
+    "mcnemar_top_run",
+    "mcnemar_p_vs_top",
 )
+
+RUN_SETTING_COLUMNS = (
+    "model_id",
+    "benchmark_sha256",
+    "prompt_sha256",
+    "max_new_tokens",
+    "decoding",
+    "dtype",
+    "model_revision",
+    "package_version",
+    "generation_mode",
+)
+
+DEFAULT_COMMIT_MESSAGE = "Publish small-LLM land-use relevance benchmark results"
 
 SPEED_COLUMNS = (
     "model_id",
     "runtime",
+    "generation_mode",
     "batch_size",
     "wall_seconds",
     *SPEED_KEYS,
@@ -52,6 +76,7 @@ def _speed_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
         {
             "model_id": r.metadata.name,
             "runtime": r.metadata.runtime,
+            "generation_mode": r.metadata.generation_mode,
             "batch_size": r.metadata.batch_size,
             "wall_seconds": round(r.metadata.duration_seconds, 2),
             **speed_columns(r),
@@ -136,15 +161,23 @@ def dataset_card(
     results: Sequence[RunResult],
     *,
     benchmark_name: str,
+    allow_mixed: bool = False,
 ) -> str:
     """Build a terse card whose scores are recomputed from every prediction."""
     if not results:
         raise ValueError("cannot build a card from an empty set of results")
+    comparability = check_comparable(results)
+    if not comparability.comparable and not allow_mixed:
+        raise ValueError(comparability.summary)
     rows = _card_rows(results)
-    reference = results[0].metadata
-    n_items = results[0].metrics.n_items
+    mixed_notice = (
+        f"\n\n**Mixed run settings:** {comparability.summary}. Read the per-run settings "
+        "before comparing scores."
+        if not comparability.comparable
+        else ""
+    )
     return f"""---
-license: mit
+license: other
 task_categories:
 - text-classification
 tags:
@@ -156,22 +189,27 @@ tags:
 
 # Land-use relevance benchmark
 
-`{benchmark_name}`; {n_items} labelled sentences; greedy decoding;
-`max_new_tokens={reference.max_new_tokens}`; seed {reference.seed}.
-Scores are recomputed from the published predictions.
+Published from `{benchmark_name}`. Each run's sample count and settings appear below.
+Scores are recomputed from the published predictions.{mixed_notice}
 
-- Benchmark sha256: `{reference.benchmark_sha256}`; prompt sha256: `{reference.prompt_sha256}`
 - Code: https://github.com/NoeFlandre/benchmark-llms-landuse-relevance
 
 ## Scores
 
 {_table(CARD_COLUMNS, rows)}
 
+## Run settings
+
+Content hashes identify the exact benchmark and prompt for each row. Revisions identify
+the model weights; package versions identify the scoring implementation.
+
+{_table(RUN_SETTING_COLUMNS, _run_setting_rows(results))}
+
 ## Speed
 
-Wall time covers generation only (model loading excluded). Latency is the wall time
-of the generator call that answered a sentence, so with batching it is the batch's
-latency. Throughput is not comparable across GPUs; each file records its settings.
+Wall time covers generation only (model loading excluded). Latency is per request when
+the runtime reports it; otherwise it is the wall time of the generator call, shared by
+the batch. Throughput is not comparable across GPUs; each file records its settings.
 
 {_table(SPEED_COLUMNS, _speed_rows(results))}
 {_agreement_section(results)}"""
@@ -179,14 +217,30 @@ latency. Throughput is not comparable across GPUs; each file records its setting
 
 def _card_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     rows = []
+    score_rows = {row["model_id"]: row for row in leaderboard_rows(results)}
     for result in results:
         derived = evaluate(outcomes_of(result.predictions))
         if derived != result.metrics:
             raise ValueError(f"{result.metadata.name} metrics do not match predictions")
-        rows.append(
-            {"model_id": result.metadata.name, **score_columns(derived, result.predictions)}
-        )
+        rows.append({column: score_rows[result.metadata.name][column] for column in CARD_COLUMNS})
     return sorted(rows, key=by_f1_then_name)
+
+
+def _run_setting_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
+    return [
+        {
+            "model_id": result.metadata.name,
+            "benchmark_sha256": result.metadata.benchmark_sha256,
+            "prompt_sha256": result.metadata.prompt_sha256,
+            "max_new_tokens": result.metadata.max_new_tokens,
+            "decoding": result.metadata.decoding,
+            "dtype": result.metadata.dtype,
+            "model_revision": result.metadata.model_revision,
+            "package_version": result.metadata.package_version,
+            "generation_mode": result.metadata.generation_mode,
+        }
+        for result in sorted(results, key=lambda run: run.metadata.name)
+    ]
 
 
 def publish_results(
@@ -196,18 +250,23 @@ def publish_results(
     *,
     api: DatasetHub | None = None,
     private: bool = False,
-    commit_message: str = "Publish small-LLM land-use relevance benchmark results",
+    commit_message: str = DEFAULT_COMMIT_MESSAGE,
     benchmark_name: str = "benchmark.csv",
+    allow_mixed: bool = False,
 ) -> str:
     """Write the card next to the results, then push the whole folder to the Hub."""
     if not results:
         raise ValueError("refusing to publish an empty set of results")
+    comparability = check_comparable(results)
+    if not comparability.comparable and not allow_mixed:
+        raise ValueError(comparability.summary)
     hub = api if api is not None else _default_api()
     results_dir.mkdir(parents=True, exist_ok=True)
     (results_dir / "README.md").write_text(
         dataset_card(
             results,
             benchmark_name=benchmark_name,
+            allow_mixed=allow_mixed,
         ),
         encoding="utf-8",
     )

@@ -87,3 +87,9 @@ def test_each_prediction_carries_its_batch_latency_and_token_counts() -> None:
     first, second = predict_all(ITEMS, TEMPLATE, generator, batch_size=1, clock=lambda: next(ticks))
     assert (first.latency_seconds, first.generated_tokens, first.verify_steps) == (0.5, 3, 2)
     assert (second.latency_seconds, second.accepted_drafts, second.proposed_drafts) == (0.25, 5, 8)
+
+
+def test_per_generation_latency_overrides_the_whole_batch_wall_time() -> None:
+    generator = ScriptedGenerator([Generation("yes", latency_seconds=0.125)])
+    (prediction,) = predict_all(ITEMS[:1], TEMPLATE, generator, clock=lambda: 100.0)
+    assert prediction.latency_seconds == 0.125

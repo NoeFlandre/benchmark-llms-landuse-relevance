@@ -1,44 +1,120 @@
-"""Fail the build when mutation testing leaves too many survivors.
-
-`mutmut run` exits zero when mutants merely survive (it fails only when the run itself
-breaks), so it is no gate on its own. This reads the result summary instead, so a run
-can be accepted with an explicit, reviewed allowance.
-"""
+"""Fail when the named mutation results change outside a reviewed allowlist."""
 
 import argparse
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SURVIVED = re.compile(r"\bsurvived\b", re.IGNORECASE)
+ALLOWLIST = PROJECT_ROOT / "mutation-allowlist.txt"
+STATUSES = {
+    "killed",
+    "survived",
+    "no tests",
+    "timeout",
+    "suspicious",
+    "skipped",
+    "caught by type check",
+    "check was interrupted by user",
+    "not checked",
+    "segfault",
+}
 
 
-def survivors() -> list[str]:
+def parse_results(output: str) -> dict[str, str]:
+    """Parse the stable per-mutant rows printed by ``mutmut results --all``."""
+    results: dict[str, str] = {}
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if not lines:
+        raise ValueError("mutmut results were empty or unparsable")
+    for line in lines:
+        mutant_id, separator, status = line.rpartition(": ")
+        if not separator or not mutant_id or status not in STATUSES:
+            raise ValueError(f"mutmut results were empty or unparsable: {line!r}")
+        if mutant_id in results:
+            raise ValueError(f"mutmut results repeat mutant id {mutant_id!r}")
+        results[mutant_id] = status
+    return results
+
+
+def parse_allowlist(content: str) -> dict[str, str]:
+    """Read one exact mutant id and one human-readable equivalence reason per line."""
+    entries: dict[str, str] = {}
+    for line_number, line in enumerate(content.splitlines(), start=1):
+        value = line.strip()
+        if not value or value.startswith("#"):
+            continue
+        mutant_id, separator, reason = value.partition(":")
+        mutant_id, reason = mutant_id.strip(), reason.strip()
+        if not separator or not mutant_id or not reason:
+            raise ValueError(f"allowlist line {line_number} needs a mutant id and reason")
+        if mutant_id in entries:
+            raise ValueError(f"allowlist repeats mutant id {mutant_id!r}")
+        entries[mutant_id] = reason
+    return entries
+
+
+def validate_results(results: dict[str, str], allowlist: dict[str, str]) -> list[str]:
+    """Check survivor identities, stale entries, and every unresolved mutant status."""
+    survivors = {mutant_id for mutant_id, status in results.items() if status == "survived"}
+    allowed = set(allowlist)
+    errors = [f"unreviewed survivor: {mutant_id}" for mutant_id in sorted(survivors - allowed)]
+    errors.extend(
+        f"stale allowlist entry: {mutant_id}" for mutant_id in sorted(allowed - survivors)
+    )
+    errors.extend(
+        f"unresolved mutant status {status}: {mutant_id}"
+        for mutant_id, status in sorted(results.items())
+        if status not in {"killed", "survived"}
+    )
+    return errors
+
+
+def read_results() -> dict[str, str]:
+    """Read the full mutmut state; a nonzero command status invalidates the gate."""
     completed = subprocess.run(
-        [sys.executable, "-m", "mutmut", "results"],
+        [sys.executable, "-m", "mutmut", "results", "--all"],
         cwd=PROJECT_ROOT,
         capture_output=True,
         text=True,
         check=False,
     )
-    output = completed.stdout + completed.stderr
-    return [line.strip() for line in output.splitlines() if SURVIVED.search(line)]
+    if completed.returncode:
+        raise RuntimeError(
+            f"mutmut results failed with exit code {completed.returncode}: "
+            f"{completed.stderr.strip()}"
+        )
+    return parse_results(completed.stdout + completed.stderr)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--max-survivors", type=int, default=0)
+    parser.add_argument("--allowlist", type=Path, default=ALLOWLIST)
     args = parser.parse_args()
 
-    lines = survivors()
-    for line in lines:
-        print(line)
-    if len(lines) > args.max_survivors:
-        print(f"\n{len(lines)} surviving mutant(s), allowance is {args.max_survivors}")
+    try:
+        results = read_results()
+        allowlist = parse_allowlist(args.allowlist.read_text(encoding="utf-8"))
+        errors = validate_results(results, allowlist)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"mutation gate error: {exc}")
         return 1
-    print(f"\n{len(lines)} surviving mutant(s), within the allowance of {args.max_survivors}")
+
+    counts: dict[str, int] = {}
+    for status in results.values():
+        counts[status] = counts.get(status, 0) + 1
+    print(
+        "mutmut status counts: "
+        + ", ".join(f"{name}={count}" for name, count in sorted(counts.items()))
+    )
+    for mutant_id, reason in sorted(allowlist.items()):
+        print(f"reviewed equivalent: {mutant_id} — {reason}")
+    for error in errors:
+        print(error)
+    if errors:
+        print(f"\nmutation gate failed with {len(errors)} issue(s)")
+        return 1
+    print(f"\nmutation gate passed: {len(results)} exact mutant id(s) checked")
     return 0
 
 

@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible problem in the benchmark code, CLI, or documentation.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check for an existing issue first. Do not include access tokens or other secrets.
+  - type: input
+    id: version
+    attributes:
+      label: Version or source commit
+      description: Include `lrb --version` or the Git commit if available.
+      placeholder: 0.1.0 / abc1234
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command or workflow
+      description: What command or documented step triggers the problem?
+      placeholder: uv run lrb report
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the complete error message or a concise log excerpt.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include relevant OS, Python/runtime version, and hardware details.
+      placeholder: |
+        1. Run ...
+        2. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add links or files that help reproduce the problem. Remove secrets first.
+    validations:
+      required: false

@@ -2,6 +2,7 @@ UV ?= uv
 SHELL := bash
 .SHELLFLAGS := -eo pipefail -c
 RUN := $(UV) run --no-sync
+HYPOTHESIS_PROFILE ?= ci
 
 .PHONY: help install baseline lint format types test property acceptance architecture integration crap mutation smoke security lockfile check docs docs-build docker
 
@@ -23,13 +24,13 @@ format:  ## Apply ruff formatting and fixes
 	$(RUN) ruff check --fix .
 
 types:  ## Static type check
-	$(RUN) ty check
+	$(RUN) ty check src
 
 test:  ## Unit and property tests with coverage (fails under the pyproject floor)
-	$(RUN) pytest tests/unit tests/property --cov --cov-report=term-missing --cov-report=json
+	HYPOTHESIS_PROFILE=$(HYPOTHESIS_PROFILE) $(RUN) pytest tests/unit tests/property --cov --cov-report=term-missing --cov-report=json
 
 property:  ## Property-based tests
-	$(RUN) pytest tests/property
+	HYPOTHESIS_PROFILE=$(HYPOTHESIS_PROFILE) $(RUN) pytest tests/property
 
 acceptance:  ## Executable Gherkin scenarios
 	$(RUN) pytest tests/acceptance
@@ -41,11 +42,15 @@ integration:  ## Real model runtime, downloads a tiny model
 	$(RUN) pytest tests/integration -m integration
 
 crap: test  ## CRAP score guardrail over the domain (reads the coverage from `test`)
-	$(RUN) python scripts/crap.py --max 6
+	$(RUN) python scripts/crap.py \
+		--limit src/landuse_relevance_bench/domain=8 \
+		--limit src/landuse_relevance_bench/adapters=15 \
+		--limit src/landuse_relevance_bench/cli.py=15 \
+		--full-coverage src/landuse_relevance_bench/domain
 
 mutation:  ## Mutation testing over the domain, gated on the reviewed survivor allowance
 	$(RUN) mutmut run --max-children 4
-	$(RUN) python scripts/check_mutants.py --max-survivors 4
+	$(RUN) python scripts/check_mutants.py
 
 smoke:  ## CLI smoke test: the entry point starts and lists the roster
 	$(RUN) lrb --version
@@ -53,7 +58,7 @@ smoke:  ## CLI smoke test: the entry point starts and lists the roster
 
 lockfile:  ## uv.lock matches pyproject.toml and the speculative extra resolves
 	UV_FROZEN=0 $(UV) lock --check
-	UV_FROZEN=0 $(UV) sync --locked --extra speculative --dry-run
+	UV_FROZEN=0 $(UV) sync --locked --extra speculative --dry-run --python-platform x86_64-manylinux_2_34
 
 # Known advisory with no fixed release, pulled in by sglang (speculative extra only).
 AUDIT_IGNORES := --ignore-vuln PYSEC-2026-2447

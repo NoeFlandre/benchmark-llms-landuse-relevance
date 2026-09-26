@@ -6,8 +6,8 @@ something a satellite could see?
 Each of 154 adjudicated sentences is labelled `yes` if it carries land-use,
 land-cover, or geographic-environment signal — vegetation, water, terrain,
 buildings, roads, mining, managed land — and `no` if it only concerns history,
-administration, people, or events. One prompt, one token of expected output, four
-models, scored end to end on a Grid'5000 GPU.
+administration, people, or events. One prompt, one token of expected output, 13
+generation/runtime configurations, scored end to end on a Grid'5000 GPU.
 
 ```bash
 uv sync --extra inference

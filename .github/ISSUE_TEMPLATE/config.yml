@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Benchmark dataset and published results
+    url: https://huggingface.co/datasets/NoeFlandre/benchmark-llms-landuse-relevance
+    about: Browse the released dataset and result artifacts.

@@ -5,7 +5,8 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from landuse_relevance_bench.domain.labels import Label
-from landuse_relevance_bench.domain.metrics import ClassificationMetrics, Outcome
+from landuse_relevance_bench.domain.metrics import ClassificationMetrics, Outcome, evaluate
+from landuse_relevance_bench.domain.parsing import ParseMode
 from landuse_relevance_bench.domain.roster import TRANSFORMERS
 from landuse_relevance_bench.domain.speed import SpeedMetrics, summarise_speed
 
@@ -28,6 +29,7 @@ class Prediction:
     predicted: Label | None
     raw_output: str
     truncated: bool = False
+    parse_mode: ParseMode | None = None
     #: Wall time of the generator call that produced this answer (its whole batch).
     latency_seconds: float | None = None
     generated_tokens: int | None = None
@@ -46,6 +48,7 @@ class Prediction:
             "predicted": None if self.predicted is None else self.predicted.value,
             "raw_output": self.raw_output,
             "truncated": self.truncated,
+            "parse_mode": self.parse_mode,
             **{name: getattr(self, name) for name in _COUNTERS},
         }
 
@@ -58,6 +61,7 @@ class Prediction:
             predicted=None if predicted is None else Label(predicted),
             raw_output=payload["raw_output"],
             truncated=payload.get("truncated", False),
+            parse_mode=payload.get("parse_mode"),
             **{name: payload.get(name) for name in _COUNTERS},
         )
 
@@ -67,7 +71,7 @@ class RunMetadata:
     """Everything needed to reproduce or audit a run."""
 
     model_id: str
-    model_revision: str
+    model_revision: str | None
     prompt_sha256: str
     benchmark_sha256: str
     max_new_tokens: int
@@ -83,8 +87,10 @@ class RunMetadata:
     run_id: str = ""
     runtime: str = TRANSFORMERS
     draft_model_id: str = ""
-    draft_model_revision: str = ""
+    draft_model_revision: str | None = ""
     speculative: Mapping[str, Any] = field(default_factory=dict)
+    package_version: str = ""
+    generation_mode: str = "static-batched"
 
     @property
     def name(self) -> str:
@@ -114,6 +120,11 @@ class RunResult:
                 f"metrics cover {self.metrics.n_items} items but the run holds "
                 f"{len(self.predictions)} predictions"
             )
+        identifiers = [prediction.item_id for prediction in self.predictions]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("run contains a duplicate item id")
+        if self.metrics != evaluate(outcomes_of(self.predictions)):
+            raise ValueError("metrics do not match predictions")
 
     @property
     def speed(self) -> SpeedMetrics:

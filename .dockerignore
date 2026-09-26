@@ -1,8 +1,16 @@
 .venv/
+.uv-cache/
+.cache/
+uv-cache*/
 .git/
 results/
+benchmark-runs/
+mutants/
 site/
 htmlcov/
+.coverage
+coverage.json
+coverage.xml
 __pycache__/
 .pytest_cache/
 .ruff_cache/
