@@ -181,6 +181,18 @@ def test_other_scoring_models_keep_the_locked_runtime(tmp_path: Path) -> None:
     assert "sync --extra inference --frozen --no-dev" in run.uv_log
 
 
+def test_node_run_uses_oar_array_index_for_deterministic_shards(tmp_path: Path) -> None:
+    run = _run_node_script(
+        tmp_path,
+        GENERATIVE_MODEL_ID,
+        roster="models",
+        extra_environment={"OAR_ARRAY_INDEX": "2", "LRB_SHARD_COUNT": "4"},
+    )
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    assert "shard=2/4" in run.completed.stdout
+
+
 def test_gliclass_syncs_the_scoring_extra_in_its_own_environment(tmp_path: Path) -> None:
     run = _run_node_script(tmp_path, GLICLASS_MODEL_ID)
 

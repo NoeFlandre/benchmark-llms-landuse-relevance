@@ -1,3 +1,4 @@
+import csv
 import hashlib
 import json
 from collections.abc import Sequence
@@ -89,6 +90,33 @@ def test_run_writes_a_result_file(
     payload = json.loads((tmp_path / "en" / "some__model.json").read_text(encoding="utf-8"))
     assert payload["metadata"]["model_id"] == "some/model"
     assert payload["metrics"]["n_items"] == 2
+
+
+def test_run_prints_prompt_count_and_resume_state(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    data_root = _translation_root(tmp_path, benchmark_path)
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    arguments = [
+        "run",
+        "some/model",
+        "--data-root",
+        str(data_root),
+        "--prompt",
+        str(prompt_path),
+        "--out",
+        str(tmp_path / "results"),
+    ]
+
+    first = runner.invoke(cli.app, arguments)
+    second = runner.invoke(cli.app, arguments)
+
+    assert first.exit_code == 0, first.stdout
+    assert "languages=2 [en,fr]" in first.stdout
+    assert "prompts=4" in first.stdout
+    assert "resume=0 complete,2 pending,0 invalid" in first.stdout
+    assert second.exit_code == 0, second.stdout
+    assert "resume=2 complete,0 pending,0 invalid" in second.stdout
 
 
 def test_run_reuses_one_generator_across_languages(
@@ -464,6 +492,70 @@ def test_publish_pushes_the_stored_runs(
     assert (results_dir / "data" / "train.csv").exists()
     card = (results_dir / "README.md").read_text(encoding="utf-8")
     assert "some/model" in card and "other/model" in card
+
+
+def test_publish_filters_language_artifacts_and_viewer_rows(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    from landuse_relevance_bench.adapters import hf_publish
+
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    results_dir = tmp_path / "results"
+    data_root = _translation_root(tmp_path, benchmark_path)
+    for model, language in (("some/model", "en"), ("other/model", "fr")):
+        runner.invoke(
+            cli.app,
+            [
+                "run",
+                model,
+                "--data-root",
+                str(data_root),
+                "--language",
+                language,
+                "--prompt",
+                str(prompt_path),
+                "--out",
+                str(results_dir),
+            ],
+        )
+    captured: dict = {}
+
+    class FakeApi:
+        def create_repo(self, **kwargs) -> None:
+            captured["create"] = kwargs
+
+        def upload_folder(self, **kwargs) -> None:
+            captured["upload"] = kwargs
+            upload_dir = Path(kwargs["folder_path"])
+            captured["card"] = (upload_dir / "README.md").read_text(encoding="utf-8")
+            captured["viewer"] = (upload_dir / "data" / "train.csv").read_text(encoding="utf-8")
+
+    monkeypatch.setattr(hf_publish, "_default_api", FakeApi)
+    result = runner.invoke(
+        cli.app,
+        [
+            "publish",
+            "me/bench",
+            "--data-root",
+            str(data_root),
+            "--results-dir",
+            str(results_dir),
+            "--prompt",
+            str(prompt_path),
+            "--language",
+            "fr",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "other/model" in captured["card"]
+    assert "some/model" not in captured["card"]
+    viewer_rows = list(csv.DictReader(captured["viewer"].splitlines()))
+    assert viewer_rows and {row["language"] for row in viewer_rows} == {"fr"}
+    assert "fr/other__model.json" in captured["upload"]["allow_patterns"]
+    assert "en/some__model.json" not in captured["upload"]["allow_patterns"]
+    assert (results_dir / "en" / "some__model.json").is_file()
+    assert (results_dir / "fr" / "other__model.json").is_file()
 
 
 def test_publish_refuses_an_empty_results_directory(tmp_path: Path) -> None:

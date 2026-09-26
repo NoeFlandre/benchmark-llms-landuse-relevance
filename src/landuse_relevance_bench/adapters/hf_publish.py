@@ -462,6 +462,7 @@ def publish_results(
     extra_scorer_prompt_texts: Sequence[str] = (),
     timing_results: Sequence[RunResult] = (),
     data_root: Path | None = None,
+    allow_patterns: Sequence[str] | None = None,
 ) -> str:
     """Write the card next to the results, then push the whole folder to the Hub."""
     if not results:
@@ -471,7 +472,11 @@ def publish_results(
     results_dir.mkdir(parents=True, exist_ok=True)
     viewer_file = ""
     if data_root is not None:
-        write_viewer_dataset(data_root, results_dir / "data" / "train.csv")
+        write_viewer_dataset(
+            data_root,
+            results_dir / "data" / "train.csv",
+            languages=sorted({result.metadata.language for result in results}),
+        )
         viewer_file = "data/train.csv"
     (results_dir / "README.md").write_text(
         dataset_card(
@@ -486,12 +491,15 @@ def publish_results(
         encoding="utf-8",
     )
     hub.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
-    hub.upload_folder(
-        repo_id=repo_id,
-        repo_type="dataset",
-        folder_path=str(results_dir),
-        commit_message=commit_message,
-    )
+    upload_kwargs: dict[str, Any] = {
+        "repo_id": repo_id,
+        "repo_type": "dataset",
+        "folder_path": str(results_dir),
+        "commit_message": commit_message,
+    }
+    if allow_patterns is not None:
+        upload_kwargs["allow_patterns"] = list(allow_patterns)
+    hub.upload_folder(**upload_kwargs)
     return f"https://huggingface.co/datasets/{repo_id}"
 
 
@@ -528,7 +536,12 @@ SCORING_SUMMARY_CARD_COLUMNS = (
 )
 
 
-def write_viewer_dataset(data_root: Path, output: Path) -> Path:
+def write_viewer_dataset(
+    data_root: Path,
+    output: Path,
+    *,
+    languages: Sequence[str] | None = None,
+) -> Path:
     """Export the validated multilingual benchmark as one Hub-viewable CSV."""
     import csv
 
@@ -552,11 +565,17 @@ def write_viewer_dataset(data_root: Path, output: Path) -> Path:
         "source_url",
     )
     manifest = load_manifest(data_root)
+    selected = tuple(sorted(set(languages or manifest.languages)))
+    unknown = sorted(set(selected) - set(manifest.languages))
+    if unknown:
+        raise ValueError(f"unknown viewer language(s): {', '.join(unknown)}")
+    if not selected:
+        raise ValueError("viewer dataset requires at least one language")
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(viewer_columns), lineterminator="\n")
         writer.writeheader()
-        for language in manifest.languages:
+        for language in selected:
             items = load_language_benchmark(data_root, language)
             source_path = data_root / manifest.files[language].path
             with source_path.open(newline="", encoding="utf-8") as source_handle:

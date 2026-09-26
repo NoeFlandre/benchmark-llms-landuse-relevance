@@ -1,7 +1,7 @@
 """Scriptable entry points for running, scoring and publishing the benchmark."""
 
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Annotated, TypeVar
 
@@ -201,6 +201,7 @@ def run(
         )
     manifest, selected = _selected_languages(data_root, language)
     pairs = _planned_pairs((model_id,), selected, shard_index, shard_count)
+    _print_run_plan((model_id,), selected, manifest, pairs, out)
     provider = _cached_generator_provider()
     for _, selected_language in pairs:
         _benchmark_one(
@@ -245,6 +246,7 @@ def score(
     prompt = prompt or Path(scorer_for(model_id).prompt)
     manifest, selected = _selected_languages(data_root, language)
     pairs = _planned_pairs((model_id,), selected, shard_index, shard_count)
+    _print_run_plan((model_id,), selected, manifest, pairs, out)
     provider = _cached_scorer_provider()
     for _, selected_language in pairs:
         _score_one(
@@ -278,7 +280,9 @@ def run_all(
 ) -> None:
     """Benchmark every rostered model on every selected language."""
     manifest, selected = _selected_languages(data_root, language)
-    pairs = _planned_pairs(model_ids(), selected, shard_index, shard_count)
+    models = model_ids()
+    pairs = _planned_pairs(models, selected, shard_index, shard_count)
+    _print_run_plan(models, selected, manifest, pairs, out)
     pairs_by_model: dict[str, list[str]] = {}
     for model, selected_language in pairs:
         pairs_by_model.setdefault(model, []).append(selected_language)
@@ -347,6 +351,39 @@ def _planned_pairs(
         raise typer.BadParameter(str(exc)) from exc
 
 
+def _print_run_plan(
+    models: Sequence[str],
+    selected: tuple[str, ...],
+    manifest: TranslationManifest,
+    pairs: Sequence[tuple[str, str]],
+    results_dir: Path,
+) -> None:
+    """Show workload size and valid checkpoint state before loading a model."""
+    completed = pending = invalid = 0
+    for model_id, language in pairs:
+        path = results_dir / run_filename(model_id, language)
+        if not path.is_file():
+            pending += 1
+            continue
+        try:
+            result = read_run(path)
+        except (OSError, ValueError):
+            invalid += 1
+            continue
+        if result.metadata.model_id == model_id and result.metadata.language == language:
+            completed += 1
+        else:
+            invalid += 1
+    prompt_count = sum(manifest.files[language].rows for language in selected) * len(models)
+    assigned_prompts = sum(manifest.files[language].rows for _, language in pairs)
+    typer.echo(
+        f"plan: models={len(models)} languages={len(selected)} [{','.join(selected)}] "
+        f"prompts={prompt_count} assigned_pairs={len(pairs)} "
+        f"assigned_prompts={assigned_prompts} "
+        f"resume={completed} complete,{pending} pending,{invalid} invalid"
+    )
+
+
 @app.command()
 def report(
     results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
@@ -388,6 +425,7 @@ def publish(
             "--timing-dir", help="Same-GPU generative reruns for the log-prob timing row."
         ),
     ] = None,
+    language: Language = None,
     private: Annotated[bool, typer.Option(help="Create the dataset repository private.")] = False,
 ) -> None:
     """Push the stored runs, leaderboard and a generated card to the Hub."""
@@ -396,7 +434,11 @@ def publish(
     if not results_dir.is_dir():
         raise typer.BadParameter(f"no run results directory at {results_dir}")
     published = read_published_runs(results_dir)
-    runs = list(published)
+    selected_languages: list[str] | None = None
+    if language is not None:
+        _, selected = _selected_languages(data_root, language)
+        selected_languages = list(selected)
+    runs = _filter_languages(published, selected_languages)
     if not runs:
         raise typer.BadParameter(f"no run results found in {results_dir}")
     # A reranker's score is not calibrated to a 0.5 boundary, so the sweep is published
@@ -418,8 +460,27 @@ def publish(
         extra_scorer_prompt_texts=_extra_scorer_prompts(scorer_prompt),
         timing_results=read_runs(timing_dir) if timing_dir else (),
         data_root=data_root,
+        allow_patterns=(
+            _publish_allow_patterns(results_dir, runs) if selected_languages is not None else None
+        ),
     )
     typer.echo(f"published {len(runs)} run(s) to {url}")
+
+
+def _publish_allow_patterns(results_dir: Path, runs: Sequence[RunResult]) -> list[str]:
+    """Limit a language-filtered upload to its runs and regenerated release files."""
+    patterns = {
+        "README.md",
+        "leaderboard.csv",
+        "aggregates.csv",
+        "threshold_sweep.csv",
+        "scoring_summary.csv",
+        "data/train.csv",
+        *(str(run_filename(run.metadata.model_id, run.metadata.language)) for run in runs),
+    }
+    if (results_dir / ".gitattributes").is_file():
+        patterns.add(".gitattributes")
+    return sorted(patterns)
 
 
 def _extra_scorer_prompts(primary: Path) -> tuple[str, ...]:

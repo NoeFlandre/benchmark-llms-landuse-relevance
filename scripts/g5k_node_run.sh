@@ -8,7 +8,7 @@
 #   LRB_RESULTS     directory for run results           (default: $LRB_ROOT/results)
 #   LRB_BATCH_SIZE  prompts per forward pass            (default: 16)
 #   LRB_MAX_NEW_TOKENS  generation budget per prompt     (default: 4096)
-#   LRB_SHARD_INDEX shard index among deterministic pairs (default: 0)
+#   LRB_SHARD_INDEX shard index among deterministic pairs (default: OAR array index, else 0)
 #   LRB_SHARD_COUNT number of deterministic pair shards   (default: 1)
 #   LRB_MODEL_ID    optional single model to run instead of the full roster
 #   LRB_LANGUAGES   optional comma-separated language subset (validation runs)
@@ -28,7 +28,7 @@ LRB_DATA_ROOT="${LRB_DATA_ROOT:-$LRB_ROOT/data/translations}"
 LRB_RESULTS="${LRB_RESULTS:-$LRB_ROOT/results}"
 LRB_BATCH_SIZE="${LRB_BATCH_SIZE:-16}"
 LRB_MAX_NEW_TOKENS="${LRB_MAX_NEW_TOKENS:-4096}"
-LRB_SHARD_INDEX="${LRB_SHARD_INDEX:-0}"
+LRB_SHARD_INDEX="${LRB_SHARD_INDEX:-${OAR_ARRAY_INDEX:-0}}"
 LRB_SHARD_COUNT="${LRB_SHARD_COUNT:-1}"
 LRB_MODEL_ID="${LRB_MODEL_ID:-}"
 LRB_DRY_RUN="${LRB_DRY_RUN:-0}"
