@@ -47,8 +47,8 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /usr/local/bin/uv
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --force --gid 1000 lrb \
-    && useradd --uid 1000 --gid lrb --create-home --shell /usr/sbin/nologin lrb \
+    && if ! getent group lrb >/dev/null; then groupadd --force --gid 1000 lrb; fi \
+    && if ! id -u lrb >/dev/null 2>&1; then useradd --gid lrb --create-home --shell /usr/sbin/nologin lrb; fi \
     && mkdir -p /cache/huggingface /app/results \
     && chown -R lrb:lrb /cache/huggingface /app/results
 
