@@ -66,6 +66,9 @@ packages = ["src/landuse_relevance_bench"]
 line-length = 100
 src = ["src", "tests"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["scripts"]
+
 [tool.ruff.lint]
 select = [
     "E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", "PL", "RUF",

@@ -1,13 +1,12 @@
 import json
 from pathlib import Path
 
-from scripts.reparse_results import reparse_directory
-
 from factories import make_result
 from landuse_relevance_bench.adapters.results_store import read_run, run_filename
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction
+from scripts.reparse_results import reparse_directory
 
 
 def test_reparse_migrates_legacy_labels_and_rebuilds_reports(tmp_path: Path) -> None:
