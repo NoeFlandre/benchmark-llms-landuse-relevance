@@ -73,7 +73,7 @@ def validate_results(results: dict[str, str], allowlist: dict[str, str]) -> list
 def read_results() -> dict[str, str]:
     """Read the full mutmut state; a nonzero command status invalidates the gate."""
     completed = subprocess.run(
-        [sys.executable, "-m", "mutmut", "results", "--all"],
+        [sys.executable, "-m", "mutmut", "results", "--all", "true"],
         cwd=PROJECT_ROOT,
         capture_output=True,
         text=True,

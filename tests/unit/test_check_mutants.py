@@ -46,7 +46,7 @@ def test_gate_reports_new_survivors_stale_entries_and_other_unresolved_states() 
 
 def test_read_mutmut_results_requests_all_mutant_ids(monkeypatch) -> None:
     def fake_run(command, **kwargs):
-        assert command[-2:] == ["results", "--all"]
+        assert command[-3:] == ["results", "--all", "true"]
         assert kwargs["check"] is False
         return type("Completed", (), {"returncode": 0, "stdout": "id: killed\n", "stderr": ""})()
 

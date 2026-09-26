@@ -6,6 +6,7 @@ from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction
 from landuse_relevance_bench.domain.uncertainty import (
+    _quantile,
     bootstrap_interval,
     exact_mcnemar_p_value,
     paired_mcnemar_p_value,
@@ -31,13 +32,20 @@ def test_wilson_interval_is_bounded_and_centered_for_half_successes() -> None:
     assert abs((low + high) / 2 - 0.5) < 0.01
 
 
+def test_wilson_interval_caps_the_upper_bound_for_all_successes() -> None:
+    assert wilson_interval(5, 5)[1] == 1.0
+
+
 def test_wilson_interval_is_missing_for_a_zero_denominator() -> None:
     assert wilson_interval(0, 0) is None
 
 
 @pytest.mark.parametrize("successes,total", [(-1, 1), (2, 1), (0, -1)])
 def test_wilson_interval_rejects_invalid_counts(successes: int, total: int) -> None:
-    with pytest.raises(ValueError, match="valid binomial count"):
+    with pytest.raises(
+        ValueError,
+        match=r"^successes and total must describe a valid binomial count$",
+    ):
         wilson_interval(successes, total)
 
 
@@ -50,19 +58,33 @@ def test_bootstrap_interval_is_seeded_and_deterministic() -> None:
 
 
 def test_bootstrap_rejects_empty_outcomes_and_zero_resamples() -> None:
-    with pytest.raises(ValueError, match="empty set"):
+    with pytest.raises(ValueError, match=r"^cannot bootstrap an empty set of outcomes$"):
         bootstrap_interval([], "f1")
-    with pytest.raises(ValueError, match="at least 1"):
+    with pytest.raises(ValueError, match=r"^resamples must be at least 1$"):
         bootstrap_interval([(Label.YES, Label.YES)], "f1", resamples=0)
+
+
+def test_bootstrap_accepts_a_single_resample() -> None:
+    interval = bootstrap_interval([(Label.YES, Label.YES)], "f1", resamples=1)
+    assert interval == (1.0, 1.0)
+
+
+def test_quantile_interpolates_at_the_requested_endpoints() -> None:
+    assert _quantile([1.0, 3.0], 1.0) == 3.0
+    assert _quantile([1.0, 3.0], 0.975) == 2.95
 
 
 def test_exact_mcnemar_uses_the_two_sided_binomial_tail() -> None:
     assert exact_mcnemar_p_value(2, 0) == 0.5
+    assert exact_mcnemar_p_value(1, 1) == 1.0
     assert exact_mcnemar_p_value(0, 0) == 1.0
 
 
 def test_exact_mcnemar_rejects_negative_discordant_counts() -> None:
-    with pytest.raises(ValueError, match="cannot be negative"):
+    with pytest.raises(
+        ValueError,
+        match=r"^discordant pair counts cannot be negative$",
+    ):
         exact_mcnemar_p_value(-1, 0)
 
 

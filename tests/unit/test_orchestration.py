@@ -30,6 +30,14 @@ def test_pairs_each_raw_output_with_its_item_and_parses_it() -> None:
     assert [p.raw_output for p in predictions] == ["Answer: yes", "no."]
 
 
+def test_records_parse_mode_for_parsed_and_unparsed_outputs() -> None:
+    predictions = predict_all(
+        ITEMS, TEMPLATE, ScriptedGenerator(["yes, because the prompt says no", "perhaps"])
+    )
+
+    assert [prediction.parse_mode for prediction in predictions] == ["leading", None]
+
+
 def test_keeps_unparsable_output_as_a_null_prediction() -> None:
     (prediction,) = predict_all(ITEMS[:1], TEMPLATE, ScriptedGenerator(["I am not sure"]))
     assert prediction.predicted is None

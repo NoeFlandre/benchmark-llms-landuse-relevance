@@ -105,7 +105,10 @@ def test_run_metadata_records_the_generation_mode_and_reads_old_files() -> None:
 
 
 def test_run_result_rejects_metrics_that_disagree_with_its_predictions() -> None:
-    with pytest.raises(ValueError, match="metrics cover 1 items but the run holds 2"):
+    with pytest.raises(
+        ValueError,
+        match=r"^metrics cover 1 items but the run holds 2 predictions$",
+    ):
         RunResult(
             metadata=META,
             predictions=(_prediction(), _prediction()),
@@ -115,7 +118,7 @@ def test_run_result_rejects_metrics_that_disagree_with_its_predictions() -> None
 
 def test_run_result_rejects_duplicate_item_ids() -> None:
     prediction = _prediction()
-    with pytest.raises(ValueError, match="duplicate item id"):
+    with pytest.raises(ValueError, match=r"^run contains a duplicate item id$"):
         RunResult(
             metadata=META,
             predictions=(prediction, prediction),
@@ -124,7 +127,7 @@ def test_run_result_rejects_duplicate_item_ids() -> None:
 
 
 def test_run_result_rejects_metrics_that_do_not_match_prediction_values() -> None:
-    with pytest.raises(ValueError, match="metrics do not match predictions"):
+    with pytest.raises(ValueError, match=r"^metrics do not match predictions$"):
         RunResult(
             metadata=META,
             predictions=(_prediction(),),

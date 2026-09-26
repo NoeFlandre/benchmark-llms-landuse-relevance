@@ -24,11 +24,13 @@ def test_comparability_accepts_no_runs() -> None:
     report = check_comparable([])
     assert report.comparable
     assert report.reference_name is None
+    assert report.differences == ()
 
 
 def test_comparable_runs_share_the_required_metadata() -> None:
     report = check_comparable([make_result("a/model"), make_result("b/model")])
     assert report.comparable
+    assert report.reference_name == "a/model"
     assert report.differences == ()
 
 
@@ -40,4 +42,8 @@ def test_mixed_metadata_report_names_each_run_and_difference() -> None:
     assert {(d.run_name, d.field, d.actual) for d in report.differences} == {
         ("b/model", "max_new_tokens", 16),
         ("b/model", "decoding", "sample"),
+    }
+    assert {(difference.expected, difference.actual) for difference in report.differences} == {
+        (8, 16),
+        ("greedy", "sample"),
     }
