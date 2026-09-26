@@ -49,7 +49,7 @@ crap: test  ## CRAP score guardrail over the domain (reads the coverage from `te
 		--full-coverage src/landuse_relevance_bench/domain
 
 mutation:  ## Mutation testing over the domain, gated on the reviewed survivor allowance
-	$(RUN) mutmut run --max-children 4
+	PYTHONPATH="$(CURDIR)" $(RUN) mutmut run --max-children 4
 	$(RUN) python scripts/check_mutants.py
 
 smoke:  ## CLI smoke test: the entry point starts and lists the roster
