@@ -30,6 +30,25 @@ uv run lrb publish NoeFlandre/benchmark-llms-landuse-relevance
 Without a GPU, `lrb report` and `lrb models` still work — `torch` is imported only
 when a model is actually loaded.
 
+### Scripting the CLI
+
+- `lrb --version` prints the package version; `lrb --install-completion` sets up shell
+  completion. Every command's `--help` ends with examples.
+- `--json` on `models`, `run` and `report` prints machine-readable output, e.g.
+  `lrb report --json | python -m json.tool`.
+- `-v` logs model loading and per-batch progress to stderr (`-vv` for debug detail);
+  `-q` shows errors only. Warnings are shown by default.
+- `run-all` filters and resumes: `--only REGEX`, `--runtime transformers|sglang`
+  (repeatable), `--skip-existing` (skip runs whose result file is already written) and
+  `--keep-going` (continue past a failed run, exit 1 at the end). `lrb models --runtime`
+  filters the roster the same way.
+- `lrb publish REPO --dry-run` prints the target repo, its visibility, the files that
+  would be uploaded and the generated card, without calling the Hub or writing a file.
+  `--commit-message` sets the upload's message. A missing `publish` extra or a Hub
+  auth/network error exits 1 with a one-line message instead of a traceback.
+- `run` and `run-all` accept `--results-dir` as an alias of `--out`, matching `report`
+  and `publish`.
+
 ## What gets measured
 
 Positive class is `yes`. Each run reports accuracy, precision, recall, F1, balanced
@@ -92,8 +111,9 @@ done, so an overrun job is resumed rather than repeated. See
 ## Development
 
 ```bash
-make check     # ruff → ty → unit → property → acceptance → architecture → CRAP
-make mutation  # mutation testing over the domain
+make check     # every CI gate: ruff → ty → unit+property (coverage floor) → acceptance →
+               # architecture → CRAP → mutation → smoke → docs → lockfile → pip-audit
+make mutation  # mutation testing over the domain alone
 make docker    # reproducible runtime image
 ```
 

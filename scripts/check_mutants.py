@@ -1,8 +1,8 @@
 """Fail the build when mutation testing leaves too many survivors.
 
-`mutmut run` exits non-zero whenever any mutant survives, which makes it unusable as a
-gate on its own. This reads the result summary instead, so a run can be accepted with an
-explicit, reviewed allowance.
+`mutmut run` exits zero when mutants merely survive (it fails only when the run itself
+breaks), so it is no gate on its own. This reads the result summary instead, so a run
+can be accepted with an explicit, reviewed allowance.
 """
 
 import argparse

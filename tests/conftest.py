@@ -14,6 +14,19 @@ CSV_TEXT = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _plain_cli_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep Typer/Rich error output uncoloured and unwrapped regardless of the host.
+
+    On GitHub Actions Rich forces colour and wraps at 80 columns, which splits
+    messages that tests assert on.
+    """
+    for var in ("GITHUB_ACTIONS", "FORCE_COLOR", "TTY_COMPATIBLE", "TTY_INTERACTIVE"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("COLUMNS", "200")
+
+
 @pytest.fixture
 def prompt_path(tmp_path: Path) -> Path:
     path = tmp_path / "prompt.txt"

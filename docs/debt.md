@@ -12,9 +12,12 @@ already pins the prompt digest so such a sweep stays distinguishable.
 scoring would be unreliable today, which is why nothing slices by region yet even though
 the column is carried through.
 
-**`model_revision` may be empty.** It is read from the loaded config's `_commit_hash`,
-a private Transformers attribute. If that disappears, runs record an empty revision
-rather than failing. Pass `--revision` to pin it explicitly and remove the ambiguity.
+**Provenance is resolved, not assumed.** `model_revision` is the explicit `--revision`,
+else the loaded config's commit hash, else the commit the Hub reports for the model;
+only when all three are unknown is it recorded empty, and then with a warning.
+`source_commit` comes from `LRB_SOURCE_COMMIT` (set as a Docker build arg, since the
+image has no `.git`) or `git rev-parse HEAD`, and is also warned about when unknown. A
+model outside the roster runs on Transformers with no pinned revision, with a warning.
 
 **Verdict extraction is a heuristic.** The verdict is the last standalone `yes`/`no` in
 an untruncated generation. A model that concludes and then adds a caveat naming the other

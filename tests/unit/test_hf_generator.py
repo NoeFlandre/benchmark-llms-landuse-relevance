@@ -47,7 +47,7 @@ class FakeTokenizer:
         self.texts.extend(texts)
         return FakeBatch(input_ids=torch.zeros((len(texts), 1), dtype=torch.long))
 
-    def decode(self, completion: Any, skip_special_tokens: bool) -> str:
+    def decode(self, completion: Any, *, skip_special_tokens: bool) -> str:
         assert skip_special_tokens
         return "  " + " ".join(f"t{i}" for i in completion.tolist() if i != EOS) + "\n"
 
