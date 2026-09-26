@@ -43,16 +43,19 @@ jobs:
 
           docker run --rm "$IMAGE" --version
           docker run --rm "$IMAGE" models --json >/dev/null
+          container_uid="$(docker run --rm --entrypoint sh "$IMAGE" -c 'id -u')"
+          test "$container_uid" -ne 0
           docker run --rm \
             -v "$results_dir:/app/results" \
             -v "$cache_dir:/cache/huggingface" \
+            -e "EXPECTED_CONTAINER_UID=$container_uid" \
             --entrypoint sh "$IMAGE" -ec '
-            test "$(id -u)" -eq 1000
+            test "$(id -u)" -eq "$EXPECTED_CONTAINER_UID"
             touch /app/results/.docker-smoke
             touch /cache/huggingface/.docker-smoke
           '
-          test "$(stat -c '%u' "$results_dir/.docker-smoke")" = 1000
-          test "$(stat -c '%u' "$cache_dir/.docker-smoke")" = 1000
+          test "$(stat -c '%u' "$results_dir/.docker-smoke")" = "$container_uid"
+          test "$(stat -c '%u' "$cache_dir/.docker-smoke")" = "$container_uid"
 
           docker run --rm \
             -v "$PWD/results:/app/results:ro" \

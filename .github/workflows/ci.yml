@@ -52,14 +52,24 @@ jobs:
       - name: CRAP score
         run: make crap -o test
 
+      - name: CLI smoke test
+        run: make smoke
+
+  mutation:
+    name: Mutation gate (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --extra inference --extra publish
       # mutmut exits 0 when mutants merely survive and nonzero only when the run itself
       # breaks, so its exit code is kept; check_mutants.py gates the survivors.
       - name: Mutation testing
-        if: matrix.python-version == '3.12'
         run: make mutation
-
-      - name: CLI smoke test
-        run: make smoke
 
   lockfile:
     name: Lockfile and speculative extra resolve
@@ -118,7 +128,7 @@ jobs:
   all-green:
     name: All green
     if: always()
-    needs: [gauntlet, lockfile, docs, security, image]
+    needs: [gauntlet, mutation, lockfile, docs, security, image]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
