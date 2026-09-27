@@ -1,4 +1,4 @@
-# ADR-0007 — DSpark speculative decoding, and checking it is lossless
+# ADR-0010 — DSpark speculative decoding, and checking it is lossless
 
 **Status:** accepted · 2026-09-25
 
@@ -50,7 +50,7 @@ differing verdicts and differing raw generations.
 
 ## Consequences
 
-- Scores of `+DSpark` should equal those of `@sglang`; the speed columns (ADR-0006)
+- Scores of `+DSpark` should equal those of `@sglang`; the speed columns (ADR-0009)
   carry the result, including SGLang's mean accept length and draft accept rate.
 - The roster now has 13 runs, eight of them on SGLang at batch size 1; budget the
   Grid'5000 walltime accordingly.

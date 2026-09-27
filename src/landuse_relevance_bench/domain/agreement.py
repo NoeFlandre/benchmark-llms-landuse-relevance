@@ -2,7 +2,7 @@
 
 Under greedy decoding a draft model only proposes tokens the target then verifies,
 so a speculative run must reproduce its plain baseline exactly. A disagreement means
-the two runs were not the same computation. See ADR-0007.
+the two runs were not the same computation. See ADR-0010.
 """
 
 from collections.abc import Sequence

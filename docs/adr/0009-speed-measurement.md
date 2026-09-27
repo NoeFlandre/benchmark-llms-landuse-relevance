@@ -1,11 +1,11 @@
-# ADR-0006 — Measuring speed alongside the scores
+# ADR-0009 — Measuring speed alongside the scores
 
 **Status:** accepted · 2026-09-25
 
 ## Context
 
 The scores say which model is right; they say nothing about what it costs to get
-the answer. Speculative decoding (ADR-0007) is only worth benchmarking for its
+the answer. Speculative decoding (ADR-0010) is only worth benchmarking for its
 speed, and the reasoning-first models differ from the one-token answerers by two
 orders of magnitude in output length.
 

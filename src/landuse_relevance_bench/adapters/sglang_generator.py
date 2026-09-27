@@ -3,7 +3,7 @@
 This is the runtime the LFM2.5-VL-3B-DSpark model card prescribes: the target is
 launched with the draft attached (``speculative_algorithm="DSPARK"``), and the same
 engine without the ``speculative_*`` arguments is the like-for-like baseline. SGLang
-is an optional extra imported only when a model is loaded. See ADR-0007.
+is an optional extra imported only when a model is loaded. See ADR-0010.
 """
 
 import logging
