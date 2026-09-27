@@ -309,3 +309,37 @@ def test_vision_chat_encoder_uses_the_processor_s_tokenizer_and_typed_turn(monke
         "tokenize": False,
         "add_generation_prompt": True,
     }
+
+
+class _Child:
+    def __init__(self, *, exits: bool) -> None:
+        self.exits = exits
+        self.timeouts: list[float] = []
+
+    def join(self, timeout: float) -> None:
+        self.timeouts.append(timeout)
+
+    def is_alive(self) -> bool:
+        return not self.exits
+
+
+def test_close_waits_for_the_engine_processes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from landuse_relevance_bench.adapters import sglang_generator
+
+    child = _Child(exits=True)
+    monkeypatch.setattr(sglang_generator.multiprocessing, "active_children", lambda: [child])
+    engine = FakeEngine()
+    SGLangGenerator(engine, lambda text: [1], 8).close()
+
+    assert engine.stopped
+    assert len(child.timeouts) == 1 and child.timeouts[0] > 0
+
+
+def test_wait_for_children_shares_one_deadline_and_reports_survivors() -> None:
+    from landuse_relevance_bench.adapters.sglang_generator import wait_for_children
+
+    stuck, done = _Child(exits=False), _Child(exits=True)
+    alive = wait_for_children([stuck, done], timeout_seconds=0.0)
+
+    assert alive == [stuck]
+    assert stuck.timeouts == [0.0] and done.timeouts == [0.0]

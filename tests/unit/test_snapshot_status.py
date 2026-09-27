@@ -123,7 +123,9 @@ def test_runs_sharing_a_model_id_are_counted_under_their_own_names(tmp_path: Pat
     for run_id in variants:
         write_run(_result(target, "en", run_id="" if run_id == target else run_id), tmp_path)
 
-    status = snapshot_status(tmp_path, benchmark_name="v3-multilingual", expected_model_ids=variants)
+    status = snapshot_status(
+        tmp_path, benchmark_name="v3-multilingual", expected_model_ids=variants
+    )
 
     for run_id in variants:
         assert f"- `{run_id}`: complete, 1/1 languages" in status

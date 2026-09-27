@@ -7,7 +7,9 @@ is an optional extra imported only when a model is loaded. See ADR-0010.
 """
 
 import logging
+import multiprocessing
 import os
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from typing import Any, Protocol
@@ -105,6 +107,23 @@ class SGLangGenerator:
     def close(self) -> None:
         """Stop the engine's scheduler processes and free the GPU for the next run."""
         self._engine.shutdown()
+        # shutdown() returns before the spawned scheduler exits, and the GPU memory is
+        # only released when it does; wait so the next run loads onto a freed device.
+        wait_for_children(multiprocessing.active_children(), timeout_seconds=CHILD_EXIT_TIMEOUT)
+
+
+CHILD_EXIT_TIMEOUT = 120.0
+
+
+def wait_for_children(children: Sequence[Any], *, timeout_seconds: float) -> list[Any]:
+    """Join ``children`` within one shared deadline; return those still alive."""
+    deadline = time.monotonic() + timeout_seconds
+    for child in children:
+        child.join(max(0.0, deadline - time.monotonic()))
+    alive = [child for child in children if child.is_alive()]
+    if alive:
+        logger.warning("%d SGLang process(es) still running after shutdown", len(alive))
+    return alive
 
 
 def _chat_encoder(request: RunRequest) -> Callable[[str], list[int]]:
