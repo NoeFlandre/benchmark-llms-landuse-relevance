@@ -490,6 +490,65 @@ def test_scoring_models_are_reported_in_their_own_section() -> None:
     assert "argmax over the native yes/no scores" in scoring
 
 
+def test_encoder_output_behavior_is_summarized_from_published_runs() -> None:
+    encoder_id = "LiquidAI/LFM2.5-Encoder-350M"
+
+    def encoder_run(language: str, outcomes: tuple[tuple[Label, Label], ...]) -> RunResult:
+        result = _result_with_outcomes(encoder_id, outcomes)
+        predictions = tuple(
+            replace(
+                prediction,
+                raw_output=(
+                    "no=0.100000 yes=0.900000"
+                    if prediction.predicted is Label.YES
+                    else "no=0.900000 yes=0.100000"
+                ),
+            )
+            for prediction in result.predictions
+        )
+        scoring_metadata = _scored(encoder_id, language).metadata
+        return replace(result, predictions=predictions, metadata=scoring_metadata)
+
+    card = dataset_card(
+        [
+            _result_with_outcomes(
+                "gen/one",
+                (
+                    (Label.YES, Label.YES),
+                    (Label.YES, Label.YES),
+                    (Label.NO, Label.NO),
+                    (Label.NO, Label.NO),
+                ),
+            ),
+            encoder_run(
+                "en",
+                (
+                    (Label.YES, Label.YES),
+                    (Label.YES, Label.YES),
+                    (Label.NO, Label.YES),
+                    (Label.NO, Label.NO),
+                ),
+            ),
+            encoder_run(
+                "fr",
+                (
+                    (Label.YES, Label.YES),
+                    (Label.YES, Label.NO),
+                    (Label.NO, Label.YES),
+                    (Label.NO, Label.NO),
+                ),
+            ),
+        ],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    scoring = card.split("## Scoring models")[1].split("## Runtime performance")[0]
+
+    assert "Observed output behavior" in scoring
+    assert "predicted `yes` for 2 to 3 of 4 items per language across 2 languages" in scoring
+
+
 def test_scoring_summary_emphasizes_best_values_and_lower_vram() -> None:
     card = dataset_card(
         [

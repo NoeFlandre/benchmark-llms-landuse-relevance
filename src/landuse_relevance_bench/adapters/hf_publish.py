@@ -13,6 +13,7 @@ from landuse_relevance_bench.adapters.results_store import (
     scoring_summary_rows,
 )
 from landuse_relevance_bench.domain.agreement import speculative_agreements
+from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
 from landuse_relevance_bench.domain.scorers import DEFAULT_CARD, logprob_pairs, scorer_for
@@ -428,6 +429,8 @@ def _scoring_section(
     prompt_blocks = "\n\n".join(
         f"{label}:\n\n```text\n{text}```" if text else f"{label}." for label, text in prompts
     )
+    behavior_note = _encoder_output_behavior_note(scoring)
+    behavior_block = f"\n\n{behavior_note}" if behavior_note else ""
     return f"""## Scoring models
 
 Scores are normalized to [0, 1]. Best thresholds are selected on this benchmark (an upper
@@ -447,7 +450,45 @@ bound); ROC-AUC needs no threshold. Full sweep: [`threshold_sweep.csv`](threshol
 
 {summary_header}
 {summary_divider}
-{summary_body}"""
+{summary_body}{behavior_block}"""
+
+
+def _encoder_output_behavior_note(scoring: Sequence[RunResult]) -> str:
+    """Summarize the encoder's observed yes rate without assuming its behavior."""
+    encoder_id = "LiquidAI/LFM2.5-Encoder-350M"
+    runs = [result for result in scoring if result.metadata.model_id == encoder_id]
+    if not runs:
+        return ""
+
+    yes_counts = [
+        sum(prediction.predicted is Label.YES for prediction in result.predictions)
+        for result in runs
+    ]
+    item_counts = [len(result.predictions) for result in runs]
+    yes_range = (
+        str(yes_counts[0])
+        if min(yes_counts) == max(yes_counts)
+        else f"{min(yes_counts)} to {max(yes_counts)}"
+    )
+    languages = {result.metadata.language for result in runs}
+    if len(languages) == len(runs) and len(set(item_counts)) == 1:
+        language_label = "language" if len(languages) == 1 else "languages"
+        return (
+            "**Observed output behavior:** In these runs, LFM2.5-Encoder-350M predicted "
+            f"`yes` for {yes_range} of {item_counts[0]} items per language across "
+            f"{len(languages)} {language_label}."
+        )
+
+    item_range = (
+        str(item_counts[0])
+        if min(item_counts) == max(item_counts)
+        else f"{min(item_counts)} to {max(item_counts)}"
+    )
+    return (
+        "**Observed output behavior:** In these runs, LFM2.5-Encoder-350M predicted "
+        f"`yes` for {yes_range} of {item_range} items per run across {len(runs)} runs "
+        f"in {len(languages)} languages."
+    )
 
 
 def _scoring_prompts(
