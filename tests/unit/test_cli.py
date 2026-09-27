@@ -829,6 +829,23 @@ def test_publish_allowlist_includes_snapshot_and_excludes_local_cache(
     assert not any(pattern.startswith(".cache/") for pattern in patterns)
 
 
+@pytest.mark.parametrize(
+    "run_id",
+    [
+        "LiquidAI/LFM2.5-2.6B@sglang-throughput-b16",
+        "LiquidAI/LFM2.5-2.6B+DSpark-throughput-b16",
+    ],
+)
+def test_publish_allowlist_uses_variant_run_id_not_base_model_id(run_id: str) -> None:
+    from factories import make_result
+
+    result = make_result(model_id="LiquidAI/LFM2.5-2.6B", run_id=run_id)
+
+    patterns = application.publish_allow_patterns(Path("results"), [result])
+
+    assert f"en/{run_id.replace('/', '__')}.json" in patterns
+
+
 def test_publish_dry_run_previews_card_without_writing_or_uploading(
     monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
 ) -> None:

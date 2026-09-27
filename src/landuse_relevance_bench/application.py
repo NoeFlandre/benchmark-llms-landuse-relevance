@@ -250,7 +250,7 @@ def publish_allow_patterns(
         "threshold_sweep.csv",
         "scoring_summary.csv",
         "data/train.csv",
-        *(str(run_filename(run.metadata.model_id, run.metadata.language)) for run in runs),
+        *(str(run_filename(run.metadata.name, run.metadata.language)) for run in runs),
     }
     if include_snapshot_status and (results_dir / "SNAPSHOT_STATUS.md").is_file():
         patterns.add("SNAPSHOT_STATUS.md")
