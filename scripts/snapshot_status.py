@@ -28,8 +28,7 @@ def snapshot_status(
     unknown_overrides = set(language_overrides) - set(roster)
     if unknown_overrides:
         raise ValueError(
-            "language overrides reference unrostered models: "
-            f"{sorted(unknown_overrides)}"
+            f"language overrides reference unrostered models: {sorted(unknown_overrides)}"
         )
     scorer_set = set(scorer_ids())
     generative_roster = tuple(model_id for model_id in roster if model_id not in scorer_set)
@@ -41,8 +40,7 @@ def snapshot_status(
     for run in runs:
         observed_languages_by_model[run.metadata.name].add(run.metadata.language)
     expected_languages = {
-        model_id: frozenset(language_overrides.get(model_id, languages))
-        for model_id in roster
+        model_id: frozenset(language_overrides.get(model_id, languages)) for model_id in roster
     }
     if any(not model_languages for model_languages in expected_languages.values()):
         raise ValueError("expected languages must not be empty")
@@ -78,9 +76,7 @@ def snapshot_status(
             expected = expected_languages[model_id]
             observed = observed_languages_by_model.get(model_id, set())
             state = "complete" if observed == expected else "in progress"
-            lines.append(
-                f"- `{model_id}`: {state}, {len(observed)}/{len(expected)} languages"
-            )
+            lines.append(f"- `{model_id}`: {state}, {len(observed)}/{len(expected)} languages")
 
     group("Generative models", generative_roster)
     group("Scoring models", scorers)
