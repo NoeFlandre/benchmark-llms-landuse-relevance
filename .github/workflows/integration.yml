@@ -19,7 +19,6 @@ jobs:
     timeout-minutes: 30
     env:
       CUDA_VISIBLE_DEVICES: ""
-      HF_HOME: ${{ runner.temp }}/huggingface
       UV_FROZEN: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -29,4 +28,7 @@ jobs:
           python-version: "3.12"
       - run: uv sync --extra inference
       - name: Run the CPU integration suite
+        # The runner context is only available at step level.
+        env:
+          HF_HOME: ${{ runner.temp }}/huggingface
         run: make integration
