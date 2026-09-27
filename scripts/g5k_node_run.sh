@@ -10,7 +10,7 @@
 #   LRB_CONTINUOUS_BATCHING  use Transformers continuous batching (default: 0)
 #   LRB_THROUGHPUT use SGLang multi-request throughput mode (default: 1)
 #   LRB_MAX_NEW_TOKENS  generation budget per prompt     (default: 4096)
-#   LRB_SHARD_INDEX shard index among deterministic pairs (default: OAR array index, else 0)
+#   LRB_SHARD_INDEX zero-based shard index among deterministic pairs (default: OAR array index - 1)
 #   LRB_SHARD_COUNT number of deterministic pair shards   (default: 1)
 #   LRB_MODEL_ID    optional single model/run name instead of the full roster
 #   LRB_RUNTIME     optional runtime for one run          (default: inferred from the roster name)
@@ -33,7 +33,17 @@ LRB_BATCH_SIZE="${LRB_BATCH_SIZE:-}"
 LRB_CONTINUOUS_BATCHING="${LRB_CONTINUOUS_BATCHING:-0}"
 LRB_THROUGHPUT="${LRB_THROUGHPUT:-1}"
 LRB_MAX_NEW_TOKENS="${LRB_MAX_NEW_TOKENS:-4096}"
-LRB_SHARD_INDEX="${LRB_SHARD_INDEX:-${OAR_ARRAY_INDEX:-0}}"
+if [[ -n "${LRB_SHARD_INDEX:-}" ]]; then
+  LRB_SHARD_INDEX="$LRB_SHARD_INDEX"
+elif [[ -n "${OAR_ARRAY_INDEX:-}" ]]; then
+  if [[ ! "$OAR_ARRAY_INDEX" =~ ^[1-9][0-9]*$ ]]; then
+    echo "invalid OAR_ARRAY_INDEX: $OAR_ARRAY_INDEX" >&2
+    exit 2
+  fi
+  LRB_SHARD_INDEX=$((OAR_ARRAY_INDEX - 1))
+else
+  LRB_SHARD_INDEX=0
+fi
 LRB_SHARD_COUNT="${LRB_SHARD_COUNT:-1}"
 LRB_MODEL_ID="${LRB_MODEL_ID:-}"
 LRB_RUNTIME="${LRB_RUNTIME:-}"

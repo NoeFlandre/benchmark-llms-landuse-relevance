@@ -198,7 +198,19 @@ def test_node_run_uses_oar_array_index_for_deterministic_shards(tmp_path: Path) 
     )
 
     assert run.completed.returncode == 0, run.completed.stderr
-    assert "shard=2/4" in run.completed.stdout
+    assert "shard=1/4" in run.completed.stdout
+
+
+def test_single_oar_job_maps_its_one_based_index_to_shard_zero(tmp_path: Path) -> None:
+    run = _run_node_script(
+        tmp_path,
+        GENERATIVE_MODEL_ID,
+        roster="models",
+        extra_environment={"OAR_ARRAY_INDEX": "1"},
+    )
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    assert "shard=0/1" in run.completed.stdout
 
 
 def test_sglang_loads_cuda_toolkit_and_exports_cuda_home(tmp_path: Path) -> None:
