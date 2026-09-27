@@ -130,6 +130,9 @@ if [[ "$LRB_RUNTIME" == "sglang" ]]; then
   cuda_root="$(dirname "$(dirname "$(command -v nvcc)")")"
   export CUDA_HOME="$cuda_root"
   export LD_LIBRARY_PATH="$cuda_root/lib64:$cuda_root/lib:${LD_LIBRARY_PATH:-}"
+  # LFM2.5 declares 131072 context tokens; SGLang's derived default is 128000.
+  # Permit the model's configured context length instead of aborting launch.
+  export SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN="${SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN:-1}"
 fi
 
 echo "== node: $(hostname)  job: ${OAR_JOB_ID:-none}"

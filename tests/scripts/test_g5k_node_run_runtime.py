@@ -31,8 +31,10 @@ GENERATIVE_MODEL_ID = "LiquidAI/LFM2.5-350M"
 
 FAKE_UV = """#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\\t%s\\tCUDA=%s\\tLD=%s\\tCMAKE=%s\\n' "${UV_PROJECT_ENVIRONMENT:-default}" "$*" \\
-  "${CUDA_HOME:-}" "${LD_LIBRARY_PATH:-}" "${CMAKE_ARGS:-}" >> "$TEST_UV_LOG"
+printf '%s\\t%s\\tCUDA=%s\\tLD=%s\\tCMAKE=%s\\tSGLANG_CONTEXT=%s\\n' \\
+  "${UV_PROJECT_ENVIRONMENT:-default}" "$*" "${CUDA_HOME:-}" \\
+  "${LD_LIBRARY_PATH:-}" "${CMAKE_ARGS:-}" \\
+  "${SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN:-}" >> "$TEST_UV_LOG"
 if [[ "$1" == sync ]]; then
   if [[ -n "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
     mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"
@@ -210,6 +212,7 @@ def test_sglang_loads_cuda_toolkit_and_exports_cuda_home(tmp_path: Path) -> None
     assert run.completed.returncode == 0, run.completed.stderr
     assert "load cuda-toolkit/12.9.1" in run.module_log.splitlines()
     assert f"CUDA={tmp_path}/cuda" in run.uv_log
+    assert "SGLANG_CONTEXT=1" in run.uv_log
 
 
 def test_gliclass_syncs_the_scoring_extra_in_its_own_environment(tmp_path: Path) -> None:
