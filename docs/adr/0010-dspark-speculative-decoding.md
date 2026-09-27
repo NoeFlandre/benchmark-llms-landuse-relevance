@@ -56,3 +56,10 @@ differing verdicts and differing raw generations.
   Grid'5000 walltime accordingly.
 - If a card's recipe changes, the roster's settings change with it and the result
   files record which settings were used (`speculative` in the metadata).
+- SGLang's DSpark worker reads `lm_head` and the hidden-state capture hook from the
+  top-level target model, while `Lfm2VlForConditionalGeneration` keeps both on its
+  inner `language_model`, so `LFM2.5-VL-3B+DSpark` failed at engine start.
+  `adapters/sglang_compat.py` forwards them to the inner model (same weights), loaded
+  into SGLang's spawned processes through `PYTHONPATH`. On English it was
+  byte-identical to `LFM2.5-VL-3B@sglang` on 300/300 items with the draft engaged
+  (accept rate 0.29). Remove the shim once SGLang resolves these on the wrapper.

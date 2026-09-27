@@ -7,6 +7,7 @@ is an optional extra imported only when a model is loaded. See ADR-0010.
 """
 
 import logging
+import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from typing import Any, Protocol
@@ -14,6 +15,7 @@ from typing import Any, Protocol
 from landuse_relevance_bench.adapters.hf_generator import chat_template_kwargs, user_turn
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.adapters.revision import resolve_revision
+from landuse_relevance_bench.adapters.sglang_compat import patch_lfm2_vl, with_site_dir
 from landuse_relevance_bench.domain.engine import Generation
 
 logger = logging.getLogger(__name__)
@@ -84,6 +86,9 @@ class SGLangGenerator:
     def load(cls, request: RunRequest) -> "SGLangGenerator":
         import sglang  # ty: ignore[unresolved-import]  # the `speculative` extra
 
+        # SGLang spawns its scheduler; the shim must load there as well as here.
+        os.environ.update(with_site_dir(dict(os.environ)))
+        patch_lfm2_vl()
         encode = _chat_encoder(request)
         engine = sglang.Engine(**engine_arguments(request))
         return cls(engine, encode, request.max_new_tokens)
