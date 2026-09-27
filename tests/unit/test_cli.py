@@ -10,7 +10,8 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from landuse_relevance_bench import cli
+from landuse_relevance_bench import application, cli
+from landuse_relevance_bench.adapters import providers
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.adapters.translations import load_manifest
 from landuse_relevance_bench.domain.roster import model_ids
@@ -41,11 +42,11 @@ def test_score_command_dispatches_each_selected_scoring_pair(
     model_id = "LiquidAI/LFM2.5-Encoder-350M"
     manifest = SimpleNamespace(files={"en": SimpleNamespace(path=Path("en.csv"))})
     requests = []
-    monkeypatch.setattr(cli, "_selected_languages", lambda *_: (manifest, ("en",)))
-    monkeypatch.setattr(cli, "_print_run_plan", lambda *args: None)
-    monkeypatch.setattr(cli, "_cached_scorer_provider", lambda: "provider")
+    monkeypatch.setattr(cli, "selected_languages", lambda *_: (manifest, ("en",)))
+    monkeypatch.setattr(cli, "print_run_plan", lambda *args: None)
+    monkeypatch.setattr(cli, "cached_scorer_provider", lambda: "provider")
     monkeypatch.setattr(
-        cli, "_score_one", lambda request, provider: requests.append((request, provider))
+        cli, "score_one", lambda request, provider: requests.append((request, provider))
     )
 
     cli.score(model_id, data_root=tmp_path, out=tmp_path / "results")
@@ -67,18 +68,18 @@ def test_score_command_rejects_a_non_scoring_roster_id() -> None:
 def test_scoring_language_selection_respects_encoder_coverage() -> None:
     spec = scorer_for("LiquidAI/LFM2.5-Encoder-350M")
 
-    assert cli._languages_for_scorer(spec, ("af", "de", "en", "fr"), None) == (
+    assert application.languages_for_scorer(spec, ("af", "de", "en", "fr"), None) == (
         "de",
         "en",
         "fr",
     )
     with pytest.raises(typer.BadParameter, match="only supports"):
-        cli._languages_for_scorer(spec, ("af", "en"), ["af", "en"])
+        application.languages_for_scorer(spec, ("af", "en"), ["af", "en"])
 
     general_scorer = scorer_for("Alibaba-NLP/gte-multilingual-reranker-base")
-    assert cli._languages_for_scorer(general_scorer, ("de", "en"), None) == ("de", "en")
+    assert application.languages_for_scorer(general_scorer, ("de", "en"), None) == ("de", "en")
     with pytest.raises(typer.BadParameter, match="no selected language"):
-        cli._languages_for_scorer(spec, ("af",), None)
+        application.languages_for_scorer(spec, ("af",), None)
 
 
 def test_cli_providers_remain_lazy_and_dispatch_to_the_selected_runtime(monkeypatch) -> None:
@@ -104,9 +105,9 @@ def test_cli_providers_remain_lazy_and_dispatch_to_the_selected_runtime(monkeypa
 
     hf_request = request("LiquidAI/LFM2.5-350M")
     sglang_request = request("LiquidAI/LFM2.5-1.2B-Instruct@sglang")
-    assert cli.generator_provider()(hf_request) == "hf"
-    assert cli.generator_provider()(sglang_request) == "sg"
-    assert cli.scorer_provider()(request("LiquidAI/LFM2.5-Encoder-350M")) == (
+    assert providers.generator_provider()(hf_request) == "hf"
+    assert providers.generator_provider()(sglang_request) == "sg"
+    assert providers.scorer_provider()(request("LiquidAI/LFM2.5-Encoder-350M")) == (
         "scorer",
         "LiquidAI/LFM2.5-Encoder-350M",
     )
@@ -124,7 +125,7 @@ def test_cached_provider_reuses_closes_and_rejects_a_missing_model(monkeypatch) 
         def close(self) -> None:
             closed.append(self.name)
 
-    provider = cli._CachedProvider(
+    provider = providers.CachedProvider(
         lambda: lambda request: (created.append(request.name) or Generator(request.name), "rev")
     )
     request = RunRequest.for_run(
@@ -149,7 +150,7 @@ def test_cached_provider_reuses_closes_and_rejects_a_missing_model(monkeypatch) 
 
     assert created == [request.name, second_request.name]
     assert closed == [request.name, second_request.name]
-    missing = cli._CachedProvider(lambda: lambda _request: None)
+    missing = providers.CachedProvider(lambda: lambda _request: None)
     with pytest.raises(RuntimeError, match="failed to load"):
         missing(request)
 
@@ -159,9 +160,9 @@ def test_cli_language_validation_rejects_empty_and_unknown_codes(
 ) -> None:
     data_root = _translation_root(tmp_path, benchmark_path)
     with pytest.raises(typer.BadParameter, match="cannot be empty"):
-        cli._normalize_language_selectors(["en,"])
+        application.normalize_language_selectors(["en,"])
     with pytest.raises(typer.BadParameter, match="unknown language"):
-        cli._selected_languages(data_root, ["xx"])
+        application.selected_languages(data_root, ["xx"])
 
 
 class AlwaysYes:
@@ -220,7 +221,7 @@ def test_run_writes_a_result_file(
     monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
 ) -> None:
     data_root = _translation_root(tmp_path, benchmark_path)
-    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
     result = runner.invoke(
         cli.app,
         [
@@ -246,7 +247,7 @@ def test_run_prints_prompt_count_and_resume_state(
     monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
 ) -> None:
     data_root = _translation_root(tmp_path, benchmark_path)
-    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
     arguments = [
         "run",
         "some/model",
@@ -279,7 +280,7 @@ def test_run_reuses_one_generator_across_languages(
         provider_languages.append(request.language)
         return AlwaysYes(), "fakerev"
 
-    monkeypatch.setattr(cli, "generator_provider", lambda: recording_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: recording_provider)
     result = runner.invoke(
         cli.app,
         [
@@ -303,7 +304,7 @@ def test_run_reuses_one_generator_across_languages(
 def test_run_reports_a_missing_benchmark_without_a_traceback(
     monkeypatch, tmp_path: Path, prompt_path: Path
 ) -> None:
-    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
     result = runner.invoke(
         cli.app,
         [
@@ -324,7 +325,7 @@ def test_run_reports_a_missing_benchmark_without_a_traceback(
 def test_run_defaults_to_every_language(monkeypatch, tmp_path: Path) -> None:
     requests: list[RunRequest] = []
     monkeypatch.setattr(
-        cli, "_benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
+        cli, "benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
     )
 
     result = runner.invoke(
@@ -345,7 +346,7 @@ def test_run_accepts_repeated_and_comma_separated_language_filters(
     languages: list[str] = []
     monkeypatch.setattr(
         cli,
-        "_benchmark_one",
+        "benchmark_one",
         lambda request, _provider=None, **_kwargs: languages.append(request.language),
     )
 
@@ -370,7 +371,7 @@ def test_run_accepts_repeated_and_comma_separated_language_filters(
 def test_run_all_shard_selects_a_deterministic_subset(monkeypatch) -> None:
     requests: list[RunRequest] = []
     monkeypatch.setattr(
-        cli, "_benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
+        cli, "benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
     )
 
     result = runner.invoke(
@@ -397,7 +398,7 @@ def test_run_all_shard_selects_a_deterministic_subset(monkeypatch) -> None:
 def test_run_all_records_sglang_throughput_variant(monkeypatch) -> None:
     requests: list[RunRequest] = []
     monkeypatch.setattr(
-        cli, "_benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
+        cli, "benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
     )
 
     result = runner.invoke(
@@ -430,7 +431,7 @@ def test_run_all_uses_continuous_batching_only_for_supported_transformers(
 ) -> None:
     requests: list[RunRequest] = []
     monkeypatch.setattr(
-        cli, "_benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
+        cli, "benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
     )
 
     result = runner.invoke(
@@ -476,7 +477,7 @@ def test_status_marks_a_valid_rostered_pair_complete(
     monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
 ) -> None:
     data_root = _translation_root(tmp_path, benchmark_path)
-    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
     run = runner.invoke(
         cli.app,
         [
@@ -515,7 +516,7 @@ def test_run_skips_an_existing_valid_model_language_pair(
     monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
 ) -> None:
     data_root = _translation_root(tmp_path, benchmark_path)
-    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
     first = runner.invoke(
         cli.app,
         [
@@ -533,7 +534,7 @@ def test_run_skips_an_existing_valid_model_language_pair(
     )
     assert first.exit_code == 0, first.stdout
     monkeypatch.setattr(
-        cli, "execute", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError)
+        application, "execute", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError)
     )
 
     second = runner.invoke(
@@ -560,7 +561,7 @@ def test_report_builds_a_leaderboard_from_stored_runs(
     monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
 ) -> None:
     data_root = _translation_root(tmp_path, benchmark_path)
-    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
     results_dir = tmp_path / "results"
     for model in ("a/one", "b/two"):
         runner.invoke(
@@ -592,7 +593,7 @@ def test_report_filters_languages_and_writes_both_csvs(
     monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
 ) -> None:
     data_root = _translation_root(tmp_path, benchmark_path)
-    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
     results_dir = tmp_path / "results"
     for language in ("en", "fr"):
         run = runner.invoke(
@@ -635,7 +636,7 @@ def test_publish_pushes_the_stored_runs(
 ) -> None:
     from landuse_relevance_bench.adapters import hf_publish
 
-    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
     results_dir = tmp_path / "results"
     data_root = _translation_root(tmp_path, benchmark_path)
     runner.invoke(
@@ -710,7 +711,7 @@ def test_publish_filters_language_artifacts_and_viewer_rows(
 ) -> None:
     from landuse_relevance_bench.adapters import hf_publish
 
-    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
     results_dir = tmp_path / "results"
     data_root = _translation_root(tmp_path, benchmark_path)
     for model, language in (("some/model", "en"), ("other/model", "fr")):
@@ -772,7 +773,7 @@ def test_publish_filters_language_artifacts_and_viewer_rows(
 def test_publish_dry_run_previews_card_without_writing_or_uploading(
     monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
 ) -> None:
-    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
     results_dir = tmp_path / "results"
     data_root = _translation_root(tmp_path, benchmark_path)
     run = runner.invoke(
@@ -836,7 +837,7 @@ def test_run_refuses_to_overwrite_a_corrupt_checkpoint(
     corrupt = results_dir / run_filename("some/model", "en")
     corrupt.parent.mkdir(parents=True)
     corrupt.write_text("not json", encoding="utf-8")
-    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
 
     result = runner.invoke(
         cli.app,
@@ -867,7 +868,7 @@ def test_run_all_keep_going_reports_pair_errors_and_exits_nonzero(
     def fail(_request: RunRequest):
         raise RuntimeError("simulated model failure")
 
-    monkeypatch.setattr(cli, "generator_provider", lambda: fail)
+    monkeypatch.setattr(providers, "generator_provider", lambda: fail)
     result = runner.invoke(
         cli.app,
         [

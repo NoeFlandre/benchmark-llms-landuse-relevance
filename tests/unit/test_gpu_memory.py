@@ -4,7 +4,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from landuse_relevance_bench import cli
+from landuse_relevance_bench.adapters import providers
 from landuse_relevance_bench.adapters.gpu_memory import MIB, gpu_memory_line
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 
@@ -46,7 +46,7 @@ def test_cached_provider_logs_memory_before_load_and_after_close(capsys) -> None
         events.append(event)
         return f"gpu_mem event={event} run={run} free_mib=1 total_mib=2"
 
-    provider = cli._CachedProvider(lambda: lambda _request: (Generator(), "rev"), memory_line)
+    provider = providers.CachedProvider(lambda: lambda _request: (Generator(), "rev"), memory_line)
     request = RunRequest.for_run(
         "LiquidAI/LFM2.5-350M",
         language="en",

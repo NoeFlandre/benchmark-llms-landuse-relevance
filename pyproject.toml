@@ -171,6 +171,7 @@ type = "forbidden"
 source_modules = ["landuse_relevance_bench.domain"]
 forbidden_modules = [
     "landuse_relevance_bench.adapters",
+    "landuse_relevance_bench.application",
     "landuse_relevance_bench.cli",
     "csv",
     "json",
@@ -188,6 +189,7 @@ name = "Layered architecture"
 type = "layers"
 layers = [
     "landuse_relevance_bench.cli",
+    "landuse_relevance_bench.application",
     "landuse_relevance_bench.adapters",
     "landuse_relevance_bench.domain",
 ]
@@ -202,6 +204,7 @@ pytest_add_cli_args_test_selection = ["tests/unit/", "tests/property/", "tests/a
 also_copy = [
     "src/landuse_relevance_bench/__init__.py",
     "src/landuse_relevance_bench/cli.py",
+    "src/landuse_relevance_bench/application.py",
     "src/landuse_relevance_bench/adapters/",
     "scripts/",
     "results/",

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from landuse_relevance_bench import cli
+from landuse_relevance_bench import application, cli
 from landuse_relevance_bench.adapters import hf_generator, hf_scorer, llama_generator
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.domain.scorers import GENERATIVE_PROMPT, ZEROSHOT_PROMPT
@@ -74,10 +74,10 @@ def test_the_generator_provider_dispatches_quants_to_llama_cpp(fake_hub) -> None
 
 def test_publish_collects_every_other_scorer_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
     loaded: list[Path] = []
-    monkeypatch.setattr(cli, "load_prompt", lambda path: loaded.append(path) or str(path))
+    monkeypatch.setattr(application, "load_prompt", lambda path: loaded.append(path) or str(path))
     monkeypatch.setattr(Path, "is_file", lambda self: True)
 
-    prompts = cli._extra_scorer_prompts(cli.DEFAULT_SCORER_PROMPT)
+    prompts = application.extra_scorer_prompts(cli.DEFAULT_SCORER_PROMPT)
 
     assert Path(ZEROSHOT_PROMPT) in loaded
     assert cli.DEFAULT_SCORER_PROMPT not in loaded

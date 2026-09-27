@@ -10,7 +10,8 @@ from pytest_bdd import given, parsers, scenarios, then, when
 from typer.testing import CliRunner
 
 from factories import make_result
-from landuse_relevance_bench import cli
+from landuse_relevance_bench import application, cli
+from landuse_relevance_bench.adapters import providers
 from landuse_relevance_bench.adapters.benchmark_csv import load_benchmark
 from landuse_relevance_bench.adapters.results_store import write_run
 
@@ -40,8 +41,9 @@ def _cli_harness(monkeypatch, real_benchmark_path: Path, real_prompt_path: Path,
         calls.append(request.name)
         return OracleGenerator(labels), "stub-revision"
 
-    monkeypatch.setattr(cli, "generator_provider", lambda: provide)
+    monkeypatch.setattr(providers, "generator_provider", lambda: provide)
     monkeypatch.setattr(cli, "model_ids", lambda: ("stub/first", "stub/second"))
+    monkeypatch.setattr(application, "model_ids", lambda: ("stub/first", "stub/second"))
     return {
         "benchmark": real_benchmark_path.parent.parent,
         "prompt": real_prompt_path,
