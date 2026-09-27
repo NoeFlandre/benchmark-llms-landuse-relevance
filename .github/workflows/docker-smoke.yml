@@ -41,8 +41,8 @@ jobs:
           trap 'rm -rf "$results_dir" "$cache_dir"' EXIT
           chmod 777 "$results_dir" "$cache_dir"
 
-          docker run --rm "$IMAGE" --version
-          docker run --rm "$IMAGE" models --json >/dev/null
+          docker run --rm "$IMAGE" --help >/dev/null
+          docker run --rm "$IMAGE" models >/dev/null
           container_uid="$(docker run --rm --entrypoint sh "$IMAGE" -c 'id -u')"
           test "$container_uid" -ne 0
           docker run --rm \

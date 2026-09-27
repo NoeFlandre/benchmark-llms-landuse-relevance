@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from landuse_relevance_bench.domain.labels import Label
@@ -94,6 +96,26 @@ def test_run_result_rejects_metrics_that_disagree_with_its_predictions() -> None
             metadata=META,
             predictions=(_prediction(), _prediction()),
             metrics=evaluate([(Label.YES, Label.YES)]),
+        )
+
+
+def test_run_result_rejects_duplicate_item_ids() -> None:
+    duplicate = _prediction()
+    with pytest.raises(ValueError, match="duplicate item id"):
+        RunResult(
+            metadata=META,
+            predictions=(duplicate, duplicate),
+            metrics=evaluate([(Label.YES, Label.YES), (Label.YES, Label.YES)]),
+        )
+
+
+def test_run_result_rejects_metrics_that_disagree_without_a_count_mismatch() -> None:
+    metrics = evaluate([(Label.YES, Label.YES)])
+    with pytest.raises(ValueError, match="metrics do not match predictions"):
+        RunResult(
+            metadata=META,
+            predictions=(_prediction(),),
+            metrics=replace(metrics, accuracy=0.0),
         )
 
 

@@ -1,12 +1,17 @@
 import hashlib
 import json
+import sys
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from landuse_relevance_bench.adapters import hf_publish, translations
 from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.hf_publish import (
+    _default_api,
+    _same_gpu_row,
     dataset_card,
     publish_results,
     read_published_runs,
@@ -243,7 +248,7 @@ def test_published_runs_reads_nested_result_folders_in_stable_order(tmp_path: Pa
     assert [result.metadata.model_id for result in published] == ["a/one", "b/two"]
 
 
-def test_viewer_export_is_one_neat_multilingual_csv(tmp_path: Path) -> None:
+def test_viewer_export_is_one_neat_multilingual_csv(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "translations"
     csv_template = (
         "sentence,label,polygon_name,h3_cell,latitude,longitude,source,region,source_url,"
@@ -285,12 +290,41 @@ def test_viewer_export_is_one_neat_multilingual_csv(tmp_path: Path) -> None:
     assert ",en," in lines[1]
     assert ",fr," in lines[2]
 
+    with pytest.raises(ValueError, match="unknown viewer language"):
+        write_viewer_dataset(root, tmp_path / "unknown.csv", languages=("xx",))
+    monkeypatch.setattr(translations, "load_language_benchmark", lambda *_args, **_kwargs: ())
+    with pytest.raises(ValueError, match="viewer export row mismatch"):
+        write_viewer_dataset(root, tmp_path / "mismatch.csv", languages=("en",))
 
-def test_card_rejects_metrics_that_are_not_derived_from_predictions() -> None:
+
+def test_card_rejects_metrics_that_are_not_derived_from_predictions(monkeypatch) -> None:
     result = _result()
+    monkeypatch.setattr(
+        hf_publish,
+        "evaluate",
+        lambda _outcomes: replace(result.metrics, accuracy=0.0),
+    )
 
     with pytest.raises(ValueError, match="metrics do not match predictions"):
-        replace(result, metrics=replace(result.metrics, accuracy=0.0))
+        dataset_card([result], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+
+def test_empty_cards_and_mismatched_same_gpu_devices_are_rejected() -> None:
+    with pytest.raises(ValueError, match="empty set of results"):
+        dataset_card([], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    scored = replace(_result(), metadata=replace(_result().metadata, device_name="NVIDIA A100"))
+    rerun = replace(_result(), metadata=replace(_result().metadata, device_name="NVIDIA V100"))
+    assert _same_gpu_row([scored], [rerun]) == ""
+
+
+def test_default_huggingface_api_is_created_lazily(monkeypatch) -> None:
+    class FakeApi:
+        pass
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(HfApi=FakeApi))
+
+    assert isinstance(_default_api(), FakeApi)
 
 
 def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(

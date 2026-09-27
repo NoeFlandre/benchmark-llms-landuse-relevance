@@ -1,8 +1,10 @@
 import csv
 import hashlib
 import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 import typer
@@ -30,6 +32,91 @@ def test_scoring_language_selection_respects_encoder_coverage() -> None:
 
     general_scorer = scorer_for("Alibaba-NLP/gte-multilingual-reranker-base")
     assert cli._languages_for_scorer(general_scorer, ("de", "en"), None) == ("de", "en")
+    with pytest.raises(typer.BadParameter, match="no selected language"):
+        cli._languages_for_scorer(spec, ("af",), None)
+
+
+def test_cli_providers_remain_lazy_and_dispatch_to_the_selected_runtime(monkeypatch) -> None:
+    from landuse_relevance_bench.adapters import hf_scorer
+
+    calls: list[tuple[str, RunRequest]] = []
+    transformers = ModuleType("landuse_relevance_bench.adapters.hf_generator")
+    transformers.provide = lambda request: calls.append(("transformers", request)) or "hf"
+    sglang = ModuleType("landuse_relevance_bench.adapters.sglang_generator")
+    sglang.provide = lambda request: calls.append(("sglang", request)) or "sg"
+    monkeypatch.setitem(sys.modules, transformers.__name__, transformers)
+    monkeypatch.setitem(sys.modules, sglang.__name__, sglang)
+    monkeypatch.setattr(hf_scorer, "provide_scorer", lambda request: ("scorer", request.name))
+
+    def request(model_id: str) -> RunRequest:
+        return RunRequest.for_run(
+            model_id,
+            language="en",
+            benchmark_path=Path("benchmark.csv"),
+            prompt_path=Path("prompt.txt"),
+            output_dir=Path("results"),
+        )
+
+    hf_request = request("LiquidAI/LFM2.5-350M")
+    sglang_request = request("LiquidAI/LFM2.5-1.2B-Instruct@sglang")
+    assert cli.generator_provider()(hf_request) == "hf"
+    assert cli.generator_provider()(sglang_request) == "sg"
+    assert cli.scorer_provider()(request("LiquidAI/LFM2.5-Encoder-350M")) == (
+        "scorer",
+        "LiquidAI/LFM2.5-Encoder-350M",
+    )
+    assert [name for name, _ in calls] == ["transformers", "sglang"]
+
+
+def test_cached_provider_reuses_closes_and_rejects_a_missing_model(monkeypatch) -> None:
+    closed: list[str] = []
+    created: list[str] = []
+
+    class Generator:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def close(self) -> None:
+            closed.append(self.name)
+
+    provider = cli._CachedProvider(
+        lambda: lambda request: (created.append(request.name) or Generator(request.name), "rev")
+    )
+    request = RunRequest.for_run(
+        "LiquidAI/LFM2.5-350M",
+        language="en",
+        benchmark_path=Path("benchmark.csv"),
+        prompt_path=Path("prompt.txt"),
+        output_dir=Path("results"),
+    )
+    first = provider(request)
+    assert provider(request) is first
+    second_request = RunRequest.for_run(
+        "LiquidAI/LFM2.5-1.2B-Instruct@sglang",
+        language="en",
+        benchmark_path=Path("benchmark.csv"),
+        prompt_path=Path("prompt.txt"),
+        output_dir=Path("results"),
+    )
+    provider(second_request)
+    provider.close_cached()
+    provider.close_cached()
+
+    assert created == [request.name, second_request.name]
+    assert closed == [request.name, second_request.name]
+    missing = cli._CachedProvider(lambda: lambda _request: None)
+    with pytest.raises(RuntimeError, match="failed to load"):
+        missing(request)
+
+
+def test_cli_language_validation_rejects_empty_and_unknown_codes(
+    tmp_path: Path, benchmark_path: Path
+) -> None:
+    data_root = _translation_root(tmp_path, benchmark_path)
+    with pytest.raises(typer.BadParameter, match="cannot be empty"):
+        cli._normalize_language_selectors(["en,"])
+    with pytest.raises(typer.BadParameter, match="unknown language"):
+        cli._selected_languages(data_root, ["xx"])
 
 
 class AlwaysYes:
@@ -637,7 +724,123 @@ def test_publish_filters_language_artifacts_and_viewer_rows(
     assert (results_dir / "fr" / "other__model.json").is_file()
 
 
+def test_publish_dry_run_previews_card_without_writing_or_uploading(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+    results_dir = tmp_path / "results"
+    data_root = _translation_root(tmp_path, benchmark_path)
+    run = runner.invoke(
+        cli.app,
+        [
+            "run",
+            "some/model",
+            "--data-root",
+            str(data_root),
+            "--language",
+            "en",
+            "--prompt",
+            str(prompt_path),
+            "--out",
+            str(results_dir),
+        ],
+    )
+    assert run.exit_code == 0, run.stdout
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "publish",
+            "me/bench",
+            "--data-root",
+            str(data_root),
+            "--results-dir",
+            str(results_dir),
+            "--prompt",
+            str(prompt_path),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "dry-run: would publish 1 result(s)" in result.stdout
+    assert "some/model" in result.stdout
+    assert not (results_dir / "README.md").exists()
+
+
 def test_publish_refuses_an_empty_results_directory(tmp_path: Path) -> None:
     result = runner.invoke(cli.app, ["publish", "me/bench", "--results-dir", str(tmp_path)])
     assert result.exit_code == 2
     assert "no run" in result.stderr.lower()
+
+
+def test_scorers_lists_the_non_generative_roster() -> None:
+    result = runner.invoke(cli.app, ["scorers"])
+
+    assert result.exit_code == 0
+    assert "LiquidAI/LFM2.5-Encoder-350M" in result.stdout
+
+
+def test_run_refuses_to_overwrite_a_corrupt_checkpoint(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    from landuse_relevance_bench.adapters.results_store import run_filename
+
+    data_root = _translation_root(tmp_path, benchmark_path)
+    results_dir = tmp_path / "results"
+    corrupt = results_dir / run_filename("some/model", "en")
+    corrupt.parent.mkdir(parents=True)
+    corrupt.write_text("not json", encoding="utf-8")
+    monkeypatch.setattr(cli, "generator_provider", lambda: _fake_provider)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "run",
+            "some/model",
+            "--data-root",
+            str(data_root),
+            "--language",
+            "en",
+            "--prompt",
+            str(prompt_path),
+            "--out",
+            str(results_dir),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "already complete" not in result.stdout
+    assert "invalid" in result.stderr.lower()
+
+
+def test_run_all_keep_going_reports_pair_errors_and_exits_nonzero(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    data_root = _translation_root(tmp_path, benchmark_path)
+
+    def fail(_request: RunRequest):
+        raise RuntimeError("simulated model failure")
+
+    monkeypatch.setattr(cli, "generator_provider", lambda: fail)
+    result = runner.invoke(
+        cli.app,
+        [
+            "run-all",
+            "--data-root",
+            str(data_root),
+            "--prompt",
+            str(prompt_path),
+            "--out",
+            str(tmp_path / "results"),
+            "--language",
+            "en",
+            "--only",
+            "LiquidAI/LFM2.5-350M",
+            "--keep-going",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "simulated model failure" in result.stderr
+    assert "failed" in result.stderr

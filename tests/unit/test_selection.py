@@ -1,5 +1,6 @@
 from factories import make_result
 from landuse_relevance_bench.domain.selection import (
+    ComparabilityReport,
     check_comparable,
     collection_comparability_errors,
     select_run_names,
@@ -72,3 +73,23 @@ def test_runs_on_the_same_language_reject_different_benchmark_hashes() -> None:
 
     assert len(errors) == 1
     assert "benchmark_sha256 differs for language en" in errors[0]
+
+
+def test_comparability_summary_and_empty_collection_are_explicit() -> None:
+    assert (
+        ComparabilityReport(reference_name="model", differences=()).summary
+        == "all runs use the same benchmark, prompt, token budget, and decoding"
+    )
+    assert collection_comparability_errors([]) == ()
+
+
+def test_scoring_runs_of_one_method_must_share_inference_settings() -> None:
+    results = [
+        make_result("scorer", inference="scoring", max_new_tokens=8),
+        make_result("scorer", inference="scoring", max_new_tokens=16),
+    ]
+
+    errors = collection_comparability_errors(results)
+
+    assert len(errors) == 1
+    assert errors[0].startswith("scorer: runs are not comparable")

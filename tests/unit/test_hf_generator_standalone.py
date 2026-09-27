@@ -2,11 +2,15 @@
 
 import sys
 from contextlib import nullcontext
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from landuse_relevance_bench.adapters import hf_generator
 from landuse_relevance_bench.adapters.hf_generator import GeneratorSettings, TransformersGenerator
+from landuse_relevance_bench.adapters.pipeline import RunRequest
 
 EOS_TEXT = "sentinel"
 
@@ -181,3 +185,152 @@ def test_close_releases_model_and_empty_cuda_cache(monkeypatch) -> None:
 
     assert generator._model is None
     assert calls == ["gc", "empty"]
+
+
+def test_model_loader_sets_dtype_revision_and_eval_state(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class LoadedModel(FakeModel):
+        def eval(self) -> None:
+            self.evaluated = True
+
+    class AutoClass:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: Any) -> LoadedModel:
+            calls.append({"model_id": model_id, **kwargs})
+            return LoadedModel()
+
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(float16="float16-dtype"))
+    settings = GeneratorSettings(max_new_tokens=4, dtype="float16", seed=3)
+    model = hf_generator._load_model(AutoClass, "owner/model", settings, "commit")
+
+    assert model.evaluated
+    assert calls == [
+        {
+            "model_id": "owner/model",
+            "revision": "commit",
+            "dtype": "float16-dtype",
+            "device_map": "auto",
+        }
+    ]
+
+
+def test_transformers_loaders_choose_and_initialize_text_and_vision_models(monkeypatch) -> None:
+    calls: list[tuple[str, str, Any]] = []
+
+    class AutoConfig:
+        @staticmethod
+        def from_pretrained(model_id: str, revision: str | None = None) -> Any:
+            calls.append(("config", model_id, revision))
+            architecture = ("VisionForConditionalGeneration",) if model_id == "vision" else ()
+            return SimpleNamespace(architectures=architecture, vision_config=None)
+
+    class AutoTokenizer:
+        @staticmethod
+        def from_pretrained(model_id: str, revision: str | None = None) -> FakeTokenizer:
+            calls.append(("tokenizer", model_id, revision))
+            tokenizer = FakeTokenizer()
+            tokenizer.pad_token_id = None
+            return tokenizer
+
+    class AutoProcessor:
+        @staticmethod
+        def from_pretrained(model_id: str, revision: str | None = None) -> Any:
+            calls.append(("processor", model_id, revision))
+            tokenizer = FakeTokenizer()
+            tokenizer.pad_token_id = None
+            return SimpleNamespace(
+                tokenizer=tokenizer, apply_chat_template=lambda *_a, **_k: "vision"
+            )
+
+    class AutoModel:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: Any) -> FakeModel:
+            calls.append(("model", model_id, kwargs["revision"]))
+
+            class LoadedModel(FakeModel):
+                def eval(self) -> None:
+                    self.evaluated = True
+
+            return LoadedModel()
+
+    transformers = SimpleNamespace(
+        AutoConfig=AutoConfig,
+        AutoTokenizer=AutoTokenizer,
+        AutoProcessor=AutoProcessor,
+        AutoModelForCausalLM=AutoModel,
+        AutoModelForImageTextToText=AutoModel,
+        set_seed=lambda seed: calls.append(("seed", str(seed), None)),
+    )
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(float32="float32-dtype"))
+    settings = GeneratorSettings(max_new_tokens=4, dtype="float32", seed=5)
+
+    assert hf_generator._auto_class("text", "r1") is AutoModel
+    assert hf_generator._auto_class("vision", "r2") is AutoModel
+    text = TransformersGenerator.load("text", settings, revision="r1")
+    vision = hf_generator.VisionLanguageGenerator.load("vision", settings, revision="r2")
+
+    assert text._tokenizer.padding_side == "left"
+    assert text._tokenizer.pad_token == EOS_TEXT
+    assert vision._tokenizer.padding_side == "left"
+    assert vision._tokenizer.pad_token == EOS_TEXT
+    assert vision._as_chat("prompt") == "vision"
+
+
+@pytest.mark.parametrize(
+    ("outputs", "exception", "message"),
+    [
+        ({}, ValueError, "returned 0 outputs for 1 prompts"),
+        (
+            {"req": SimpleNamespace(request_id="req", error="engine stopped")},
+            RuntimeError,
+            "request req failed: engine stopped",
+        ),
+    ],
+)
+def test_continuous_batching_rejects_missing_or_failed_requests(
+    monkeypatch, outputs, exception, message: str
+) -> None:
+    class BrokenModel(FakeContinuousModel):
+        def generate_batch(self, **_: Any) -> dict[str, Any]:
+            return outputs
+
+    generator = TransformersGenerator(
+        FakeTokenizer(),
+        BrokenModel(),
+        GeneratorSettings(max_new_tokens=2, dtype="float32", seed=0, continuous_batching=True),
+    )
+
+    with pytest.raises(exception, match=message):
+        generator.generate(["first"])
+
+
+def test_close_skips_cuda_cache_when_cuda_is_unavailable(monkeypatch) -> None:
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False, empty_cache=lambda: None)),
+    )
+    generator = TransformersGenerator(
+        FakeTokenizer(), FakeModel(), GeneratorSettings(max_new_tokens=2, dtype="float32", seed=0)
+    )
+
+    generator.close()
+
+    assert generator._model is None
+
+
+def test_vision_language_provider_rejects_continuous_batching_before_loading() -> None:
+    request = RunRequest(
+        model_id="LiquidAI/LFM2.5-VL-3B",
+        language="en",
+        benchmark_path=Path("unused"),
+        prompt_path=Path("unused"),
+        output_dir=Path("unused"),
+        vision=True,
+        continuous_batching=True,
+    )
+
+    with pytest.raises(ValueError, match="vision-language"):
+        hf_generator.provide(request)

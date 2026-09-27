@@ -1,10 +1,14 @@
+import subprocess
+import sys
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
+from landuse_relevance_bench.adapters import pipeline
 from landuse_relevance_bench.adapters.hashing import sha256_of_file
 from landuse_relevance_bench.adapters.pipeline import DEFAULT_MAX_NEW_TOKENS, RunRequest, execute
 from landuse_relevance_bench.adapters.results_store import read_run, run_filename
@@ -157,3 +161,114 @@ def test_scoring_records_a_scorer_runtime_dtype_when_provided(request_for) -> No
     result = execute_scoring(request, lambda _: (scorer, "laya-rev"))
 
     assert result.metadata.dtype == "float16"
+
+
+def test_execute_closes_a_model_once_after_success(request_for) -> None:
+    class CloseableGenerator(StubGenerator):
+        def __init__(self) -> None:
+            super().__init__(["yes", "no"])
+            self.close_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    generator = CloseableGenerator()
+    result = execute(request_for(), lambda _: (generator, "rev0"))
+
+    assert result.metrics.n_items == 2
+    assert generator.close_calls == 1
+
+
+def test_execute_closes_a_model_after_prediction_failure_without_masking_it(request_for) -> None:
+    class FailingGenerator(StubGenerator):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.close_calls = 0
+
+        def generate(self, prompts: Sequence[str]) -> Sequence[str]:
+            raise RuntimeError("generation failed")
+
+        def close(self) -> None:
+            self.close_calls += 1
+            raise OSError("cleanup failed")
+
+    generator = FailingGenerator()
+
+    with pytest.raises(RuntimeError, match="generation failed"):
+        execute(request_for(), lambda _: (generator, "rev0"))
+
+    assert generator.close_calls == 1
+
+
+def test_execute_respects_a_caller_owned_generator(request_for) -> None:
+    class CloseableGenerator(StubGenerator):
+        close_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    generator = CloseableGenerator(["yes", "no"])
+    result = execute(
+        request_for(close_generator=False),
+        lambda _: (generator, "rev0"),
+    )
+
+    assert result.metrics.n_items == 2
+    assert generator.close_calls == 0
+
+
+def test_gpu_memory_probe_handles_missing_command_empty_output_and_bad_values(monkeypatch) -> None:
+    monkeypatch.setattr(pipeline.shutil, "which", lambda _: None)
+    assert pipeline._free_gpu_memory_bytes() is None
+
+    monkeypatch.setattr(pipeline.shutil, "which", lambda _: "/fake/nvidia-smi")
+    monkeypatch.setattr(
+        pipeline.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=" 4096 \n 2048\n"),
+    )
+    assert pipeline._free_gpu_memory_bytes() == 2048 * 2**20
+
+    monkeypatch.setattr(
+        pipeline.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=""),
+    )
+    assert pipeline._free_gpu_memory_bytes() is None
+    monkeypatch.setattr(
+        pipeline.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout="unknown"),
+    )
+    assert pipeline._free_gpu_memory_bytes() is None
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        FileNotFoundError("nvidia-smi"),
+        subprocess.CalledProcessError(1, "nvidia-smi"),
+        subprocess.TimeoutExpired("nvidia-smi", 5),
+    ],
+)
+def test_gpu_memory_probe_treats_nvidia_smi_failures_as_unavailable(monkeypatch, failure) -> None:
+    monkeypatch.setattr(pipeline.shutil, "which", lambda _: "/fake/nvidia-smi")
+
+    def fail(*_args: Any, **_kwargs: Any) -> Any:
+        raise failure
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fail)
+    assert pipeline._free_gpu_memory_bytes() is None
+
+
+def test_device_name_handles_missing_torch_cpu_and_cuda(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "torch", None)
+    assert pipeline._device_name() == ""
+
+    torch = ModuleType("torch")
+    torch.cuda = SimpleNamespace(is_available=lambda: False)
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    assert pipeline._device_name() == ""
+
+    torch.cuda = SimpleNamespace(is_available=lambda: True, get_device_name=lambda _: "A100")
+    assert pipeline._device_name() == "A100"
