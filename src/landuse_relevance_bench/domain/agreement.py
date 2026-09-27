@@ -77,20 +77,25 @@ def _complete_coverage(
 
 
 def _is_baseline_for(candidate: RunResult, speculative: RunResult) -> bool:
-    ours, theirs = speculative.metadata, candidate.metadata
+    return not candidate.metadata.draft_model_id and _baseline_signature(
+        candidate
+    ) == _baseline_signature(speculative)
+
+
+def _baseline_signature(result: RunResult) -> tuple[object, ...]:
+    metadata = result.metadata
     return (
-        not theirs.draft_model_id
-        and theirs.model_id == ours.model_id
-        and theirs.language == ours.language
-        and theirs.max_new_tokens == ours.max_new_tokens
-        and theirs.batch_size == ours.batch_size
-        and theirs.seed == ours.seed
-        and theirs.generation_mode == ours.generation_mode
-        and theirs.prompt_sha256 == ours.prompt_sha256
-        and theirs.benchmark_sha256 == ours.benchmark_sha256
-        and theirs.dtype == ours.dtype
-        and theirs.model_revision == ours.model_revision
-        and theirs.decoding == ours.decoding
+        metadata.model_id,
+        metadata.language,
+        metadata.max_new_tokens,
+        metadata.batch_size,
+        metadata.seed,
+        metadata.generation_mode,
+        metadata.prompt_sha256,
+        metadata.benchmark_sha256,
+        metadata.dtype,
+        metadata.model_revision,
+        metadata.decoding,
     )
 
 

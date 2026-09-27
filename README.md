@@ -180,6 +180,36 @@ Everything above the unit level substitutes a scripted generator through the one
 GPU. See [docs/architecture.md](docs/architecture.md) and
 [docs/debt.md](docs/debt.md) for the known weaknesses.
 
+## Docker
+
+The default image uses Transformers. Build it with the current commit recorded in run
+metadata, then keep model weights and results in Docker-managed volumes:
+
+```bash
+docker build --build-arg LRB_SOURCE_COMMIT="$(git rev-parse HEAD)" \
+  --target transformers -t landuse-relevance-bench:transformers .
+docker volume create lrb-results
+docker volume create lrb-hf-cache
+docker run --rm --gpus all \
+  -v lrb-results:/app/results \
+  -v lrb-hf-cache:/cache/huggingface \
+  landuse-relevance-bench:transformers run LiquidAI/LFM2.5-1.2B-Instruct --language en
+docker run --rm -v lrb-results:/app/results \
+  landuse-relevance-bench:transformers report --results-dir /app/results
+```
+
+For the separate CUDA/SGLang runtime, build `--target sglang` and select an `@sglang`
+model id such as `LiquidAI/LFM2.5-2.6B@sglang`. SGLang needs an NVIDIA driver and the
+NVIDIA Container Toolkit on the host. To publish, make `HF_TOKEN` available in the
+shell and pass it at runtime with `-e HF_TOKEN`; never pass credentials as build args:
+
+```bash
+docker run --rm -e HF_TOKEN \
+  -v lrb-results:/app/results \
+  -v lrb-hf-cache:/cache/huggingface \
+  landuse-relevance-bench:transformers publish NoeFlandre/benchmark-llms-landuse-relevance
+```
+
 ## Citation
 
 Please cite the software release described in [`CITATION.cff`](CITATION.cff).

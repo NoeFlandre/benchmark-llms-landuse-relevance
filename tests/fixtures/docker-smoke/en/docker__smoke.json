@@ -1,0 +1,73 @@
+{
+  "metadata": {
+    "batch_size": 16,
+    "benchmark_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "decision_rule": "",
+    "decoding": "greedy",
+    "draft_model_id": "",
+    "draft_model_revision": "",
+    "dtype": "bfloat16",
+    "duration_seconds": 1.0,
+    "generation_mode": "static-batched",
+    "inference": "generation",
+    "language": "en",
+    "max_new_tokens": 8,
+    "model_id": "docker/smoke",
+    "model_revision": "abc123",
+    "package_version": "",
+    "peak_vram_bytes": null,
+    "prompt_sha256": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+    "run_id": "",
+    "runtime": "transformers",
+    "seed": 0,
+    "sequence_length": null,
+    "source_commit": "fixture",
+    "speculative": {},
+    "started_at": "2026-09-13T10:00:00Z",
+    "throughput_items_per_second": null
+  },
+  "metrics": {
+    "accuracy": 1.0,
+    "balanced_accuracy": 0.5,
+    "confusion": {
+      "false_negative": 0,
+      "false_positive": 0,
+      "true_negative": 0,
+      "true_positive": 1,
+      "unparsed": 0
+    },
+    "f1": 1.0,
+    "matthews_corrcoef": 0.0,
+    "n_items": 1,
+    "precision": 1.0,
+    "recall": 1.0,
+    "unparsed_rate": 0.0
+  },
+  "predictions": [
+    {
+      "accepted_drafts": null,
+      "expected": "yes",
+      "generated_tokens": null,
+      "item_id": "0000000000000000",
+      "latency_seconds": null,
+      "parse_mode": null,
+      "predicted": "yes",
+      "proposed_drafts": null,
+      "raw_output": "yes",
+      "truncated": false,
+      "verify_steps": null
+    }
+  ],
+  "speed": {
+    "draft_accept_rate": null,
+    "generated_tokens": null,
+    "latency_mean_seconds": null,
+    "latency_p50_seconds": null,
+    "latency_p95_seconds": null,
+    "mean_accept_length": null,
+    "n_items": 1,
+    "output_tokens_per_second": null,
+    "sentences_per_second": 1.0,
+    "wall_seconds": 1.0
+  }
+}

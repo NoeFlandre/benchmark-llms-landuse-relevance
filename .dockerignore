@@ -6,8 +6,14 @@ uv-cache*/
 results/
 benchmark-runs/
 mutants/
+docs/
+tests/
+scripts/
+.github/
 site/
 htmlcov/
+*.md
+!README.md
 .coverage
 coverage.json
 coverage.xml

@@ -41,8 +41,8 @@ jobs:
           trap 'rm -rf "$results_dir" "$cache_dir"' EXIT
           chmod 777 "$results_dir" "$cache_dir"
 
-          docker run --rm "$IMAGE" --help >/dev/null
-          docker run --rm "$IMAGE" models >/dev/null
+          docker run --rm "$IMAGE" --version >/dev/null
+          docker run --rm "$IMAGE" models --json >/dev/null
           container_uid="$(docker run --rm --entrypoint sh "$IMAGE" -c 'id -u')"
           test "$container_uid" -ne 0
           docker run --rm \
@@ -56,9 +56,10 @@ jobs:
           '
           test "$(stat -c '%u' "$results_dir/.docker-smoke")" = "$container_uid"
           test "$(stat -c '%u' "$cache_dir/.docker-smoke")" = "$container_uid"
+          cp -R tests/fixtures/docker-smoke/. "$results_dir/"
 
           docker run --rm \
-            -v "$PWD/results:/app/results:ro" \
+            -v "$results_dir:/app/results:ro" \
             --entrypoint sh "$IMAGE" -ec '
               lrb report --results-dir /app/results --out /tmp/leaderboard.csv >/dev/null
               test -s /tmp/leaderboard.csv

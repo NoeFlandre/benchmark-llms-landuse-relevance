@@ -4,7 +4,7 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 import typer
@@ -17,6 +17,51 @@ from landuse_relevance_bench.domain.roster import model_ids
 from landuse_relevance_bench.domain.scorers import scorer_for
 
 runner = CliRunner()
+
+
+def test_version_option_prints_the_package_version() -> None:
+    import landuse_relevance_bench
+
+    result = runner.invoke(cli.app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == landuse_relevance_bench.__version__
+
+
+def test_models_json_lists_the_rostered_ids() -> None:
+    result = runner.invoke(cli.app, ["models", "--json"])
+
+    assert result.exit_code == 0
+    assert {row["id"] for row in json.loads(result.stdout)} == set(model_ids())
+
+
+def test_score_command_dispatches_each_selected_scoring_pair(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    model_id = "LiquidAI/LFM2.5-Encoder-350M"
+    manifest = SimpleNamespace(files={"en": SimpleNamespace(path=Path("en.csv"))})
+    requests = []
+    monkeypatch.setattr(cli, "_selected_languages", lambda *_: (manifest, ("en",)))
+    monkeypatch.setattr(cli, "_print_run_plan", lambda *args: None)
+    monkeypatch.setattr(cli, "_cached_scorer_provider", lambda: "provider")
+    monkeypatch.setattr(
+        cli, "_score_one", lambda request, provider: requests.append((request, provider))
+    )
+
+    cli.score(model_id, data_root=tmp_path, out=tmp_path / "results")
+
+    assert len(requests) == 1
+    request, provider = requests[0]
+    assert provider == "provider"
+    assert request.model_id == model_id
+    assert request.language == "en"
+    assert request.benchmark_path == tmp_path / "en.csv"
+    assert request.output_dir == tmp_path / "results"
+
+
+def test_score_command_rejects_a_non_scoring_roster_id() -> None:
+    with pytest.raises(typer.BadParameter, match="is not in the scoring roster"):
+        cli.score("some/generative-model")
 
 
 def test_scoring_language_selection_respects_encoder_coverage() -> None:

@@ -75,30 +75,40 @@ def collection_comparability_errors(results: Sequence[RunResult]) -> tuple[str, 
     different prompts from each other, but a single named scorer must use the same
     settings across its language runs.
     """
-    if not results:
-        return ()
-    errors = []
+    return (
+        *_benchmark_hash_errors(results),
+        *_generative_comparability_errors(results),
+        *_scoring_comparability_errors(results),
+    )
+
+
+def _benchmark_hash_errors(results: Sequence[RunResult]) -> tuple[str, ...]:
     benchmarks_by_language: dict[str, set[str]] = {}
     for result in results:
         benchmarks_by_language.setdefault(result.metadata.language, set()).add(
             result.metadata.benchmark_sha256
         )
-    for language, benchmarks in sorted(benchmarks_by_language.items()):
-        if len(benchmarks) > 1:
-            errors.append(
-                f"runs are not comparable: benchmark_sha256 differs for language {language}"
-            )
+    return tuple(
+        f"runs are not comparable: benchmark_sha256 differs for language {language}"
+        for language, benchmarks in sorted(benchmarks_by_language.items())
+        if len(benchmarks) > 1
+    )
 
+
+def _generative_comparability_errors(results: Sequence[RunResult]) -> tuple[str, ...]:
     comparable_fields = tuple(field for field in _COMPARISON_FIELDS if field != "benchmark_sha256")
     generative = [result for result in results if result.metadata.is_generative]
     report = _check_fields(generative, comparable_fields)
-    if report.differences:
-        errors.append(report.summary)
+    return (report.summary,) if report.differences else ()
 
+
+def _scoring_comparability_errors(results: Sequence[RunResult]) -> tuple[str, ...]:
+    comparable_fields = tuple(field for field in _COMPARISON_FIELDS if field != "benchmark_sha256")
     scoring_by_name: dict[str, list[RunResult]] = {}
     for result in results:
         if not result.metadata.is_generative:
             scoring_by_name.setdefault(result.metadata.name, []).append(result)
+    errors = []
     for name, scorer_runs in sorted(scoring_by_name.items()):
         report = _check_fields(scorer_runs, comparable_fields)
         if report.differences:

@@ -32,6 +32,55 @@ def test_limit_pairs_parse_target_and_score() -> None:
     assert crap.parse_limit("src/package/domain=8") == ("src/package/domain", 8.0)
 
 
+def test_allowlist_requires_review_reason_and_test_reference(tmp_path: Path) -> None:
+    allowlist = tmp_path / "allowlist.json"
+    allowlist.write_text(
+        json.dumps(
+            {
+                "src/package/module.py:render": {
+                    "reason": "stable renderer",
+                    "tests": "tests/unit/test_render.py",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert crap.load_allowlist(allowlist) == {
+        "src/package/module.py:render": {
+            "reason": "stable renderer",
+            "tests": "tests/unit/test_render.py",
+        }
+    }
+
+
+def test_allowlisted_crap_outlier_is_reported_and_consumed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    key = "src/package/module.py:render"
+    allowlist = crap.CrapAllowlist({key: {"reason": "stable renderer", "tests": "test_render"}})
+
+    assert crap._print_scores(
+        "src/package",
+        15,
+        100,
+        [(key, 20, 1.0, 20.0)],
+        allowlist,
+    )
+    assert allowlist.used == {key}
+    assert "approved exception" in capsys.readouterr().out
+
+
+def test_stale_allowlist_entries_fail_the_gate(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(crap, "_gate_target", lambda *args, **kwargs: True)
+    allowlist = crap.CrapAllowlist(
+        {"src/package/module.py:removed": {"reason": "old", "tests": "old"}}
+    )
+
+    assert crap._run_gates([("src/package", 15)], [], Path("coverage.json"), allowlist) == 1
+    assert "stale CRAP allowlist entries" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("value", ["src/package/domain", "=8", "src/package/domain=bad"])
 def test_limit_pairs_reject_missing_targets_or_invalid_scores(value: str) -> None:
     with pytest.raises(ValueError, match="TARGET=MAX"):

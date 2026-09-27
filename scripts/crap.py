@@ -11,11 +11,20 @@ import json
 import math
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TARGET = "src/landuse_relevance_bench/domain"
 FULL_COVERAGE_PERCENT = 100.0
+
+
+@dataclass(slots=True)
+class CrapAllowlist:
+    """Reviewed score exceptions and the entries used during one gate run."""
+
+    entries: dict[str, dict[str, str]]
+    used: set[str] = field(default_factory=set)
 
 
 def crap(complexity: int, coverage: float) -> float:
@@ -53,6 +62,36 @@ def _normalise(name: str | Path) -> str:
         return path.resolve().relative_to(PROJECT_ROOT).as_posix()
     except ValueError:
         return path.resolve().as_posix()
+
+
+def _score_key(name: str) -> str:
+    """Return a score's repository-relative ``path:function`` allowlist key."""
+    source, separator, function = name.rpartition(":")
+    return f"{_normalise(source)}:{function}" if separator else name
+
+
+def load_allowlist(path: Path) -> dict[str, dict[str, str]]:
+    """Read explicit CRAP exceptions, each with its reason and exercising tests."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("CRAP allowlist must be a JSON object")
+    allowlist: dict[str, dict[str, str]] = {}
+    for name, details in payload.items():
+        if (
+            not isinstance(name, str)
+            or ":" not in name
+            or not isinstance(details, dict)
+            or not isinstance(details.get("reason"), str)
+            or not details["reason"].strip()
+            or not isinstance(details.get("tests"), str)
+            or not details["tests"].strip()
+        ):
+            raise ValueError("each CRAP allowlist entry needs a path:function, reason, and tests")
+        allowlist[_score_key(name)] = {
+            "reason": details["reason"].strip(),
+            "tests": details["tests"].strip(),
+        }
+    return allowlist
 
 
 def source_files(target: Path) -> set[str]:
@@ -144,6 +183,9 @@ def _argument_parser() -> argparse.ArgumentParser:
         help="Require 100 percent line and branch coverage for a target.",
     )
     parser.add_argument("--coverage-json", default="coverage.json")
+    parser.add_argument(
+        "--allowlist", help="Reviewed JSON exceptions for complex, tested functions."
+    )
     return parser
 
 
@@ -162,6 +204,7 @@ def _print_scores(
     maximum: float,
     layer_coverage: float,
     rows: list[tuple[str, int, float, float]],
+    allowlist: CrapAllowlist,
 ) -> bool:
     width = max(len(name) for name, *_ in rows)
     print(f"\n{target_name}: {layer_coverage:.2f}% coverage, CRAP limit {maximum:g}")
@@ -171,7 +214,17 @@ def _print_scores(
             f"{name.ljust(width)}  {complexity:<3}  {ratio:5.1%}  "
             f"{score:6.2f}  {maximum - score:8.2f}"
         )
-    offenders = [row for row in rows if row[3] > maximum]
+    offenders = []
+    for row in rows:
+        if row[3] <= maximum:
+            continue
+        key = _score_key(row[0])
+        exception = allowlist.entries.get(key)
+        if exception is None:
+            offenders.append(row)
+            continue
+        allowlist.used.add(key)
+        print(f"approved exception: {row[0]} ({exception['reason']}; tests: {exception['tests']})")
     if offenders:
         print(f"CRAP above {maximum:g}: " + ", ".join(name for name, *_ in offenders))
         return False
@@ -179,7 +232,14 @@ def _print_scores(
     return True
 
 
-def _gate_target(target_name: str, maximum: float, *, full_coverage: bool, report: Path) -> bool:
+def _gate_target(
+    target_name: str,
+    maximum: float,
+    *,
+    full_coverage: bool,
+    report: Path,
+    allowlist: CrapAllowlist,
+) -> bool:
     target = Path(target_name)
     target_path = target if target.is_absolute() else PROJECT_ROOT / target
     if not target_path.exists():
@@ -208,11 +268,14 @@ def _gate_target(target_name: str, maximum: float, *, full_coverage: bool, repor
     if not rows:
         print(f"no functions measured in {target_name}; check the coverage run")
         return False
-    return _print_scores(target_name, maximum, layer_coverage, rows) and passed
+    return _print_scores(target_name, maximum, layer_coverage, rows, allowlist) and passed
 
 
 def _run_gates(
-    limits: list[tuple[str, float]], full_coverage_targets: list[str], report: Path
+    limits: list[tuple[str, float]],
+    full_coverage_targets: list[str],
+    report: Path,
+    allowlist: CrapAllowlist,
 ) -> int:
     results = [
         _gate_target(
@@ -220,10 +283,16 @@ def _run_gates(
             maximum,
             full_coverage=target_name in full_coverage_targets,
             report=report,
+            allowlist=allowlist,
         )
         for target_name, maximum in limits
     ]
-    return 0 if all(results) else 1
+    stale = sorted(set(allowlist.entries) - allowlist.used)
+    if stale:
+        print(
+            "stale CRAP allowlist entries (no current score above its limit): " + ", ".join(stale)
+        )
+    return 0 if all(results) and not stale else 1
 
 
 def main() -> int:
@@ -231,7 +300,13 @@ def main() -> int:
     args = parser.parse_args()
     limits = _limits(args, parser)
     report = PROJECT_ROOT / args.coverage_json
-    return _run_gates(limits, args.full_coverage, report)
+    allowlist: dict[str, dict[str, str]] = {}
+    if args.allowlist:
+        try:
+            allowlist = load_allowlist(PROJECT_ROOT / args.allowlist)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            parser.error(f"invalid CRAP allowlist: {exc}")
+    return _run_gates(limits, args.full_coverage, report, CrapAllowlist(allowlist))
 
 
 if __name__ == "__main__":

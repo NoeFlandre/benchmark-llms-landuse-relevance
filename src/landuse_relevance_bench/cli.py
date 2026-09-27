@@ -1,11 +1,13 @@
 """Scriptable entry points for running, scoring and publishing the benchmark."""
 
+import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Annotated, Generic, TypeVar
 
 import typer
 
+from landuse_relevance_bench import __version__
 from landuse_relevance_bench.adapters.benchmark_csv import BenchmarkFileError
 from landuse_relevance_bench.adapters.pipeline import (
     DEFAULT_DTYPE,
@@ -58,7 +60,16 @@ DEFAULT_RESULTS = Path("results")
 
 T = TypeVar("T")
 
-app = typer.Typer(add_completion=False, help=__doc__)
+app = typer.Typer(add_completion=False, help=__doc__, invoke_without_command=True)
+
+
+@app.callback()
+def _root(version: Annotated[bool, typer.Option("--version", is_eager=True)] = False) -> None:
+    """Expose the installed package version to scripts and container checks."""
+    if version:
+        typer.echo(__version__)
+        raise typer.Exit()
+
 
 DataRoot = Annotated[Path, typer.Option("--data-root", help="Vendored multilingual data root.")]
 Prompt = Annotated[Path, typer.Option("--prompt", help="Prompt template with a {} placeholder.")]
@@ -199,8 +210,24 @@ def _score_one(request: RunRequest, provider: ScorerProvider | None = None) -> N
 
 
 @app.command()
-def models() -> None:
+def models(as_json: Annotated[bool, typer.Option("--json", help="Emit JSON.")] = False) -> None:
     """List the models in the benchmark roster."""
+    if as_json:
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "id": spec.name,
+                        "parameters": spec.total_parameters,
+                        "runtime": spec.runtime,
+                        "note": spec.note,
+                    }
+                    for spec in ROSTER
+                ],
+                sort_keys=True,
+            )
+        )
+        return
     for spec in ROSTER:
         typer.echo(f"{spec.name}\t{spec.total_parameters / 1e9:.2f}B\t{spec.runtime}\t{spec.note}")
 
