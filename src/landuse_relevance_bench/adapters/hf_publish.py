@@ -63,6 +63,8 @@ DSPARK_COLUMNS = (
     "text_differences",
 )
 
+EXPECTED_FULL_SWEEP_LANGUAGE_COUNT = 85
+
 
 class DatasetHub(Protocol):
     """The slice of :class:`huggingface_hub.HfApi` this project depends on."""
@@ -290,13 +292,44 @@ def _speed_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
 
 
 def _speed_section(results: Sequence[RunResult]) -> str:
-    return f"""## Runtime performance
-
-Timings are generation wall seconds summed across language runs; latency and throughput
+    sections = [
+        "## Runtime performance",
+        """Timings are generation wall seconds summed across language runs; latency and throughput
 are recomputed from prediction telemetry. Different devices and runtimes are not directly
-comparable. Full per-language measurements are in `leaderboard.csv`.
+comparable. Full per-language measurements are in `leaderboard.csv`.""",
+    ]
+    reproducibility = _reproducibility_note(results)
+    if reproducibility:
+        sections.append(reproducibility)
+    sections.append(_markdown_table(SPEED_COLUMNS, _speed_rows(results)))
+    return "\n\n".join(sections)
 
-{_markdown_table(SPEED_COLUMNS, _speed_rows(results))}"""
+
+def _reproducibility_note(results: Sequence[RunResult]) -> str:
+    run_ids = {
+        "LiquidAI/LFM2.5-VL-3B@sglang-throughput-b16",
+        "LiquidAI/LFM2.5-VL-3B+DSpark-throughput-b16",
+    }
+    languages_by_run = {run_id: set() for run_id in run_ids}
+    for result in results:
+        run_id = result.metadata.run_id
+        if run_id in languages_by_run:
+            languages_by_run[run_id].add(result.metadata.language)
+    if any(
+        len(languages) != EXPECTED_FULL_SWEEP_LANGUAGE_COUNT
+        for languages in languages_by_run.values()
+    ):
+        return ""
+    return (
+        "Reproducibility probes show GPU sensitivity: on 15 overlapping LFM2.5-2.6B "
+        "SGLang-throughput languages, A40 versus RTX 6000 Ada changed 474/4,500 "
+        "verdicts; LFM2.5-8B-A1B changed 31/300 verdicts across GPU types. VL-3B "
+        "SGLang throughput changed 158/25,500 verdicts between RTX A6000 and RTX "
+        "6000 Ada, while its same-GPU DSpark comparison changed 0/25,500. Throughput "
+        "mode versus batch size 1 changed 2/300 VL-3B English verdicts. Transformers "
+        "continuous batching fails on LFM2 with `Invalid group type: conv`. Compare runs "
+        "only with the same runtime, mode and GPU model."
+    )
 
 
 def _agreement_section(results: Sequence[RunResult]) -> str:

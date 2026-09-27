@@ -26,8 +26,14 @@ uv run lrb run LiquidAI/LFM2.5-2.6B --revision <revision from the run file>
 uv run lrb report
 ```
 
-Decoding is greedy and every input is pinned by digest, so the same revision reproduces
-the same generations.
+Decoding is greedy and every input is pinned by digest, but cross-GPU output identity is
+not guaranteed. Compare runs only when runtime, mode and GPU model match. Cross-GPU
+probes found 474/4,500 verdict changes across 15 overlapping 2.6B SGLang-throughput
+languages, 31/300 for 8B-A1B, and 158/25,500 for the VL-3B SGLang-throughput run; the
+same-GPU VL-3B SGLang/DSpark pair matched all items. LFM2.5-Encoder-350M predicted
+`yes` on 298–300 of 300 items in each of its 15 supported-language runs; this is observed
+model behavior. See [ADR-0011](adr/0011-sglang-throughput-mode.md) for hardware/mode
+details and the LFM2 continuous-batching limitation.
 
 The dataset card is a deterministic model-level aggregate table. It includes one row
 per model, with `language_count` showing how many language checkpoints contributed;

@@ -26,6 +26,14 @@ Concurrency is not batch-invariant: greedy decoding over a different batch chang
 floating-point reductions, so a few generations diverge. The same holds across GPU
 types (see ADR-0010): runs are only byte-comparable on the same mode and GPU model.
 
+Cross-GPU reruns measured 31/300 verdict changes for LFM2.5-8B-A1B. The VL-3B
+SGLang-throughput rerun changed 158/25,500 verdicts between RTX A6000 and RTX 6000
+Ada, while the same-Ada SGLang/DSpark pair matched all 25,500 items. For the 15
+overlapping LFM2.5-2.6B throughput languages, A40 versus RTX 6000 Ada changed
+474/4,500 verdicts. Throughput mode versus batch size 1 changed 2/300 English VL-3B
+verdicts. Transformers continuous batching currently fails on LFM2 with
+`Invalid group type: conv`.
+
 ## Decision
 
 - The roster keeps every SGLang run, with and without the draft, at `batch_size=1`.

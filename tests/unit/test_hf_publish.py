@@ -158,6 +158,40 @@ def test_card_summarizes_speed_across_languages_without_expanding_every_run() ->
     assert "| a/model | sglang | NVIDIA A100 | static-batched | 16 | 2 | 2.0 | 1.0 |" in speed
 
 
+def test_full_multilingual_card_discloses_gpu_sensitive_reproducibility() -> None:
+    run_ids = (
+        "LiquidAI/LFM2.5-VL-3B@sglang-throughput-b16",
+        "LiquidAI/LFM2.5-VL-3B+DSpark-throughput-b16",
+    )
+    results = []
+    for index in range(85):
+        language = f"{chr(97 + index // 26)}{chr(97 + index % 26)}"
+        for run_id in run_ids:
+            result = _result("LiquidAI/LFM2.5-VL-3B", language=language)
+            results.append(
+                replace(
+                    result,
+                    metadata=replace(
+                        result.metadata,
+                        run_id=run_id,
+                        runtime="sglang",
+                        device_name="NVIDIA RTX 6000 Ada Generation",
+                    ),
+                )
+            )
+
+    card = dataset_card(results, benchmark_name="benchmark.csv", prompt_text=PROMPT)
+    speed = card.split("## Runtime performance")[1].split("## DSpark")[0]
+
+    assert "474/4,500" in speed
+    assert "31/300" in speed
+    assert "158/25,500" in speed
+    assert "0/25,500" in speed
+    assert "2/300" in speed
+    assert "Invalid group type: conv" in speed
+    assert "same runtime, mode and GPU model" in speed
+
+
 def test_dspark_card_requires_language_complete_identical_baseline_coverage() -> None:
     original = _result("a/model")
     baseline = replace(
