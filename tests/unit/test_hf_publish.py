@@ -122,6 +122,19 @@ def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
     assert "benchmark.csv" in card
 
 
+def test_aggregate_table_rows_are_not_indented_as_code() -> None:
+    card = dataset_card(
+        [_result("a/one"), _result("b/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+    )
+    aggregate = card.split("## Aggregate scores")[1].split("## Runtime performance")[0]
+    table_lines = [line for line in aggregate.splitlines() if line.lstrip().startswith("|")]
+
+    assert table_lines
+    assert all(line.startswith("|") for line in table_lines)
+
+
 def test_card_summarizes_speed_across_languages_without_expanding_every_run() -> None:
     original = _result("a/model")
     timed = replace(original.predictions[0], latency_seconds=0.25, generated_tokens=4)

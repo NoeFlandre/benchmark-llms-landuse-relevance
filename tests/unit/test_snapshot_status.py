@@ -117,6 +117,22 @@ def test_status_accepts_an_explicit_release_roster(tmp_path: Path) -> None:
     assert "- Models represented: 2 of 2" in status
 
 
+def test_status_accepts_model_specific_supported_language_sets(tmp_path: Path) -> None:
+    generative = "external/generative"
+    encoder = "LiquidAI/LFM2.5-Encoder-350M"
+    status = snapshot_status(
+        _store(tmp_path, [(generative, "en"), (generative, "fr"), (encoder, "en")]),
+        benchmark_name="v3-multilingual",
+        expected_model_ids=(generative, encoder),
+        expected_languages_by_model={encoder: ("en",)},
+    )
+
+    assert "- Status: complete." in status
+    assert "- Completed model-language runs: 3 of 3" in status
+    scoring = status.split("## Scoring models")[1]
+    assert f"- `{encoder}`: complete, 1/1 languages" in scoring
+
+
 def test_runs_sharing_a_model_id_are_counted_under_their_own_names(tmp_path: Path) -> None:
     target = "LiquidAI/LFM2.5-VL-3B"
     variants = (target, f"{target}@sglang-throughput-b16", f"{target}+DSpark-throughput-b16")

@@ -217,7 +217,7 @@ Bold = best; underline = second best in each metric column.
 
 {header}
 {divider}
-    {body}{sections_block}"""
+{body}{sections_block}"""
 
 
 def _markdown_table(columns: Sequence[str], rows: Sequence[dict[str, Any]]) -> str:

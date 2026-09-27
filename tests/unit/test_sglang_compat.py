@@ -1,4 +1,5 @@
 import os
+import runpy
 import sys
 import types
 from pathlib import Path
@@ -92,3 +93,15 @@ def test_site_dir_without_existing_path() -> None:
 def test_site_dir_holds_the_shim() -> None:
     assert (SITE_DIR / "sitecustomize.py").is_file()
     assert Path(sglang_compat.__file__).parent == SITE_DIR.parent
+
+
+def test_sitecustomize_invokes_the_compatibility_patch(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    def record_patch() -> None:
+        nonlocal calls
+        calls += 1
+
+    monkeypatch.setattr(sglang_compat, "patch_lfm2_vl", record_patch)
+    runpy.run_path(str(SITE_DIR / "sitecustomize.py"))
+    assert calls == 1
