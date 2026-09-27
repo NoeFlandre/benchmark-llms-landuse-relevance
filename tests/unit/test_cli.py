@@ -770,6 +770,65 @@ def test_publish_filters_language_artifacts_and_viewer_rows(
     assert (results_dir / "fr" / "other__model.json").is_file()
 
 
+def test_publish_allowlist_includes_snapshot_and_excludes_local_cache(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    from landuse_relevance_bench.adapters import hf_publish
+
+    monkeypatch.setattr(providers, "generator_provider", lambda: _fake_provider)
+    results_dir = tmp_path / "results"
+    data_root = _translation_root(tmp_path, benchmark_path)
+    runner.invoke(
+        cli.app,
+        [
+            "run",
+            "some/model",
+            "--data-root",
+            str(data_root),
+            "--language",
+            "en",
+            "--prompt",
+            str(prompt_path),
+            "--out",
+            str(results_dir),
+        ],
+    )
+    (results_dir / "SNAPSHOT_STATUS.md").write_text("complete\n", encoding="utf-8")
+    cache_file = results_dir / ".cache" / "hub-download-metadata"
+    cache_file.parent.mkdir(parents=True)
+    cache_file.write_text("local-only\n", encoding="utf-8")
+    captured: dict = {}
+
+    class FakeApi:
+        def create_repo(self, **kwargs) -> None:
+            captured["create"] = kwargs
+
+        def upload_folder(self, **kwargs) -> None:
+            captured["upload"] = kwargs
+
+    monkeypatch.setattr(hf_publish, "_default_api", FakeApi)
+    result = runner.invoke(
+        cli.app,
+        [
+            "publish",
+            "me/bench",
+            "--data-root",
+            str(data_root),
+            "--results-dir",
+            str(results_dir),
+            "--prompt",
+            str(prompt_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    patterns = captured["upload"].get("allow_patterns")
+    assert patterns is not None
+    assert "SNAPSHOT_STATUS.md" in patterns
+    assert "en/some__model.json" in patterns
+    assert not any(pattern.startswith(".cache/") for pattern in patterns)
+
+
 def test_publish_dry_run_previews_card_without_writing_or_uploading(
     monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
 ) -> None:

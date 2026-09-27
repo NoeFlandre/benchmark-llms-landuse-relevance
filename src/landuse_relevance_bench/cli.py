@@ -383,8 +383,10 @@ def publish(
         extra_scorer_prompt_texts=extra_scorer_prompts(scorer_prompt),
         timing_results=read_runs(timing_dir) if timing_dir else (),
         data_root=data_root,
-        allow_patterns=(
-            publish_allow_patterns(results_dir, runs) if language_filter is not None else None
+        allow_patterns=publish_allow_patterns(
+            results_dir,
+            runs,
+            include_snapshot_status=language_filter is None,
         ),
     )
     typer.echo(f"published {len(runs)} run(s) to {url}")

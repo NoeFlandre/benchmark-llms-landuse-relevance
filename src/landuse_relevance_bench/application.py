@@ -236,8 +236,13 @@ def report_lines(runs: Sequence[RunResult]) -> Iterator[str]:
         )
 
 
-def publish_allow_patterns(results_dir: Path, runs: Sequence[RunResult]) -> list[str]:
-    """Limit a language-filtered upload to its runs and regenerated release files."""
+def publish_allow_patterns(
+    results_dir: Path,
+    runs: Sequence[RunResult],
+    *,
+    include_snapshot_status: bool = False,
+) -> list[str]:
+    """Limit uploads to selected runs and the generated release files."""
     patterns = {
         "README.md",
         "leaderboard.csv",
@@ -247,6 +252,8 @@ def publish_allow_patterns(results_dir: Path, runs: Sequence[RunResult]) -> list
         "data/train.csv",
         *(str(run_filename(run.metadata.model_id, run.metadata.language)) for run in runs),
     }
+    if include_snapshot_status and (results_dir / "SNAPSHOT_STATUS.md").is_file():
+        patterns.add("SNAPSHOT_STATUS.md")
     if (results_dir / ".gitattributes").is_file():
         patterns.add(".gitattributes")
     return sorted(patterns)
