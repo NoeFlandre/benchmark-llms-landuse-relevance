@@ -25,6 +25,7 @@ nav:
       - ADR-0008 Verdict parsing: adr/0008-verdict-parsing.md
       - ADR-0009 Measuring speed: adr/0009-speed-measurement.md
       - ADR-0010 DSpark speculative decoding: adr/0010-dspark-speculative-decoding.md
+      - ADR-0011 SGLang throughput mode: adr/0011-sglang-throughput-mode.md
   - Technical debt: debt.md
 markdown_extensions:
   - admonition
