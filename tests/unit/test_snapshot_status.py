@@ -12,9 +12,10 @@ from landuse_relevance_bench.domain.scorers import scorer_ids
 from scripts.snapshot_status import snapshot_status
 
 
-def _result(model_id: str, language: str) -> RunResult:
+def _result(model_id: str, language: str, run_id: str = "") -> RunResult:
     metadata = RunMetadata(
         model_id=model_id,
+        run_id=run_id,
         language=language,
         model_revision="abc123",
         prompt_sha256="p" * 64,
@@ -114,3 +115,16 @@ def test_status_accepts_an_explicit_release_roster(tmp_path: Path) -> None:
 
     assert "- Status: complete." in status
     assert "- Models represented: 2 of 2" in status
+
+
+def test_runs_sharing_a_model_id_are_counted_under_their_own_names(tmp_path: Path) -> None:
+    target = "LiquidAI/LFM2.5-VL-3B"
+    variants = (target, f"{target}@sglang-throughput-b16", f"{target}+DSpark-throughput-b16")
+    for run_id in variants:
+        write_run(_result(target, "en", run_id="" if run_id == target else run_id), tmp_path)
+
+    status = snapshot_status(tmp_path, benchmark_name="v3-multilingual", expected_model_ids=variants)
+
+    for run_id in variants:
+        assert f"- `{run_id}`: complete, 1/1 languages" in status
+    assert "Completed model-language runs: 3 of 3" in status

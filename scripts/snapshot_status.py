@@ -26,7 +26,8 @@ def snapshot_status(
     generative_roster = tuple(model_id for model_id in roster if model_id not in scorer_set)
     scorers = tuple(model_id for model_id in roster if model_id in scorer_set)
     languages = sorted({run.metadata.language for run in runs})
-    per_model = Counter(run.metadata.model_id for run in runs)
+    # Count by run name: SGLang, DSpark and log-prob runs share their target's model_id.
+    per_model = Counter(run.metadata.name for run in runs)
     items = {run.metrics.n_items for run in runs}
     if len(items) != 1:
         raise ValueError(f"runs disagree on predictions per run: {sorted(items)}")
