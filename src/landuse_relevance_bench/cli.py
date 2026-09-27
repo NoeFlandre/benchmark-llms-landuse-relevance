@@ -1,6 +1,7 @@
 """Scriptable entry points for running, scoring and publishing the benchmark."""
 
 import json
+import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Annotated, Generic, TypeVar
@@ -9,6 +10,7 @@ import typer
 
 from landuse_relevance_bench import __version__
 from landuse_relevance_bench.adapters.benchmark_csv import BenchmarkFileError
+from landuse_relevance_bench.adapters.gpu_memory import gpu_memory_line
 from landuse_relevance_bench.adapters.pipeline import (
     DEFAULT_DTYPE,
     DEFAULT_MAX_NEW_TOKENS,
@@ -105,14 +107,20 @@ def scorer_provider() -> ScorerProvider:
 class _CachedProvider(Generic[T]):
     """Load one model lazily and reuse it for that model's selected languages."""
 
-    def __init__(self, factory: Callable[[], Callable[[RunRequest], T]]) -> None:
+    def __init__(
+        self,
+        factory: Callable[[], Callable[[RunRequest], T]],
+        memory_line: Callable[[str, str], str | None] = gpu_memory_line,
+    ) -> None:
         self._factory = factory
+        self._memory_line = memory_line
         self._loaded: T | None = None
         self._loaded_name: str | None = None
 
     def __call__(self, request: RunRequest) -> T:
         if self._loaded_name != request.name:
             self.close_cached()
+            self._log_memory("before_load", request.name)
             self._loaded = self._factory()(request)
             self._loaded_name = request.name
         if self._loaded is None:
@@ -121,14 +129,22 @@ class _CachedProvider(Generic[T]):
 
     def close_cached(self) -> None:
         cached = self._loaded
+        name = self._loaded_name
         self._loaded = None
         self._loaded_name = None
-        if cached is None:
+        if cached is None or name is None:
             return
         instance = cached[0] if isinstance(cached, tuple) else cached
         close = getattr(instance, "close", None)
         if callable(close):
             close()
+        self._log_memory("after_close", name)
+
+    def _log_memory(self, event: str, name: str) -> None:
+        line = self._memory_line(event, name)
+        if line is not None:
+            sys.stdout.write(f"{line}\n")
+            sys.stdout.flush()
 
 
 def _cached(factory: Callable[[], Callable[[RunRequest], T]]) -> _CachedProvider[T]:
