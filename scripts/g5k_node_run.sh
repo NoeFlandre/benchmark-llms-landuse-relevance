@@ -117,6 +117,21 @@ if [[ -n "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
   trap 'rm -rf "$UV_PROJECT_ENVIRONMENT"' EXIT
 fi
 
+if [[ "$LRB_RUNTIME" == "sglang" ]]; then
+  # SGLang's DeepEP import needs CUDA_HOME to JIT its kernels. OAR starts a
+  # non-login shell, so load the toolkit explicitly before importing SGLang.
+  # shellcheck disable=SC1091
+  source "${LRB_LMOD_INIT:-/etc/profile.d/lmod.sh}" 2>/dev/null || true
+  module load "$LRB_CUDA_MODULE" 2>/dev/null || module load cuda-toolkit 2>/dev/null || true
+  if ! command -v nvcc >/dev/null; then
+    echo "no CUDA toolkit (nvcc) available; SGLang needs CUDA_HOME for DeepEP" >&2
+    exit 1
+  fi
+  cuda_root="$(dirname "$(dirname "$(command -v nvcc)")")"
+  export CUDA_HOME="$cuda_root"
+  export LD_LIBRARY_PATH="$cuda_root/lib64:$cuda_root/lib:${LD_LIBRARY_PATH:-}"
+fi
+
 echo "== node: $(hostname)  job: ${OAR_JOB_ID:-none}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 

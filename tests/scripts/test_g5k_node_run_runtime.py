@@ -31,8 +31,8 @@ GENERATIVE_MODEL_ID = "LiquidAI/LFM2.5-350M"
 
 FAKE_UV = """#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\\t%s\\tLD=%s\\tCMAKE=%s\\n' "${UV_PROJECT_ENVIRONMENT:-default}" "$*" \\
-  "${LD_LIBRARY_PATH:-}" "${CMAKE_ARGS:-}" >> "$TEST_UV_LOG"
+printf '%s\\t%s\\tCUDA=%s\\tLD=%s\\tCMAKE=%s\\n' "${UV_PROJECT_ENVIRONMENT:-default}" "$*" \\
+  "${CUDA_HOME:-}" "${LD_LIBRARY_PATH:-}" "${CMAKE_ARGS:-}" >> "$TEST_UV_LOG"
 if [[ "$1" == sync ]]; then
   if [[ -n "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
     mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"
@@ -197,6 +197,19 @@ def test_node_run_uses_oar_array_index_for_deterministic_shards(tmp_path: Path) 
 
     assert run.completed.returncode == 0, run.completed.stderr
     assert "shard=2/4" in run.completed.stdout
+
+
+def test_sglang_loads_cuda_toolkit_and_exports_cuda_home(tmp_path: Path) -> None:
+    run = _run_node_script(
+        tmp_path,
+        GENERATIVE_MODEL_ID,
+        roster="models",
+        extra_environment={"LRB_RUNTIME": "sglang"},
+    )
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    assert "load cuda-toolkit/12.9.1" in run.module_log.splitlines()
+    assert f"CUDA={tmp_path}/cuda" in run.uv_log
 
 
 def test_gliclass_syncs_the_scoring_extra_in_its_own_environment(tmp_path: Path) -> None:
