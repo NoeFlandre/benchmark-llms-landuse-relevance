@@ -227,6 +227,16 @@ def test_sglang_loads_cuda_toolkit_and_exports_cuda_home(tmp_path: Path) -> None
     assert "SGLANG_CONTEXT=1" in run.uv_log
 
 
+def test_sglang_run_ids_use_the_sglang_environment_not_gguf(tmp_path: Path) -> None:
+    run = _run_node_script(tmp_path, "LiquidAI/LFM2.5-2.6B@sglang", roster="models")
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    (sync,) = run.uv_lines("\tsync ")
+    assert ".venv-sglang-job-42" in sync
+    assert "--extra speculative" in sync
+    assert "gguf" not in run.uv_log
+
+
 def test_gliclass_syncs_the_scoring_extra_in_its_own_environment(tmp_path: Path) -> None:
     run = _run_node_script(tmp_path, GLICLASS_MODEL_ID)
 

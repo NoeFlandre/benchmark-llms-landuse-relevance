@@ -88,13 +88,13 @@ export USE_TF=0
 cd "$LRB_ROOT"
 mkdir -p "$LRB_RESULTS" "$HF_HOME"
 
-# Quantized (GGUF) roster ids follow the convention `repo@QUANT`, e.g.
-# `unsloth/Qwen3.8-27B-GGUF@UD-IQ2_XXS`; no other roster id contains '@'. The
-# environment must be chosen before any `lrb` command can run, so an id containing
-# '@' selects the llama.cpp environment here and is confirmed against
-# `lrb models` right after the sync, before the CUDA build starts.
+# Quantized (GGUF) roster ids follow the convention `repo-GGUF@QUANT`, e.g.
+# `unsloth/Qwen3.8-27B-GGUF@UD-IQ2_XXS`. SGLang run ids such as `model@sglang` also
+# contain '@', so match the GGUF repo suffix, not '@' alone. The environment must be
+# chosen before any `lrb` command can run, so such an id selects the llama.cpp
+# environment here and is confirmed against `lrb models` right after the sync.
 is_quantized=0
-if [[ "$LRB_MODEL_ID" == *@* ]]; then
+if [[ "$LRB_MODEL_ID" == *-GGUF@* ]]; then
   is_quantized=1
 fi
 
