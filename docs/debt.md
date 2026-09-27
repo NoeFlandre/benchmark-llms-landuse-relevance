@@ -41,5 +41,5 @@ nothing, and the domain avoids constructs whose mutants are equivalent (guarded
 **CRAP ceilings and reviewed exceptions (#73).** CI requires 100% domain line and branch
 coverage and keeps its CRAP ceiling at 8; adapters and the CLI are gated at 15. An
 above-ceiling adapter/CLI function must have an explicit reason and test reference in
-[`scripts/crap-allowlist.json`](../scripts/crap-allowlist.json). The checker reports
+`scripts/crap-allowlist.json`. The checker reports
 each exception and fails if an entry becomes stale, so exceptions cannot silently grow.
