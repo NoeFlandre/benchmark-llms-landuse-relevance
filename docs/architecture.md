@@ -1,10 +1,10 @@
 # Architecture
 
-Three layers, enforced by `import-linter` and by a test that fails the build if the
+Four layers, enforced by `import-linter` and by a test that fails the build if the
 rule is broken:
 
 ```
-cli  →  adapters  →  domain
+cli  →  application  →  adapters  →  domain
 ```
 
 ## `domain` — pure
@@ -38,6 +38,13 @@ Optional dependencies are imported lazily, so `lrb report` works on a laptop wit
 `torch` installed. Scoring adapters expose a common typed input and preserve both
 normalised and native relevance values; the results adapter derives threshold sweeps
 and best-operating-point summaries from those stored values.
+
+## `application` — the command use cases
+
+Language and run selection, sharded run plans, checkpoint-aware runs and report
+lines. It turns bad input into usage errors, so `cli` only declares commands and
+options. Model providers, including the one-model-at-a-time cache that logs free GPU
+memory before each load and after each close, live in `adapters/providers.py`.
 
 ## Quality gates
 
