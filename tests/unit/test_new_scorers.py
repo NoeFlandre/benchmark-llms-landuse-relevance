@@ -1,5 +1,7 @@
 """The zero-shot, log-probability and GGUF adapters keep their intended interfaces."""
 
+from pathlib import Path
+
 import pytest
 
 from landuse_relevance_bench.adapters.hf_scorer import (
@@ -65,6 +67,12 @@ def test_lfm_encoder_is_a_masked_lm_scorer_limited_to_its_supported_languages() 
         "zh",
     )
     assert scorer_for(model_id).prompt == "data/prompt_masked_lm.txt"
+
+
+def test_lfm_encoder_prompt_has_exactly_one_mask_sentinel() -> None:
+    prompt = Path(__file__).parents[2] / "data/prompt_masked_lm.txt"
+
+    assert prompt.read_text(encoding="utf-8").count("[MASK]") == 1
 
 
 class FakeMaskTokenizer:
