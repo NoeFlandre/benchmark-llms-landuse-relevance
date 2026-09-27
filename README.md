@@ -85,6 +85,11 @@ Each completed model-language pair is checkpointed as
 `scoring_summary.csv` from those predictions. Earlier single-language files are kept
 under `results/archive/` and are excluded from active reports.
 
+Both locations can be moved without passing flags to every command. `LRB_DATA_DIR`
+(default `data`) sets where `translations/`, `prompt.txt` and `prompt_reranker.txt` are
+read from. `LRB_RESULTS_DIR` (default `results`) sets where runs are written and read.
+Explicit `--data-root`, `--prompt` and `--out`/`--results-dir` options still win.
+
 ## Models
 
 | model | parameters |

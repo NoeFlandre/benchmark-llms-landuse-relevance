@@ -10,6 +10,7 @@ from pathlib import Path
 import typer
 
 from landuse_relevance_bench.adapters.benchmark_csv import BenchmarkFileError
+from landuse_relevance_bench.adapters.paths import default_paths
 from landuse_relevance_bench.adapters.pipeline import (
     GeneratorProvider,
     RunRequest,
@@ -37,10 +38,11 @@ from landuse_relevance_bench.domain.selection import (
 )
 from landuse_relevance_bench.domain.sharding import model_language_pairs, shard_pairs
 
-DEFAULT_DATA_ROOT = Path("data/translations")
-DEFAULT_PROMPT = Path("data/prompt.txt")
-DEFAULT_SCORER_PROMPT = Path("data/prompt_reranker.txt")
-DEFAULT_RESULTS = Path("results")
+_DEFAULTS = default_paths()
+DEFAULT_DATA_ROOT = _DEFAULTS.data_root
+DEFAULT_PROMPT = _DEFAULTS.prompt
+DEFAULT_SCORER_PROMPT = _DEFAULTS.scorer_prompt
+DEFAULT_RESULTS = _DEFAULTS.results
 
 _INPUT_ERRORS = (OSError, BenchmarkFileError, PromptFileError, TranslationDataError, ValueError)
 
