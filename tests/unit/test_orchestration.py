@@ -1,7 +1,6 @@
-from collections.abc import Sequence
-
 import pytest
 
+from factories import ScriptedGenerator
 from landuse_relevance_bench.domain.dataset import build_item
 from landuse_relevance_bench.domain.engine import Generation
 from landuse_relevance_bench.domain.labels import Label
@@ -28,25 +27,10 @@ ITEMS = (
 )
 
 
-class ScriptedGenerator:
-    """Returns queued outputs and records the prompts and batch shapes it saw."""
-
-    def __init__(self, outputs: Sequence[str | Generation]) -> None:
-        self._outputs: list[str | Generation] = list(outputs)
-        self.seen_prompts: list[str] = []
-        self.batch_sizes: list[int] = []
-
-    def generate(self, prompts: Sequence[str]) -> Sequence[str | Generation]:
-        self.seen_prompts.extend(prompts)
-        self.batch_sizes.append(len(prompts))
-        taken, self._outputs = self._outputs[: len(prompts)], self._outputs[len(prompts) :]
-        return taken
-
-
 def test_renders_one_prompt_per_item_in_order() -> None:
     generator = ScriptedGenerator(["yes", "no"])
     predict_all(ITEMS, TEMPLATE, generator)
-    assert generator.seen_prompts == [
+    assert generator.prompts == [
         "SENTENCE: Dense forest covers the ridge.",
         "SENTENCE: He was elected in 1974.",
     ]
@@ -58,6 +42,14 @@ def test_pairs_each_raw_output_with_its_item_and_parses_it() -> None:
     assert [p.expected for p in predictions] == [Label.YES, Label.NO]
     assert [p.predicted for p in predictions] == [Label.YES, Label.NO]
     assert [p.raw_output for p in predictions] == ["Answer: yes", "no."]
+
+
+def test_records_parse_mode_for_parsed_and_unparsed_outputs() -> None:
+    predictions = predict_all(
+        ITEMS, TEMPLATE, ScriptedGenerator(["yes, because the prompt says no", "perhaps"])
+    )
+
+    assert [prediction.parse_mode for prediction in predictions] == ["leading", None]
 
 
 def test_keeps_unparsable_output_as_a_null_prediction() -> None:
@@ -104,3 +96,22 @@ def test_a_plain_string_from_a_generator_is_treated_as_finished() -> None:
     (prediction,) = predict_all(ITEMS[:1], TEMPLATE, ScriptedGenerator(["no"]))
     assert prediction.predicted is Label.NO
     assert prediction.truncated is False
+
+
+def test_each_prediction_carries_its_batch_latency_and_token_counts() -> None:
+    ticks = iter([10.0, 10.5, 20.0, 20.25])
+    generator = ScriptedGenerator(
+        [
+            Generation("yes", generated_tokens=3, verify_steps=2),
+            Generation("no", generated_tokens=4, accepted_drafts=5, proposed_drafts=8),
+        ]
+    )
+    first, second = predict_all(ITEMS, TEMPLATE, generator, batch_size=1, clock=lambda: next(ticks))
+    assert (first.latency_seconds, first.generated_tokens, first.verify_steps) == (0.5, 3, 2)
+    assert (second.latency_seconds, second.accepted_drafts, second.proposed_drafts) == (0.25, 5, 8)
+
+
+def test_per_generation_latency_overrides_the_whole_batch_wall_time() -> None:
+    generator = ScriptedGenerator([Generation("yes", latency_seconds=0.125)])
+    (prediction,) = predict_all(ITEMS[:1], TEMPLATE, generator, clock=lambda: 100.0)
+    assert prediction.latency_seconds == 0.125

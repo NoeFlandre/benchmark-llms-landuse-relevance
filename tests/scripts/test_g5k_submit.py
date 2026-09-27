@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -8,6 +9,9 @@ import pytest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 SUBMIT = REPOSITORY / "scripts" / "g5k_submit.sh"
+BASH = shutil.which("bash")
+if BASH is None:
+    raise RuntimeError("bash is required to test the Grid'5000 submitter")
 
 
 def _run_submit(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -17,8 +21,8 @@ def _run_submit(*arguments: str) -> subprocess.CompletedProcess[str]:
         "LRB_QUEUE": "default",
         "LRB_GPU_FILTER": "gpu_model = 'A100-SXM4-40GB'",
     }
-    return subprocess.run(
-        ["bash", str(SUBMIT), *arguments],
+    return subprocess.run(  # noqa: S603 -- local script with fixed test arguments.
+        [BASH, str(SUBMIT), *arguments],
         cwd=REPOSITORY,
         capture_output=True,
         check=False,

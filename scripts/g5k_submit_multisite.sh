@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=g5k_forward_env.sh
 source "$SCRIPT_DIR/g5k_forward_env.sh"
 
-WALLTIME="${LRB_WALLTIME:-1:00}"
+WALLTIME="${LRB_WALLTIME:-0:15}"
 REMOTE_ROOT="${LRB_REMOTE_ROOT:-$HOME/benchmark-llms-landuse-relevance}"
 REMOTE_RESULTS="${LRB_REMOTE_RESULTS:-$REMOTE_ROOT/results-live}"
 GPU_FILTER="${LRB_GPU_FILTER:-gpu_compute_capability_major>=7 AND gpu_mem>=23040}"

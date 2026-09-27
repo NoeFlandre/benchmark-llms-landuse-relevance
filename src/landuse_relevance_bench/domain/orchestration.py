@@ -1,6 +1,7 @@
 """Driving a text generator, or a non-generative scorer, across the benchmark."""
 
-from collections.abc import Iterator, Sequence
+import time
+from collections.abc import Callable, Iterator, Sequence
 
 from landuse_relevance_bench.domain.dataset import BenchmarkItem
 from landuse_relevance_bench.domain.engine import (
@@ -10,7 +11,7 @@ from landuse_relevance_bench.domain.engine import (
     ScoringInput,
     TextGenerator,
 )
-from landuse_relevance_bench.domain.parsing import parse_label
+from landuse_relevance_bench.domain.parsing import parse_with_mode
 from landuse_relevance_bench.domain.prompting import render_prompt
 from landuse_relevance_bench.domain.records import Prediction
 
@@ -23,18 +24,22 @@ def predict_all(
     generator: TextGenerator,
     *,
     batch_size: int = DEFAULT_BATCH_SIZE,
+    clock: Callable[[], float] = time.perf_counter,
 ) -> tuple[Prediction, ...]:
-    """Run every item through ``generator`` in order and parse each verdict."""
+    """Run every item through ``generator`` and retain parse and speed evidence."""
     if batch_size < 1:
         raise ValueError(f"batch_size must be at least 1, got {batch_size}")
     predictions: list[Prediction] = []
     for batch in _batched(items, batch_size):
-        outputs = list(generator.generate([render_prompt(template, i.sentence) for i in batch]))
+        prompts = [render_prompt(template, item.sentence) for item in batch]
+        started = clock()
+        outputs = list(generator.generate(prompts))
+        latency = clock() - started
         if len(outputs) != len(batch):
             raise ValueError(f"generator returned {len(outputs)} outputs for {len(batch)} prompts")
-        # Lengths are checked above, so each item reads its own output by position.
         predictions.extend(
-            _predict(item, Generation.of(outputs[index])) for index, item in enumerate(batch)
+            _predict(item, Generation.of(output), latency)
+            for item, output in zip(batch, outputs, strict=True)
         )
     return tuple(predictions)
 
@@ -94,13 +99,22 @@ def format_scores(scores: LabelScores) -> str:
     return rendered
 
 
-def _predict(item: BenchmarkItem, generation: Generation) -> Prediction:
+def _predict(item: BenchmarkItem, generation: Generation, batch_latency: float) -> Prediction:
+    parsed = parse_with_mode(generation.text) if not generation.truncated else None
     return Prediction(
         item_id=item.item_id,
         expected=item.label,
-        predicted=None if generation.truncated else parse_label(generation.text),
+        predicted=None if parsed is None else parsed.label,
         raw_output=generation.text,
         truncated=generation.truncated,
+        parse_mode=None if parsed is None else parsed.mode,
+        latency_seconds=(
+            batch_latency if generation.latency_seconds is None else generation.latency_seconds
+        ),
+        generated_tokens=generation.generated_tokens,
+        verify_steps=generation.verify_steps,
+        accepted_drafts=generation.accepted_drafts,
+        proposed_drafts=generation.proposed_drafts,
     )
 
 

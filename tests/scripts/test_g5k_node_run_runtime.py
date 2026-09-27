@@ -6,9 +6,15 @@ from pathlib import Path
 
 import pytest
 
+_BASH = shutil.which("bash")
+if _BASH is None:
+    raise RuntimeError("bash is required to exercise Grid'5000 node scripts")
 _BASH_MAJOR = int(
-    subprocess.run(
-        ["bash", "-c", "echo ${BASH_VERSINFO[0]}"], capture_output=True, text=True, check=True
+    subprocess.run(  # noqa: S603 -- fixed bash command for the local test environment.
+        [_BASH, "-c", "echo ${BASH_VERSINFO[0]}"],
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
 )
 # The node script uses `mapfile` and empty arrays under `set -u` (bash >= 4, as on the
@@ -147,8 +153,8 @@ def _run_node_script(  # noqa: PLR0913 - one keyword per scenario knob
         }
     )
     environment.update(extra_environment or {})
-    completed = subprocess.run(
-        ["bash", str(scripts / "g5k_node_run.sh"), "--dry-run"],
+    completed = subprocess.run(  # noqa: S603 -- executes only the copied test fixture script.
+        [_BASH, str(scripts / "g5k_node_run.sh"), "--dry-run"],
         check=False,
         capture_output=True,
         text=True,

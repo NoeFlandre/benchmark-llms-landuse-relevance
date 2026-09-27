@@ -31,7 +31,7 @@ class _FakeLlama:
     def __init__(self, **kwargs) -> None:
         self.kwargs = kwargs
 
-    def detokenize(self, ids, special=False):
+    def detokenize(self, ids, special=False):  # noqa: FBT002 -- mirrors llama.cpp API.
         return b""
 
 

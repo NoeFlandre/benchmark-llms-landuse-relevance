@@ -1,11 +1,14 @@
 """Serialisable records describing one model's run over the benchmark."""
 
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from landuse_relevance_bench.domain.labels import Label
-from landuse_relevance_bench.domain.metrics import ClassificationMetrics, Outcome
+from landuse_relevance_bench.domain.metrics import ClassificationMetrics, Outcome, evaluate
+from landuse_relevance_bench.domain.parsing import ParseMode
+from landuse_relevance_bench.domain.roster import TRANSFORMERS
+from landuse_relevance_bench.domain.speed import SpeedMetrics, summarise_speed
 
 GENERATION = "generation"
 SCORING = "scoring"
@@ -20,6 +23,12 @@ class Prediction:
     predicted: Label | None
     raw_output: str
     truncated: bool = False
+    parse_mode: ParseMode | None = None
+    latency_seconds: float | None = None
+    generated_tokens: int | None = None
+    verify_steps: int | None = None
+    accepted_drafts: int | None = None
+    proposed_drafts: int | None = None
 
     @property
     def outcome(self) -> Outcome:
@@ -32,6 +41,12 @@ class Prediction:
             "predicted": None if self.predicted is None else self.predicted.value,
             "raw_output": self.raw_output,
             "truncated": self.truncated,
+            "parse_mode": self.parse_mode,
+            "latency_seconds": self.latency_seconds,
+            "generated_tokens": self.generated_tokens,
+            "verify_steps": self.verify_steps,
+            "accepted_drafts": self.accepted_drafts,
+            "proposed_drafts": self.proposed_drafts,
         }
 
     @classmethod
@@ -43,6 +58,12 @@ class Prediction:
             predicted=None if predicted is None else Label(predicted),
             raw_output=payload["raw_output"],
             truncated=payload.get("truncated", False),
+            parse_mode=payload.get("parse_mode"),
+            latency_seconds=payload.get("latency_seconds"),
+            generated_tokens=payload.get("generated_tokens"),
+            verify_steps=payload.get("verify_steps"),
+            accepted_drafts=payload.get("accepted_drafts"),
+            proposed_drafts=payload.get("proposed_drafts"),
         )
 
 
@@ -52,7 +73,7 @@ class RunMetadata:
 
     model_id: str
     language: str
-    model_revision: str
+    model_revision: str | None
     prompt_sha256: str
     benchmark_sha256: str
     max_new_tokens: int
@@ -81,6 +102,19 @@ class RunMetadata:
     quantization: str = ""
     # Accelerator the timing was measured on; omitted when unknown, like quantization.
     device_name: str = ""
+    #: Distinguishes a run variant while retaining the actual Hub model id above.
+    run_id: str = ""
+    runtime: str = TRANSFORMERS
+    draft_model_id: str = ""
+    draft_model_revision: str | None = ""
+    speculative: Mapping[str, Any] = field(default_factory=dict)
+    package_version: str = ""
+    generation_mode: str = "static-batched"
+
+    @property
+    def name(self) -> str:
+        """The unique run name; plain runs retain their model id."""
+        return self.run_id or self.model_id
 
     @property
     def is_generative(self) -> bool:
@@ -95,6 +129,7 @@ class RunMetadata:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         # Omitted when empty, so every full-precision run keeps its exact published bytes.
+        payload["speculative"] = dict(self.speculative)
         for optional in ("quantization", "device_name"):
             if not payload[optional]:
                 del payload[optional]
@@ -124,11 +159,22 @@ class RunResult:
                 f"metrics cover {self.metrics.n_items} items but the run holds "
                 f"{len(self.predictions)} predictions"
             )
+        identifiers = [prediction.item_id for prediction in self.predictions]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("run contains a duplicate item id")
+        if self.metrics != evaluate(outcomes_of(self.predictions)):
+            raise ValueError("metrics do not match predictions")
+
+    @property
+    def speed(self) -> SpeedMetrics:
+        """Speed derived from per-prediction evidence and the recorded wall time."""
+        return summarise_speed(self.predictions, self.metadata.duration_seconds)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "metadata": self.metadata.to_dict(),
             "metrics": self.metrics.to_dict(),
+            "speed": self.speed.to_dict(),
             "predictions": [p.to_dict() for p in self.predictions],
         }
 

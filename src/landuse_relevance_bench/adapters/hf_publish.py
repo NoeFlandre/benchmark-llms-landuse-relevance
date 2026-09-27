@@ -12,9 +12,12 @@ from landuse_relevance_bench.adapters.results_store import (
     read_runs,
     scoring_summary_rows,
 )
+from landuse_relevance_bench.domain.agreement import speculative_agreements
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
 from landuse_relevance_bench.domain.scorers import DEFAULT_CARD, logprob_pairs, scorer_for
+from landuse_relevance_bench.domain.selection import collection_comparability_errors
+from landuse_relevance_bench.domain.speed import summarise_speed
 
 CARD_COLUMNS = (
     "model_id",
@@ -25,6 +28,38 @@ CARD_COLUMNS = (
     "precision_macro",
     "recall_macro",
     "matthews_corrcoef_macro",
+)
+
+SPEED_COLUMNS = (
+    "model_id",
+    "runtime",
+    "device",
+    "generation_mode",
+    "batch_size",
+    "language_count",
+    "cumulative_wall_seconds",
+    "sentences_per_second",
+    "latency_mean_seconds",
+    "latency_p50_seconds",
+    "latency_p95_seconds",
+    "generated_tokens",
+    "output_tokens_per_second",
+    "mean_accept_length",
+    "draft_accept_rate",
+)
+
+DSPARK_COLUMNS = (
+    "target_model",
+    "sglang_baseline",
+    "dspark_run",
+    "baseline_output_tokens_per_second",
+    "dspark_output_tokens_per_second",
+    "speedup",
+    "identical_predictions",
+    "languages_compared",
+    "items_compared",
+    "verdict_differences",
+    "text_differences",
 )
 
 
@@ -64,6 +99,9 @@ def dataset_card(
     """Build a terse card whose scores are recomputed from every prediction."""
     if not results:
         raise ValueError("cannot build a card from an empty set of results")
+    incompatibilities = collection_comparability_errors(results)
+    if incompatibilities:
+        raise ValueError("; ".join(incompatibilities))
     for result in results:
         derived = evaluate(outcomes_of(result.predictions))
         if derived != result.metrics:
@@ -123,9 +161,17 @@ def dataset_card(
     body = table(generative)
     scoring_section = _scoring_section(scoring, prompts=scoring_prompts) if scoring else ""
     comparison = _logprob_comparison(results, timing_results)
-    if comparison:
-        scoring_section = f"{scoring_section}\n\n{comparison}"
-    sections_block = f"\n\n{scoring_section}" if scoring_section else ""
+    sections = [
+        section
+        for section in (
+            scoring_section,
+            comparison,
+            _speed_section(results),
+            _agreement_section(results),
+        )
+        if section
+    ]
+    sections_block = "\n\n" + "\n\n".join(sections) if sections else ""
     return f"""---
 license: mit
 configs:
@@ -165,12 +211,144 @@ Replace `{{}}` with the target sentence.
 
 ## Aggregate scores
 
-Per-model macro averages across languages. Full metrics: [`aggregates.csv`](aggregates.csv).
+Per-model macro averages across languages. Per-language 95% intervals and paired tests:
+[`leaderboard.csv`](leaderboard.csv); full macro metrics: [`aggregates.csv`](aggregates.csv).
 Bold = best; underline = second best in each metric column.
 
 {header}
 {divider}
-{body}{sections_block}"""
+    {body}{sections_block}"""
+
+
+def _markdown_table(columns: Sequence[str], rows: Sequence[dict[str, Any]]) -> str:
+    header = "| " + " | ".join(columns) + " |"
+    divider = "|" + "|".join(["---"] * len(columns)) + "|"
+    body = [
+        "| "
+        + " | ".join("" if row.get(column) is None else str(row[column]) for column in columns)
+        + " |"
+        for row in rows
+    ]
+    return "\n".join((header, divider, *body))
+
+
+def _single_setting(results: Sequence[RunResult], field: str) -> Any:
+    values = {getattr(result.metadata, field) for result in results}
+    return values.pop() if len(values) == 1 else "varies"
+
+
+def _speed_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
+    rows = []
+    for model_id, runs in sorted(group_by_model(results).items()):
+        predictions = [prediction for run in runs for prediction in run.predictions]
+        speed = summarise_speed(predictions, sum(run.metadata.duration_seconds for run in runs))
+        rows.append(
+            {
+                "model_id": model_id,
+                "runtime": _single_setting(runs, "runtime"),
+                "device": _single_setting(runs, "device_name"),
+                "generation_mode": _single_setting(runs, "generation_mode"),
+                "batch_size": _single_setting(runs, "batch_size"),
+                "language_count": len({run.metadata.language for run in runs}),
+                "cumulative_wall_seconds": round(speed.wall_seconds, 2),
+                "sentences_per_second": (
+                    None
+                    if speed.sentences_per_second is None
+                    else round(speed.sentences_per_second, 3)
+                ),
+                "latency_mean_seconds": (
+                    None
+                    if speed.latency_mean_seconds is None
+                    else round(speed.latency_mean_seconds, 4)
+                ),
+                "latency_p50_seconds": (
+                    None
+                    if speed.latency_p50_seconds is None
+                    else round(speed.latency_p50_seconds, 4)
+                ),
+                "latency_p95_seconds": (
+                    None
+                    if speed.latency_p95_seconds is None
+                    else round(speed.latency_p95_seconds, 4)
+                ),
+                "generated_tokens": speed.generated_tokens,
+                "output_tokens_per_second": (
+                    None
+                    if speed.output_tokens_per_second is None
+                    else round(speed.output_tokens_per_second, 2)
+                ),
+                "mean_accept_length": (
+                    None if speed.mean_accept_length is None else round(speed.mean_accept_length, 3)
+                ),
+                "draft_accept_rate": (
+                    None if speed.draft_accept_rate is None else round(speed.draft_accept_rate, 4)
+                ),
+            }
+        )
+    return rows
+
+
+def _speed_section(results: Sequence[RunResult]) -> str:
+    return f"""## Runtime performance
+
+Timings are generation wall seconds summed across language runs; latency and throughput
+are recomputed from prediction telemetry. Different devices and runtimes are not directly
+comparable. Full per-language measurements are in `leaderboard.csv`.
+
+{_markdown_table(SPEED_COLUMNS, _speed_rows(results))}"""
+
+
+def _agreement_section(results: Sequence[RunResult]) -> str:
+    by_name = group_by_model(results)
+    agreements: dict[tuple[str, str], list[Any]] = {}
+    for agreement in speculative_agreements(results):
+        if agreement.same_runtime:
+            agreements.setdefault((agreement.speculative_run, agreement.baseline_run), []).append(
+                agreement
+            )
+
+    speed_rows = {row["model_id"]: row for row in _speed_rows(results)}
+    rows = []
+    for (draft_name, baseline_name), values in sorted(agreements.items()):
+        draft_runs = by_name[draft_name]
+        baseline_runs = by_name[baseline_name]
+        draft_languages = {run.metadata.language for run in draft_runs}
+        baseline_languages = {run.metadata.language for run in baseline_runs}
+        by_language = {agreement.language: agreement for agreement in values}
+        complete = (
+            draft_languages == baseline_languages
+            and set(by_language) == draft_languages
+            and all(agreement.lossless for agreement in values)
+        )
+        baseline_tps = speed_rows[baseline_name]["output_tokens_per_second"]
+        draft_tps = speed_rows[draft_name]["output_tokens_per_second"]
+        rows.append(
+            {
+                "target_model": draft_runs[0].metadata.model_id,
+                "sglang_baseline": baseline_name,
+                "dspark_run": draft_name,
+                "baseline_output_tokens_per_second": baseline_tps,
+                "dspark_output_tokens_per_second": draft_tps,
+                "speedup": (
+                    None
+                    if not baseline_tps or draft_tps is None
+                    else f"{draft_tps / baseline_tps:.2f}x"
+                ),
+                "identical_predictions": "yes" if complete else "no",
+                "languages_compared": len(by_language),
+                "items_compared": sum(value.n_compared for value in values),
+                "verdict_differences": sum(value.verdicts_differ for value in values),
+                "text_differences": sum(value.texts_differ for value in values),
+            }
+        )
+    if not rows:
+        return ""
+    return f"""## DSpark speculative decoding
+
+Greedy DSpark runs should match the same-target SGLang baseline across every language;
+the check requires complete item coverage and identical generated text.
+
+{_markdown_table(DSPARK_COLUMNS, rows)}"""
 
 
 def _metric_rankings(

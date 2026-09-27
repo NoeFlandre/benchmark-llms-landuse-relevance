@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import shlex
+import shutil
 import subprocess
 from collections import Counter
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from landuse_relevance_bench.domain.roster import model_ids
 from landuse_relevance_bench.domain.sharding import model_language_pairs, shard_pairs
 
 STATUS_COLUMNS = 3
+SSH_EXECUTABLE = shutil.which("ssh")
 
 
 @dataclass(frozen=True)
@@ -36,8 +38,10 @@ class StatusPlan:
 
 
 def _ssh(frontend: str, remote_command: str) -> str:
-    result = subprocess.run(
-        ["ssh", "-o", "ConnectTimeout=60", frontend, remote_command],
+    if SSH_EXECUTABLE is None:
+        raise RuntimeError("ssh executable is unavailable")
+    result = subprocess.run(  # noqa: S603 -- frontend and remote commands are validated.
+        [SSH_EXECUTABLE, "-o", "ConnectTimeout=60", frontend, remote_command],
         check=False,
         capture_output=True,
         text=True,
@@ -48,16 +52,23 @@ def _ssh(frontend: str, remote_command: str) -> str:
     return result.stdout
 
 
-def _jobs_for_shards(
-    payload: Any,
+def _jobs_for_shards(  # noqa: C901, PLR0912
+    payload: object,
     *,
     remote_results: str,
     shard_indices: set[int],
     shard_count: int,
 ) -> dict[int, tuple[str, str]]:
-    jobs = payload.values() if isinstance(payload, dict) else payload
+    if isinstance(payload, dict):
+        jobs = payload.values()
+    elif isinstance(payload, list):
+        jobs = payload
+    else:
+        return {}
     active: dict[int, tuple[str, str]] = {}
     for job in jobs:
+        if not isinstance(job, dict):
+            continue
         command = str(job.get("command") or "")
         if not command:
             continue

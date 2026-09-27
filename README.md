@@ -71,10 +71,19 @@ to reach their yes/no verdict without turning the score into a test of output le
 Every result file pins the model revision, the prompt sha256, the benchmark sha256, the
 decoding settings, the seed, and the source commit.
 
-The active data inventory is `data/translations/manifest.json`. Reports read only
-language-nested checkpoints and produce detailed per-language rows, model-level macro
-aggregates, `threshold_sweep.csv`, and `scoring_summary.csv`. The published Hub folder
-also contains `data/train.csv`, a single viewer-friendly multilingual split.
+## Data
+
+The active inventory is [`data/translations/manifest.json`](data/translations/manifest.json):
+85 language configurations with 300 aligned, adjudicated rows each. The Hub release
+provides the same records as a single viewer-friendly `data/train.csv` split.
+
+## Outputs
+
+Each completed model-language pair is checkpointed as
+`results/<language>/<run-name>.json`. `lrb report` derives per-language
+`leaderboard.csv`, model-level macro `aggregates.csv`, `threshold_sweep.csv`, and
+`scoring_summary.csv` from those predictions. Earlier single-language files are kept
+under `results/archive/` and are excluded from active reports.
 
 ## Models
 
@@ -84,6 +93,15 @@ also contains `data/train.csv`, a single viewer-friendly multilingual split.
 | `LiquidAI/LFM2.5-1.2B-Instruct` | 1.2B |
 | `LiquidAI/LFM2.5-2.6B` | 2.7B |
 | `LiquidAI/LFM2.5-8B-A1B` | 8.5B total, ~1B active (MoE) |
+| `LiquidAI/LFM2.5-VL-3B` | 3.1B; text-only benchmark prompts |
+| `LiquidAI/LFM2.5-1.2B-Instruct@sglang` | 1.2B; SGLang baseline |
+| `LiquidAI/LFM2.5-1.2B-Instruct+DSpark` | 1.2B + 0.30B draft |
+| `LiquidAI/LFM2.5-2.6B@sglang` | 2.7B; SGLang baseline |
+| `LiquidAI/LFM2.5-2.6B+DSpark` | 2.7B + 0.33B draft |
+| `LiquidAI/LFM2.5-8B-A1B@sglang` | 8.5B total; SGLang baseline |
+| `LiquidAI/LFM2.5-8B-A1B+DSpark` | 8.5B total + 0.33B draft |
+| `LiquidAI/LFM2.5-VL-3B@sglang` | 3.1B; SGLang baseline |
+| `LiquidAI/LFM2.5-VL-3B+DSpark` | 3.1B + 0.28B draft |
 | `HuggingFaceTB/SmolLM3-3B` | ~3B |
 | `allenai/OLMo-2-1124-7B-Instruct` | ~7B |
 | `ibm-granite/granite-3.3-2b-instruct` | ~2B |
@@ -129,6 +147,10 @@ records its quant label in `quantization` rather than `dtype`.
 single `[MASK]` position ranks the `yes` and `no` tokens. Results cover only the model
 card's 15 supported languages.
 
+For each `+DSpark` run, `lrb report` checks identical generated text and verdicts
+against the same-target `@sglang` baseline under greedy decoding. The card and
+`leaderboard.csv` also include recorded speed and confidence summaries.
+
 ## Grid'5000
 
 ```bash
@@ -136,7 +158,7 @@ ssh nancy
 git clone https://github.com/NoeFlandre/benchmark-llms-landuse-relevance.git
 cd benchmark-llms-landuse-relevance
 usagepolicycheck -t
-scripts/g5k_submit.sh 1:00
+ scripts/g5k_submit.sh
 ```
 
 The node script checkpoints each model's result as it finishes and skips models already
@@ -157,6 +179,10 @@ Everything above the unit level substitutes a scripted generator through the one
 `TextGenerator` protocol, which is why the acceptance suite runs in seconds without a
 GPU. See [docs/architecture.md](docs/architecture.md) and
 [docs/debt.md](docs/debt.md) for the known weaknesses.
+
+## Citation
+
+Please cite the software release described in [`CITATION.cff`](CITATION.cff).
 
 ## Licence
 

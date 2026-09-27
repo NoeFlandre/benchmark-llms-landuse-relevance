@@ -110,10 +110,72 @@ def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
     assert "| a/one | 2 |" in card
     assert "| b/two | 1 |" in card
     assert "| language |" not in card
-    assert card.count("| a/one |") == 1
-    assert card.count("| b/two |") == 1
-    assert "| n_items |" not in card
+    aggregate = card.split("## Aggregate scores")[1].split("## Runtime performance")[0]
+    assert aggregate.count("| a/one |") == 1
+    assert aggregate.count("| b/two |") == 1
+    assert "| n_items |" not in aggregate
     assert "benchmark.csv" in card
+
+
+def test_card_summarizes_speed_across_languages_without_expanding_every_run() -> None:
+    original = _result("a/model")
+    timed = replace(original.predictions[0], latency_seconds=0.25, generated_tokens=4)
+    english = replace(
+        original,
+        predictions=(timed,),
+        metadata=replace(original.metadata, runtime="sglang", device_name="NVIDIA A100"),
+    )
+    french = replace(
+        english,
+        metadata=replace(english.metadata, language="fr"),
+        predictions=(replace(timed, item_id="1" * 16),),
+    )
+
+    card = dataset_card([english, french], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    speed = card.split("## Runtime performance")[1].split("## DSpark")[0]
+    assert (
+        "| model_id | runtime | device | generation_mode | batch_size | language_count |" in speed
+    )
+    assert "| a/model | sglang | NVIDIA A100 | static-batched | 16 | 2 | 2.0 | 1.0 |" in speed
+
+
+def test_dspark_card_requires_language_complete_identical_baseline_coverage() -> None:
+    original = _result("a/model")
+    baseline = replace(
+        original,
+        metadata=replace(
+            original.metadata, run_id="a/model@sglang", runtime="sglang", device_name="A100"
+        ),
+        predictions=(replace(original.predictions[0], latency_seconds=0.5, generated_tokens=4),),
+    )
+    drafted = replace(
+        original,
+        metadata=replace(
+            original.metadata,
+            run_id="a/model+DSpark",
+            runtime="sglang",
+            draft_model_id="a/draft",
+            device_name="A100",
+        ),
+        predictions=(replace(original.predictions[0], latency_seconds=0.25, generated_tokens=4),),
+    )
+    drafted_french = replace(
+        drafted,
+        metadata=replace(drafted.metadata, language="fr"),
+        predictions=(replace(drafted.predictions[0], item_id="1" * 16),),
+    )
+
+    card = dataset_card(
+        [baseline, drafted, drafted_french], benchmark_name="benchmark.csv", prompt_text=PROMPT
+    )
+
+    agreement = card.split("## DSpark speculative decoding")[1]
+    assert "| a/model | a/model@sglang | a/model+DSpark |" in agreement
+    assert (
+        "| a/model | a/model@sglang | a/model+DSpark | 4.0 | 4.0 | 1.00x | no | 1 | 1 | 0 | 0 |"
+        in agreement
+    )
 
 
 def test_the_card_emphasizes_best_and_second_best_aggregate_metrics() -> None:
@@ -126,11 +188,17 @@ def test_the_card_emphasizes_best_and_second_best_aggregate_metrics() -> None:
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
     )
-    aggregate = card.split("## Aggregate scores")[1]
+    aggregate = card.split("## Aggregate scores")[1].split("## Runtime performance")[0]
     header = next(line for line in aggregate.splitlines() if line.startswith("| model_id"))
-    best = next(line for line in aggregate.splitlines() if line.startswith("| a/best |"))
-    second = next(line for line in aggregate.splitlines() if line.startswith("| b/second |"))
-    last = next(line for line in aggregate.splitlines() if line.startswith("| c/last |"))
+    best = next(
+        line.strip() for line in aggregate.splitlines() if line.strip().startswith("| a/best |")
+    )
+    second = next(
+        line.strip() for line in aggregate.splitlines() if line.strip().startswith("| b/second |")
+    )
+    last = next(
+        line.strip() for line in aggregate.splitlines() if line.strip().startswith("| c/last |")
+    )
     columns = [cell.strip() for cell in header.strip("|").split("|")]
     best_cells = dict(
         zip(columns, (cell.strip() for cell in best.strip("|").split("|")), strict=True)
@@ -220,10 +288,9 @@ def test_viewer_export_is_one_neat_multilingual_csv(tmp_path: Path) -> None:
 
 def test_card_rejects_metrics_that_are_not_derived_from_predictions() -> None:
     result = _result()
-    tampered = replace(result, metrics=replace(result.metrics, accuracy=0.0))
 
     with pytest.raises(ValueError, match="metrics do not match predictions"):
-        dataset_card([tampered], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+        replace(result, metrics=replace(result.metrics, accuracy=0.0))
 
 
 def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(
@@ -331,7 +398,7 @@ def test_the_card_still_refuses_settings_that_shape_a_verdict() -> None:
         _result("b/two"), metadata=replace(_result("b/two").metadata, max_new_tokens=32)
     )
 
-    with pytest.raises(ValueError, match="runs disagree on token budget"):
+    with pytest.raises(ValueError, match="not comparable"):
         dataset_card([result, other], benchmark_name="benchmark.csv", prompt_text=PROMPT)
 
 
@@ -368,7 +435,8 @@ def test_scoring_models_are_reported_in_their_own_section() -> None:
         prompt_text=PROMPT,
         scorer_prompt_text=SCORER_PROMPT,
     )
-    generative, scoring = card.split("## Scoring models")
+    generative, rest = card.split("## Scoring models")
+    scoring = rest.split("## Runtime performance")[0]
 
     assert "| gen/one |" in generative and "| gen/one |" not in scoring
     assert "| score/two |" in scoring and "| score/two |" not in generative

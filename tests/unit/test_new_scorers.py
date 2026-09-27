@@ -68,10 +68,10 @@ def test_lfm_encoder_is_a_masked_lm_scorer_limited_to_its_supported_languages() 
 
 
 class FakeMaskTokenizer:
-    mask_token = "<MASK>"
+    mask_token = "<MASK>"  # noqa: S105 -- token spelling used by this tokenizer fixture.
     mask_token_id = 7
 
-    def encode(self, text, add_special_tokens=False):
+    def encode(self, text, add_special_tokens=False):  # noqa: FBT002 -- mirrors tokenizer API.
         return {"yes": [1], "no": [2], " yes": [1], " no": [2]}.get(text, [8, 8])
 
     def __call__(self, texts, **kwargs):
@@ -193,7 +193,7 @@ def test_gliner2_reads_the_label_confidence() -> None:
 class FakeTokenizer:
     vocabulary = {"yes": 1, "no": 2, "Yes": 3, "No": 4}
 
-    def encode(self, text, add_special_tokens=False):
+    def encode(self, text, add_special_tokens=False):  # noqa: FBT002 -- mirrors tokenizer API.
         return [self.vocabulary[text]] if text in self.vocabulary else [9, 9]
 
     def apply_chat_template(self, messages, **kwargs):
@@ -216,7 +216,7 @@ def test_gguf_turn_is_rendered_from_the_embedded_template_without_thinking() -> 
         "{% if add_generation_prompt %}<a>{% if not enable_thinking %}<think></think>"
         "{% endif %}{% endif %}"
     )
-    assert render_chat(template, "Q", bos_token="<s>") == "<s><u>Q</u><a><think></think>"
+    assert render_chat(template, "Q", bos_token="<s>") == "<s><u>Q</u><a><think></think>"  # noqa: S106 -- special token fixture.
 
 
 class FakeLlama:
@@ -228,10 +228,10 @@ class FakeLlama:
 
     def reset(self) -> None: ...
 
-    def detokenize(self, ids, special=False):
+    def detokenize(self, ids, special=False):  # noqa: FBT002 -- mirrors llama.cpp API.
         return b""
 
-    def tokenize(self, text, special=False):
+    def tokenize(self, text, special=False):  # noqa: FBT002 -- mirrors llama.cpp API.
         return list(range(len(text.split())))
 
     def create_completion(self, **kwargs):

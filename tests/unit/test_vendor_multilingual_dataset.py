@@ -5,7 +5,6 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from scripts.vendor_multilingual_dataset import UPSTREAM_COLUMNS, vendor_dataset
 
 from landuse_relevance_bench.adapters.translations import (
     TranslationDataError,
@@ -13,6 +12,7 @@ from landuse_relevance_bench.adapters.translations import (
     load_language_benchmark,
     load_manifest,
 )
+from scripts.vendor_multilingual_dataset import UPSTREAM_COLUMNS, vendor_dataset
 
 
 def _row(sentence: str, *, label: str, polygon_name: str) -> dict[str, object]:

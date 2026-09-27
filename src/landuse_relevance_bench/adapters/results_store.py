@@ -8,13 +8,21 @@ from pathlib import Path
 from statistics import fmean, pstdev
 from typing import Any
 
-from landuse_relevance_bench.domain.records import RunResult
+from landuse_relevance_bench.domain.metrics import ClassificationMetrics
+from landuse_relevance_bench.domain.records import Prediction, RunResult
 from landuse_relevance_bench.domain.thresholds import (
     DEFAULT_THRESHOLDS,
     decide_scores,
     expected_labels,
     roc_auc_scores,
     yes_scores,
+)
+from landuse_relevance_bench.domain.uncertainty import (
+    DEFAULT_BOOTSTRAP_SEED,
+    bootstrap_interval,
+    interval_text,
+    paired_mcnemar_p_value,
+    wilson_interval,
 )
 
 LEADERBOARD_COLUMNS = (
@@ -30,9 +38,27 @@ LEADERBOARD_COLUMNS = (
     "unparsed_rate",
     "truncated",
     "duration_seconds",
+    "sentences_per_second",
+    "latency_mean_seconds",
+    "latency_p50_seconds",
+    "latency_p95_seconds",
+    "generated_tokens",
+    "output_tokens_per_second",
+    "mean_accept_length",
+    "draft_accept_rate",
+    "runtime",
+    "generation_mode",
+    "package_version",
     "throughput_items_per_second",
     "peak_vram_bytes",
     "model_revision",
+    "accuracy_ci95",
+    "precision_ci95",
+    "recall_ci95",
+    "f1_ci95",
+    "matthews_corrcoef_ci95",
+    "mcnemar_top_run",
+    "mcnemar_p_vs_top",
 )
 AGGREGATE_COLUMNS = (
     "model_id",
@@ -63,6 +89,11 @@ ARCHIVE_COMPONENT = "archive"
 _MIN_NESTED_RESULT_PARTS = 2
 
 
+def rounded(value: float | None, digits: int) -> float | None:
+    """Round a reported metric, preserving unavailable measurements as ``None``."""
+    return None if value is None else round(value, digits)
+
+
 def run_filename(model_id: str, language: str) -> Path:
     """Return the active nested path for one model-language result."""
     normalized_language = language.strip().lower()
@@ -73,7 +104,7 @@ def run_filename(model_id: str, language: str) -> Path:
 
 def write_run(result: RunResult, directory: Path) -> Path:
     """Write ``result`` under ``directory``; the same result always writes the same bytes."""
-    path = directory / run_filename(result.metadata.model_id, result.metadata.language)
+    path = directory / run_filename(result.metadata.name, result.metadata.language)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(result.to_dict(), indent=2, ensure_ascii=False, sort_keys=True) + "\n",
@@ -82,25 +113,30 @@ def write_run(result: RunResult, directory: Path) -> Path:
     return path
 
 
-def read_run(path: Path) -> RunResult:
+def read_run(path: Path, *, legacy_language: str | None = None) -> RunResult:
     """Read back a run written by :func:`write_run`."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"{path} is not valid JSON: {exc}") from exc
     try:
+        metadata = payload.get("metadata", {})
+        if legacy_language is not None and not metadata.get("language"):
+            metadata["language"] = legacy_language
         return RunResult.from_dict(payload)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"{path} is not a valid run result: {exc}") from exc
 
 
-def read_runs(directory: Path) -> list[RunResult]:
-    """Read active runs recursively, excluding every archive subtree."""
+def read_runs(directory: Path, *, recursive: bool = False) -> list[RunResult]:
+    """Read active runs, or every JSON run when explicitly asked to include archives."""
     results = []
-    for path in _active_result_paths(directory):
-        result = read_run(path)
+    paths = sorted(directory.rglob("*.json")) if recursive else _active_result_paths(directory)
+    for path in paths:
         relative = path.relative_to(directory)
-        if (
+        is_archive = relative.parts[0] == ARCHIVE_COMPONENT
+        result = read_run(path, legacy_language="en" if is_archive else None)
+        if not recursive and (
             len(relative.parts) < _MIN_NESTED_RESULT_PARTS
             or relative.parts[0] != result.metadata.language
         ):
@@ -113,20 +149,36 @@ def read_runs(directory: Path) -> list[RunResult]:
 
 def leaderboard_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     """One row per run, best F1 first, ties broken by model id for determinism."""
-    rows = [
-        {
-            "model_id": r.metadata.model_id,
+    best_by_language: dict[str, RunResult] = {}
+    for result in results:
+        current = best_by_language.get(result.metadata.language)
+        if current is None or (-result.metrics.f1, result.metadata.name) < (
+            -current.metrics.f1,
+            current.metadata.name,
+        ):
+            best_by_language[result.metadata.language] = result
+
+    rows = []
+    for r in results:
+        top = best_by_language[r.metadata.language]
+        speed = r.speed
+        row = {
+            "model_id": r.metadata.name,
             "language": r.metadata.language,
             "n_items": r.metrics.n_items,
-            "accuracy": round(r.metrics.accuracy, 4),
-            "balanced_accuracy": round(r.metrics.balanced_accuracy, 4),
-            "f1": round(r.metrics.f1, 4),
-            "precision": round(r.metrics.precision, 4),
-            "recall": round(r.metrics.recall, 4),
-            "matthews_corrcoef": round(r.metrics.matthews_corrcoef, 4),
-            "unparsed_rate": round(r.metrics.unparsed_rate, 4),
-            "truncated": sum(p.truncated for p in r.predictions),
+            **score_columns(r.metrics, r.predictions),
             "duration_seconds": round(r.metadata.duration_seconds, 2),
+            "sentences_per_second": speed.sentences_per_second,
+            "latency_mean_seconds": speed.latency_mean_seconds,
+            "latency_p50_seconds": speed.latency_p50_seconds,
+            "latency_p95_seconds": speed.latency_p95_seconds,
+            "generated_tokens": speed.generated_tokens,
+            "output_tokens_per_second": speed.output_tokens_per_second,
+            "mean_accept_length": speed.mean_accept_length,
+            "draft_accept_rate": speed.draft_accept_rate,
+            "runtime": r.metadata.runtime,
+            "generation_mode": r.metadata.generation_mode,
+            "package_version": r.metadata.package_version,
             "throughput_items_per_second": (
                 None
                 if r.metadata.throughput_items_per_second is None
@@ -134,10 +186,46 @@ def leaderboard_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
             ),
             "peak_vram_bytes": r.metadata.peak_vram_bytes,
             "model_revision": r.metadata.model_revision,
+            "mcnemar_top_run": top.metadata.name,
+            "mcnemar_p_vs_top": (
+                None
+                if r.metadata.benchmark_sha256 != top.metadata.benchmark_sha256
+                else paired_mcnemar_p_value(r.predictions, top.predictions)
+            ),
         }
-        for r in results
-    ]
+        rows.append(row)
     return sorted(rows, key=lambda row: (-row["f1"], row["model_id"], row["language"]))
+
+
+def score_columns(
+    metrics: ClassificationMetrics, predictions: Sequence[Prediction]
+) -> dict[str, Any]:
+    """Scores and seeded confidence intervals for one complete language run."""
+    matrix = metrics.confusion
+    outcomes = [prediction.outcome for prediction in predictions]
+    return {
+        "accuracy": round(metrics.accuracy, 4),
+        "balanced_accuracy": round(metrics.balanced_accuracy, 4),
+        "f1": round(metrics.f1, 4),
+        "precision": round(metrics.precision, 4),
+        "recall": round(metrics.recall, 4),
+        "matthews_corrcoef": round(metrics.matthews_corrcoef, 4),
+        "unparsed_rate": round(metrics.unparsed_rate, 4),
+        "truncated": sum(prediction.truncated for prediction in predictions),
+        "accuracy_ci95": interval_text(
+            wilson_interval(matrix.true_positive + matrix.true_negative, metrics.n_items)
+        ),
+        "precision_ci95": interval_text(
+            wilson_interval(matrix.true_positive, matrix.true_positive + matrix.false_positive)
+        ),
+        "recall_ci95": interval_text(
+            wilson_interval(matrix.true_positive, matrix.true_positive + matrix.false_negative)
+        ),
+        "f1_ci95": interval_text(bootstrap_interval(outcomes, "f1", seed=DEFAULT_BOOTSTRAP_SEED)),
+        "matthews_corrcoef_ci95": interval_text(
+            bootstrap_interval(outcomes, "matthews_corrcoef", seed=DEFAULT_BOOTSTRAP_SEED)
+        ),
+    }
 
 
 def write_leaderboard_csv(results: Sequence[RunResult], path: Path) -> Path:
@@ -277,10 +365,10 @@ def scoring_runs(results: Sequence[RunResult]) -> list[RunResult]:
 
 
 def group_by_model(results: Sequence[RunResult]) -> dict[str, list[RunResult]]:
-    """Runs keyed by model id, in input order within each model."""
+    """Runs keyed by unique run name, in input order within each run."""
     grouped: dict[str, list[RunResult]] = {}
     for result in results:
-        grouped.setdefault(result.metadata.model_id, []).append(result)
+        grouped.setdefault(result.metadata.name, []).append(result)
     return grouped
 
 
@@ -344,7 +432,7 @@ def aggregate_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     """Aggregate one detailed run per language into deterministic model rows."""
     seen_pairs: set[tuple[str, str]] = set()
     for result in results:
-        pair = (result.metadata.model_id, result.metadata.language)
+        pair = (result.metadata.name, result.metadata.language)
         if pair in seen_pairs:
             raise ValueError(f"duplicate result for model-language pair {pair!r}")
         seen_pairs.add(pair)

@@ -9,64 +9,131 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   UV_FROZEN: "1"
 
 jobs:
   gauntlet:
-    name: Deterministic quality gates
+    name: Deterministic quality gates (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
-      # `gliner2` conflicts with `inference` by design (Transformers 4 vs 5), so
-      # --all-extras cannot resolve; the tests only need these runtimes.
+          python-version: ${{ matrix.python-version }}
+      # gliner2 conflicts with inference (Transformers 4 vs 5); it is tested in isolation on G5K.
       - run: uv sync --extra inference --extra scoring --extra publish
-
       - name: Lint and format
-        run: |
-          uv run --no-sync ruff format --check .
-          uv run --no-sync ruff check .
-
+        run: make lint
       - name: Types
-        run: uv run --no-sync ty check
-
-      # Each suite runs once; the unit+property coverage report feeds the CRAP gate.
+        run: make types
       - name: Unit and property tests with coverage
-        run: uv run --no-sync pytest tests/unit tests/property --cov --cov-report=term-missing --cov-report=json
-
-      - name: Acceptance, architecture and script tests
-        run: uv run --no-sync pytest tests/acceptance tests/architecture tests/scripts
-
+        run: make test
+      - name: Acceptance scenarios
+        run: make acceptance
+      - name: Architecture boundaries
+        run: make architecture
+      - name: Grid5000 script tests
+        run: make scripts
       - name: CRAP score
-        run: uv run --no-sync python scripts/crap.py --max 6
-
-      # mutmut exits non-zero whenever a mutant survives, so its exit code is not the
-      # gate; check_mutants.py is, and it fails when the run left no results (a crash).
-      - name: Mutation testing
-        run: |
-          uv run --no-sync mutmut run --max-children 4 || true
-          uv run --no-sync python scripts/check_mutants.py --max-survivors 0
-
+        run: make crap -o test
       - name: CLI smoke test
-        run: uv run --no-sync lrb models
+        run: make smoke
+
+  mutation:
+    name: Mutation gate (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --extra inference --extra scoring --extra publish
+      - name: Mutation testing
+        run: make mutation
+
+  lockfile:
+    name: Lockfile and speculative extra resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - name: Lockfile and SGLang speculative runtime
+        run: make lockfile
 
   docs:
     name: Documentation builds
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv run --with mkdocs-material mkdocs build --strict
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - run: make docs-build
+
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+      - run: make security
 
   image:
     name: Container builds
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           push: false
+          build-args: LRB_SOURCE_COMMIT=${{ github.sha }}
+
+  all-green:
+    name: All green
+    if: always()
+    needs: [gauntlet, mutation, lockfile, docs, security, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          echo "$RESULTS"
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["RESULTS"])
+          allowed_skips = {"docs"} if os.environ["EVENT"] != "pull_request" else set()
+          bad = {
+              name: need["result"]
+              for name, need in needs.items()
+              if need["result"] != "success"
+              and not (need["result"] == "skipped" and name in allowed_skips)
+          }
+          if bad:
+              sys.exit(f"jobs not green: {bad}")
+          PY

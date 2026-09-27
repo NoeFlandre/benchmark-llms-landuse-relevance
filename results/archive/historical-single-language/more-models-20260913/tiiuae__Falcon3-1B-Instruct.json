@@ -8,6 +8,7 @@
     "max_new_tokens": 4096,
     "model_id": "tiiuae/Falcon3-1B-Instruct",
     "model_revision": "28ba2251970a01dd1edc7ba7dad2eb71216ccfdf",
+    "package_version": "0.1.0",
     "prompt_sha256": "2fb48569c8bbb73fcf584fb7549b34ddd5e4cc365b7a5c75be7429906e312097",
     "seed": 0,
     "source_commit": "2a6b33770a970b29ab8776d892666d41f103524e",
@@ -34,6 +35,7 @@
     {
       "expected": "no",
       "item_id": "8c65a027f0fe1ce2",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -41,6 +43,7 @@
     {
       "expected": "no",
       "item_id": "afde25c519ea0bc0",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -48,6 +51,7 @@
     {
       "expected": "yes",
       "item_id": "18f7deac8b09e9a5",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -55,6 +59,7 @@
     {
       "expected": "no",
       "item_id": "ecc3fada4a30a1f1",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -62,6 +67,7 @@
     {
       "expected": "yes",
       "item_id": "18374916f642113c",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -69,6 +75,7 @@
     {
       "expected": "no",
       "item_id": "0ce0e9e37955a8d1",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -76,6 +83,7 @@
     {
       "expected": "yes",
       "item_id": "87bd542416c0fc9b",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -83,6 +91,7 @@
     {
       "expected": "no",
       "item_id": "dfb1f80f2aef0255",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -90,6 +99,7 @@
     {
       "expected": "yes",
       "item_id": "e032dc488c7af8dd",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -97,6 +107,7 @@
     {
       "expected": "yes",
       "item_id": "491fddd4d35133bf",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -104,6 +115,7 @@
     {
       "expected": "yes",
       "item_id": "5dae7626344fb0ae",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -111,6 +123,7 @@
     {
       "expected": "no",
       "item_id": "c3cde4c96f7c34b0",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -118,6 +131,7 @@
     {
       "expected": "yes",
       "item_id": "5e72a28e2c3aa325",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -125,6 +139,7 @@
     {
       "expected": "yes",
       "item_id": "38a64c8d251aaf1d",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -132,6 +147,7 @@
     {
       "expected": "no",
       "item_id": "f6ef76a041284969",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -139,6 +155,7 @@
     {
       "expected": "no",
       "item_id": "ff8d513c7814e4bc",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -146,6 +163,7 @@
     {
       "expected": "no",
       "item_id": "0d932ea561f6755e",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -153,6 +171,7 @@
     {
       "expected": "no",
       "item_id": "289d8016fa538c0f",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -160,6 +179,7 @@
     {
       "expected": "yes",
       "item_id": "1958881b1e16881b",
+      "parse_mode": "exact",
       "predicted": "yes",
       "raw_output": "yes",
       "truncated": false
@@ -167,6 +187,7 @@
     {
       "expected": "yes",
       "item_id": "3bd1e35a90a3f71d",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -174,6 +195,7 @@
     {
       "expected": "no",
       "item_id": "4d8b8f027721233e",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -181,6 +203,7 @@
     {
       "expected": "yes",
       "item_id": "cb3f05b7a8b3fe93",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -188,6 +211,7 @@
     {
       "expected": "no",
       "item_id": "ed3f64634f841509",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -195,6 +219,7 @@
     {
       "expected": "no",
       "item_id": "c0e6ccdec2ae93bc",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -202,6 +227,7 @@
     {
       "expected": "no",
       "item_id": "571afe7fc95f11cc",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -209,6 +235,7 @@
     {
       "expected": "yes",
       "item_id": "73d0eb9523e9db9e",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -216,6 +243,7 @@
     {
       "expected": "no",
       "item_id": "edadd162d8349565",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -223,6 +251,7 @@
     {
       "expected": "no",
       "item_id": "086e0bc13000e098",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -230,6 +259,7 @@
     {
       "expected": "yes",
       "item_id": "f1b41e5fe648b683",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -237,6 +267,7 @@
     {
       "expected": "no",
       "item_id": "3f0224ceb080dae4",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -244,6 +275,7 @@
     {
       "expected": "yes",
       "item_id": "aaeb3f1b0f0e4680",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -251,6 +283,7 @@
     {
       "expected": "yes",
       "item_id": "f4ad662b4c795522",
+      "parse_mode": "exact",
       "predicted": "yes",
       "raw_output": "yes",
       "truncated": false
@@ -258,6 +291,7 @@
     {
       "expected": "yes",
       "item_id": "9b7ec5e9ef31978f",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -265,6 +299,7 @@
     {
       "expected": "no",
       "item_id": "a4611f5ef185e0d4",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -272,6 +307,7 @@
     {
       "expected": "no",
       "item_id": "3520d1380784ee3e",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -279,6 +315,7 @@
     {
       "expected": "no",
       "item_id": "f381aa4fadff1842",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -286,6 +323,7 @@
     {
       "expected": "yes",
       "item_id": "136d861888522426",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -293,6 +331,7 @@
     {
       "expected": "no",
       "item_id": "6fd8d328a5099fe5",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -300,6 +339,7 @@
     {
       "expected": "no",
       "item_id": "b2b8a642b9a1f2e1",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -307,6 +347,7 @@
     {
       "expected": "yes",
       "item_id": "2457cbd04957d609",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -314,6 +355,7 @@
     {
       "expected": "yes",
       "item_id": "82f9b6e411b629b8",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -321,6 +363,7 @@
     {
       "expected": "yes",
       "item_id": "4936b15aa83f1d71",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -328,6 +371,7 @@
     {
       "expected": "no",
       "item_id": "d25cb9246bb9f563",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -335,6 +379,7 @@
     {
       "expected": "yes",
       "item_id": "be27c2a3f6fb62ca",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -342,6 +387,7 @@
     {
       "expected": "yes",
       "item_id": "bc99b8da42828aed",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -349,6 +395,7 @@
     {
       "expected": "no",
       "item_id": "578e12ae439afdbc",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -356,6 +403,7 @@
     {
       "expected": "no",
       "item_id": "e68e0fbbd3b8bd6c",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -363,6 +411,7 @@
     {
       "expected": "no",
       "item_id": "b1fb999179215c79",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -370,6 +419,7 @@
     {
       "expected": "yes",
       "item_id": "1397ac12199c0a55",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -377,6 +427,7 @@
     {
       "expected": "no",
       "item_id": "316baaf298e9a540",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -384,6 +435,7 @@
     {
       "expected": "no",
       "item_id": "832a9b22fb37d200",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -391,6 +443,7 @@
     {
       "expected": "no",
       "item_id": "d57fa6ac17fc3e0c",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -398,6 +451,7 @@
     {
       "expected": "no",
       "item_id": "4661be54d31d0b8a",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -405,6 +459,7 @@
     {
       "expected": "yes",
       "item_id": "0ad27faa29b88119",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -412,6 +467,7 @@
     {
       "expected": "no",
       "item_id": "1f8bbee01e5ff085",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -419,6 +475,7 @@
     {
       "expected": "no",
       "item_id": "ce1733aba7f8eeb4",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -426,6 +483,7 @@
     {
       "expected": "no",
       "item_id": "835de1c909614372",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -433,6 +491,7 @@
     {
       "expected": "no",
       "item_id": "7eb47a04f80bb0a6",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -440,6 +499,7 @@
     {
       "expected": "no",
       "item_id": "d56871472d03d1e1",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -447,6 +507,7 @@
     {
       "expected": "no",
       "item_id": "4326f90a3f4c21ed",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -454,6 +515,7 @@
     {
       "expected": "yes",
       "item_id": "3bae6f9a5be18e0d",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -461,6 +523,7 @@
     {
       "expected": "yes",
       "item_id": "eb1c56fb24ff6459",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -468,6 +531,7 @@
     {
       "expected": "no",
       "item_id": "bda553b9333375df",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -475,6 +539,7 @@
     {
       "expected": "yes",
       "item_id": "af210a056949cf3a",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -482,6 +547,7 @@
     {
       "expected": "no",
       "item_id": "8f96860c244fd0a5",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -489,6 +555,7 @@
     {
       "expected": "no",
       "item_id": "aff7daf6d8f92b21",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "No",
       "truncated": false
@@ -496,6 +563,7 @@
     {
       "expected": "yes",
       "item_id": "c9d6e81c98463e4b",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -503,6 +571,7 @@
     {
       "expected": "yes",
       "item_id": "dc0d47a7e9ea36a1",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -510,6 +579,7 @@
     {
       "expected": "yes",
       "item_id": "44ce3431c43a6d26",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -517,6 +587,7 @@
     {
       "expected": "yes",
       "item_id": "aa0071ad4a5cd8c4",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -524,6 +595,7 @@
     {
       "expected": "no",
       "item_id": "6612e57dc9e5ff60",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -531,6 +603,7 @@
     {
       "expected": "no",
       "item_id": "866344230d58f6ee",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -538,6 +611,7 @@
     {
       "expected": "yes",
       "item_id": "179e54cb5829996e",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -545,6 +619,7 @@
     {
       "expected": "yes",
       "item_id": "f925e50b175ec110",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -552,6 +627,7 @@
     {
       "expected": "yes",
       "item_id": "2cfd3670db72a344",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -559,6 +635,7 @@
     {
       "expected": "yes",
       "item_id": "411d9a024db87dca",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -566,6 +643,7 @@
     {
       "expected": "no",
       "item_id": "b26d09a73dd945da",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -573,6 +651,7 @@
     {
       "expected": "yes",
       "item_id": "c824799b3dbe50db",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -580,6 +659,7 @@
     {
       "expected": "no",
       "item_id": "e48692f35eaa7ee6",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -587,6 +667,7 @@
     {
       "expected": "no",
       "item_id": "a7d14c71d1b65b1b",
+      "parse_mode": "exact",
       "predicted": "yes",
       "raw_output": "yes",
       "truncated": false
@@ -594,6 +675,7 @@
     {
       "expected": "no",
       "item_id": "95d0463c74a58081",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -601,6 +683,7 @@
     {
       "expected": "yes",
       "item_id": "0bc3a8a4ec2cd408",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -608,6 +691,7 @@
     {
       "expected": "yes",
       "item_id": "d381124c03e9a77c",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -615,6 +699,7 @@
     {
       "expected": "no",
       "item_id": "72fcf58a7662942b",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -622,6 +707,7 @@
     {
       "expected": "no",
       "item_id": "875fe76adbabd6f4",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -629,6 +715,7 @@
     {
       "expected": "no",
       "item_id": "121ccb55ba441036",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -636,6 +723,7 @@
     {
       "expected": "yes",
       "item_id": "2bef74df5cdf5912",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -643,6 +731,7 @@
     {
       "expected": "yes",
       "item_id": "ebfbf30c54df2d05",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -650,6 +739,7 @@
     {
       "expected": "no",
       "item_id": "585052975a1cd9f9",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -657,6 +747,7 @@
     {
       "expected": "yes",
       "item_id": "423fbc28a483a4be",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -664,6 +755,7 @@
     {
       "expected": "yes",
       "item_id": "3f1f35dff95fb2a2",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -671,6 +763,7 @@
     {
       "expected": "no",
       "item_id": "d68ad2ad0c74e73a",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -678,6 +771,7 @@
     {
       "expected": "yes",
       "item_id": "ef8abb0534608527",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -685,6 +779,7 @@
     {
       "expected": "yes",
       "item_id": "674a37f222f02711",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -692,6 +787,7 @@
     {
       "expected": "yes",
       "item_id": "0cbf18782d529cf3",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -699,6 +795,7 @@
     {
       "expected": "yes",
       "item_id": "27016de01bcf0e66",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -706,6 +803,7 @@
     {
       "expected": "yes",
       "item_id": "701eef6e4bf5552a",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -713,6 +811,7 @@
     {
       "expected": "yes",
       "item_id": "d1c7419e79dd0f18",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -720,6 +819,7 @@
     {
       "expected": "yes",
       "item_id": "d7623b92a711d564",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -727,6 +827,7 @@
     {
       "expected": "no",
       "item_id": "9ec45f60ec0f03ad",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -734,6 +835,7 @@
     {
       "expected": "yes",
       "item_id": "c700cb79fc44805c",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -741,6 +843,7 @@
     {
       "expected": "yes",
       "item_id": "552065f49f1df8d0",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -748,6 +851,7 @@
     {
       "expected": "yes",
       "item_id": "15478c5634502877",
+      "parse_mode": "exact",
       "predicted": "yes",
       "raw_output": "yes",
       "truncated": false
@@ -755,6 +859,7 @@
     {
       "expected": "yes",
       "item_id": "503de2c31d100031",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -762,6 +867,7 @@
     {
       "expected": "no",
       "item_id": "df10fcaf57c532bd",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -769,6 +875,7 @@
     {
       "expected": "yes",
       "item_id": "0bd42a09433100aa",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -776,6 +883,7 @@
     {
       "expected": "yes",
       "item_id": "aa7cfda7b6170549",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -783,6 +891,7 @@
     {
       "expected": "no",
       "item_id": "a709dad7a866fa83",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -790,6 +899,7 @@
     {
       "expected": "no",
       "item_id": "ff7cf6587ae70a9d",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -797,6 +907,7 @@
     {
       "expected": "yes",
       "item_id": "07208784d2f6b01f",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -804,6 +915,7 @@
     {
       "expected": "yes",
       "item_id": "a74172562078863c",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -811,6 +923,7 @@
     {
       "expected": "no",
       "item_id": "cd6b513157445daf",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -818,6 +931,7 @@
     {
       "expected": "no",
       "item_id": "0e547c552373136e",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -825,6 +939,7 @@
     {
       "expected": "no",
       "item_id": "9521117b4f18df35",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -832,6 +947,7 @@
     {
       "expected": "yes",
       "item_id": "05297f07e15a2364",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -839,6 +955,7 @@
     {
       "expected": "no",
       "item_id": "dccd9e94e746a45c",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -846,6 +963,7 @@
     {
       "expected": "yes",
       "item_id": "2c79927f7399a191",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -853,6 +971,7 @@
     {
       "expected": "yes",
       "item_id": "78ba52e246249e99",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -860,6 +979,7 @@
     {
       "expected": "no",
       "item_id": "e57a7d1e70a6e826",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -867,6 +987,7 @@
     {
       "expected": "yes",
       "item_id": "34d7f59ce1c5e4ea",
+      "parse_mode": "exact",
       "predicted": "yes",
       "raw_output": "yes",
       "truncated": false
@@ -874,6 +995,7 @@
     {
       "expected": "yes",
       "item_id": "16a848b0ba3c470e",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -881,6 +1003,7 @@
     {
       "expected": "no",
       "item_id": "b80b67f2bd2a0c1d",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -888,6 +1011,7 @@
     {
       "expected": "no",
       "item_id": "2482739a82d2416e",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -895,6 +1019,7 @@
     {
       "expected": "no",
       "item_id": "bd51254c710de558",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -902,6 +1027,7 @@
     {
       "expected": "yes",
       "item_id": "62c7164341df1167",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -909,6 +1035,7 @@
     {
       "expected": "yes",
       "item_id": "e11bb09b0074f34c",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -916,6 +1043,7 @@
     {
       "expected": "yes",
       "item_id": "5b6acdbbd1c4e672",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -923,6 +1051,7 @@
     {
       "expected": "no",
       "item_id": "589c127efc76483c",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -930,6 +1059,7 @@
     {
       "expected": "yes",
       "item_id": "f79a9d731752472d",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -937,6 +1067,7 @@
     {
       "expected": "yes",
       "item_id": "9b1e0d6a335d2828",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -944,6 +1075,7 @@
     {
       "expected": "no",
       "item_id": "49c266baaaa70981",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -951,6 +1083,7 @@
     {
       "expected": "yes",
       "item_id": "fe375e94a8d2f7e8",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -958,6 +1091,7 @@
     {
       "expected": "no",
       "item_id": "ebcbd0c44bdcf898",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -965,6 +1099,7 @@
     {
       "expected": "yes",
       "item_id": "4f63fef64df80d2c",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -972,6 +1107,7 @@
     {
       "expected": "no",
       "item_id": "087c7331cdce44ff",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -979,6 +1115,7 @@
     {
       "expected": "no",
       "item_id": "e6732aeed7463a6a",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -986,6 +1123,7 @@
     {
       "expected": "no",
       "item_id": "ee93bb5baca3caf0",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -993,6 +1131,7 @@
     {
       "expected": "yes",
       "item_id": "46f500a05916c7ed",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1000,6 +1139,7 @@
     {
       "expected": "no",
       "item_id": "6a3d98d8f1375249",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1007,6 +1147,7 @@
     {
       "expected": "no",
       "item_id": "2a849d9eda65440c",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1014,6 +1155,7 @@
     {
       "expected": "no",
       "item_id": "8b7c7830137168a7",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1021,6 +1163,7 @@
     {
       "expected": "yes",
       "item_id": "e4ec7b66b2bc3f71",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1028,6 +1171,7 @@
     {
       "expected": "yes",
       "item_id": "5cb0e199bfd3700f",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1035,6 +1179,7 @@
     {
       "expected": "yes",
       "item_id": "9c81e7f9871fc9fb",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1042,6 +1187,7 @@
     {
       "expected": "yes",
       "item_id": "7946b6aaea64eb7d",
+      "parse_mode": "exact",
       "predicted": "yes",
       "raw_output": "yes",
       "truncated": false
@@ -1049,6 +1195,7 @@
     {
       "expected": "no",
       "item_id": "666990d08842cf09",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1056,6 +1203,7 @@
     {
       "expected": "no",
       "item_id": "b28061792e6113e0",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1063,6 +1211,7 @@
     {
       "expected": "yes",
       "item_id": "523109dd42699224",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1070,6 +1219,7 @@
     {
       "expected": "yes",
       "item_id": "acf6f7354fac0bef",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1077,6 +1227,7 @@
     {
       "expected": "yes",
       "item_id": "c0eda61506fc32b6",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1084,6 +1235,7 @@
     {
       "expected": "yes",
       "item_id": "4cfe1cdb558e7228",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1091,6 +1243,7 @@
     {
       "expected": "yes",
       "item_id": "691c321c26801540",
+      "parse_mode": "exact",
       "predicted": "yes",
       "raw_output": "yes",
       "truncated": false
@@ -1098,6 +1251,7 @@
     {
       "expected": "no",
       "item_id": "806f79d4cd695e18",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false
@@ -1105,6 +1259,7 @@
     {
       "expected": "yes",
       "item_id": "98b174aa38302fc8",
+      "parse_mode": "exact",
       "predicted": "no",
       "raw_output": "no",
       "truncated": false

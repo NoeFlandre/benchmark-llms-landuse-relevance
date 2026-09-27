@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=g5k_forward_env.sh
 source "$SCRIPT_DIR/g5k_forward_env.sh"
 
-WALLTIME="1:00"
+WALLTIME="0:15"
 DRY_RUN=0
 ARRAY_COUNT=""
 POSITIONAL_WALLTIME=0

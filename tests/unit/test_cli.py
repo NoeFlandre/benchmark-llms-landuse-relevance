@@ -192,7 +192,7 @@ def test_run_reports_a_missing_benchmark_without_a_traceback(
 def test_run_defaults_to_every_language(monkeypatch, tmp_path: Path) -> None:
     requests: list[RunRequest] = []
     monkeypatch.setattr(
-        cli, "_benchmark_one", lambda request, _provider=None: requests.append(request)
+        cli, "_benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
     )
 
     result = runner.invoke(
@@ -214,7 +214,7 @@ def test_run_accepts_repeated_and_comma_separated_language_filters(
     monkeypatch.setattr(
         cli,
         "_benchmark_one",
-        lambda request, _provider=None: languages.append(request.language),
+        lambda request, _provider=None, **_kwargs: languages.append(request.language),
     )
 
     result = runner.invoke(
@@ -238,7 +238,7 @@ def test_run_accepts_repeated_and_comma_separated_language_filters(
 def test_run_all_shard_selects_a_deterministic_subset(monkeypatch) -> None:
     requests: list[RunRequest] = []
     monkeypatch.setattr(
-        cli, "_benchmark_one", lambda request, _provider=None: requests.append(request)
+        cli, "_benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
     )
 
     result = runner.invoke(
@@ -257,9 +257,70 @@ def test_run_all_shard_selects_a_deterministic_subset(monkeypatch) -> None:
     assert result.exit_code == 0, result.stdout
     pairs = len(model_ids()) * len(load_manifest(Path("data/translations")).languages)
     assert len(requests) == len(range(1, pairs, 3))
-    assert [(request.model_id, request.language) for request in requests] == sorted(
-        (request.model_id, request.language) for request in requests
+    assert [(request.name, request.language) for request in requests] == sorted(
+        (request.name, request.language) for request in requests
     )
+
+
+def test_run_all_records_sglang_throughput_variant(monkeypatch) -> None:
+    requests: list[RunRequest] = []
+    monkeypatch.setattr(
+        cli, "_benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
+    )
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "run-all",
+            "--data-root",
+            "data/translations",
+            "--language",
+            "en",
+            "--runtime",
+            "sglang",
+            "--throughput",
+            "--only",
+            "LFM2.5-1.2B-Instruct",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert len(requests) == 2
+    assert all(request.throughput_mode and request.batch_size == 16 for request in requests)
+    assert {request.name for request in requests} == {
+        "LiquidAI/LFM2.5-1.2B-Instruct@sglang-throughput-b16",
+        "LiquidAI/LFM2.5-1.2B-Instruct+DSpark-throughput-b16",
+    }
+
+
+def test_run_all_uses_continuous_batching_only_for_supported_transformers(
+    monkeypatch,
+) -> None:
+    requests: list[RunRequest] = []
+    monkeypatch.setattr(
+        cli, "_benchmark_one", lambda request, _provider=None, **_kwargs: requests.append(request)
+    )
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "run-all",
+            "--data-root",
+            "data/translations",
+            "--language",
+            "en",
+            "--runtime",
+            "transformers",
+            "--continuous-batching",
+            "--only",
+            "350M|VL-3B",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    by_model = {request.model_id: request for request in requests}
+    assert by_model["LiquidAI/LFM2.5-350M"].continuous_batching
+    assert not by_model["LiquidAI/LFM2.5-VL-3B"].continuous_batching
 
 
 def test_status_reports_pending_pairs_for_a_selected_language() -> None:

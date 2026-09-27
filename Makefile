@@ -1,13 +1,16 @@
 UV ?= uv
+SHELL := bash
+.SHELLFLAGS := -eo pipefail -c
 RUN := $(UV) run --no-sync
+HYPOTHESIS_PROFILE ?= ci
 
 .PHONY: help install baseline lint format types test property acceptance architecture \
-	integration scripts crap mutation smoke check docs docs-build docker
+	integration scripts crap mutation smoke security lockfile check docs docs-build docker
 
 help:
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/'
 
-install:  ## Sync the pinned environment (gliner2 and gguf are node-only runtimes)
+install:  ## Sync the pinned test and inference environments
 	$(UV) sync --extra inference --extra scoring --extra publish
 
 baseline:  ## Run the existing suite before touching anything
@@ -22,13 +25,13 @@ format:  ## Apply ruff formatting and fixes
 	$(RUN) ruff check --fix .
 
 types:  ## Static type check
-	$(RUN) ty check
+	$(RUN) ty check src
 
-test:  ## Unit and property tests with coverage (feeds the CRAP gate)
-	$(RUN) pytest tests/unit tests/property --cov --cov-report=term-missing --cov-report=json
+test:  ## Unit and property tests with coverage
+	HYPOTHESIS_PROFILE=$(HYPOTHESIS_PROFILE) $(RUN) pytest tests/unit tests/property --cov --cov-report=term-missing --cov-report=json
 
-property:  ## Property-based tests alone
-	$(RUN) pytest tests/property
+property:  ## Property-based tests
+	HYPOTHESIS_PROFILE=$(HYPOTHESIS_PROFILE) $(RUN) pytest tests/property
 
 acceptance:  ## Executable Gherkin scenarios
 	$(RUN) pytest tests/acceptance
@@ -42,24 +45,35 @@ scripts:  ## Grid'5000 shell script tests
 integration:  ## Real model runtime, downloads a tiny model
 	$(RUN) pytest tests/integration -m integration
 
-crap: test  ## CRAP score guardrail over the domain, from the coverage `test` wrote
-	$(RUN) python scripts/crap.py --max 6
+crap: test  ## CRAP score guardrail over the coverage written by `test`
+	$(RUN) python scripts/crap.py --limit src/landuse_relevance_bench/domain=8 --limit src/landuse_relevance_bench/adapters=15 --limit src/landuse_relevance_bench/cli.py=15 --full-coverage src/landuse_relevance_bench/domain
 
-mutation:  ## Mutation testing over the domain, gated like CI
+mutation:  ## Mutation testing, gated on exact reviewed survivor IDs
 	$(RUN) mutmut run --max-children 4 || true
-	$(RUN) python scripts/check_mutants.py --max-survivors 0
+	$(RUN) python scripts/check_mutants.py
 
-smoke:  ## End-to-end CLI smoke test against a stub-free tiny model
+smoke:  ## CLI smoke test
+	$(RUN) lrb --version
 	$(RUN) lrb models
-	$(RUN) lrb report --results-dir results || true
 
-check: lint types crap acceptance architecture scripts  ## The deterministic gauntlet
+lockfile:  ## uv.lock matches pyproject.toml and the speculative extra resolves
+	UV_FROZEN=0 $(UV) lock --check
+	UV_FROZEN=0 $(UV) sync --locked --extra speculative --dry-run --python-platform x86_64-manylinux_2_34
+
+# Known advisory with no fixed release, pulled in by sglang (speculative extra only).
+AUDIT_IGNORES := --ignore-vuln PYSEC-2026-2447
+
+security:  ## Audit the locked dependencies
+	$(UV) export --frozen --no-hashes --no-emit-project --extra inference --extra publish | $(UV) tool run pip-audit --no-deps --disable-pip -r /dev/stdin
+	$(UV) export --frozen --no-hashes --no-emit-project --extra speculative | $(UV) tool run pip-audit --no-deps --disable-pip $(AUDIT_IGNORES) -r /dev/stdin
+
+check: lint types test acceptance architecture scripts crap mutation smoke docs-build lockfile security  ## The deterministic quality gauntlet
 
 docs:  ## Serve the documentation locally
-	$(UV) run --with mkdocs-material mkdocs serve
+	$(UV) run --only-group docs mkdocs serve
 
-docs-build:  ## Build the documentation strictly
-	$(UV) run --with mkdocs-material mkdocs build --strict
+docs-build:  ## Build the documentation site strictly
+	$(UV) run --only-group docs mkdocs build --strict
 
 docker:  ## Build the runtime image
 	docker build -t landuse-relevance-bench .

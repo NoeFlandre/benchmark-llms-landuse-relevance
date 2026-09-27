@@ -59,7 +59,7 @@ def expected_pairs_for_models(models: Sequence[str], languages: Sequence[str]) -
     return tuple(model_language_pairs(tuple(models), tuple(languages)))
 
 
-def collect_results(  # noqa: PLR0912
+def collect_results(  # noqa: C901, PLR0912
     site_roots: Mapping[str, Path],
     *,
     expected_pairs: Sequence[Pair],

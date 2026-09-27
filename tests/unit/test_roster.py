@@ -1,6 +1,13 @@
 import pytest
 
-from landuse_relevance_bench.domain.roster import ROSTER, model_ids, spec_for
+from landuse_relevance_bench.domain.roster import (
+    ROSTER,
+    ModelSpec,
+    dspark_settings,
+    model_ids,
+    sglang_pair,
+    spec_for,
+)
 
 EXPECTED_PREVIOUS_MODEL_IDS = {
     "LiquidAI/LFM2.5-350M",
@@ -65,3 +72,48 @@ def test_lookup_returns_the_matching_spec() -> None:
 def test_lookup_of_an_unknown_model_fails() -> None:
     with pytest.raises(KeyError, match=r"'nobody/nothing' is not in the benchmark roster"):
         spec_for("nobody/nothing")
+
+
+def test_dspark_runs_have_pinned_same_runtime_baselines() -> None:
+    drafted = [spec for spec in ROSTER if spec.draft_model_id]
+    assert {spec.model_id for spec in drafted} == {
+        "LiquidAI/LFM2.5-1.2B-Instruct",
+        "LiquidAI/LFM2.5-2.6B",
+        "LiquidAI/LFM2.5-8B-A1B",
+        "LiquidAI/LFM2.5-VL-3B",
+    }
+    assert all(spec.revision and spec.draft_revision for spec in drafted)
+    for spec in drafted:
+        baseline = spec_for(f"{spec.model_id}@sglang")
+        assert baseline.runtime == spec.runtime == "sglang"
+        assert baseline.revision == spec.revision
+        assert baseline.vision == spec.vision
+        assert baseline.speculative == {
+            key: value
+            for key, value in spec.speculative.items()
+            if not key.startswith("speculative_")
+        }
+
+
+def test_an_invalid_runtime_or_non_sglang_draft_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unknown runtime"):
+        ModelSpec("owner/model", 1, "", runtime="vllm")
+    with pytest.raises(ValueError, match="a speculative draft needs the sglang runtime"):
+        ModelSpec("owner/model", 1, "", draft_model_id="owner/draft")
+
+
+def test_dspark_settings_and_pair_preserve_the_target_recipe() -> None:
+    settings = dspark_settings(0.5, speculative_dspark_block_size=8)
+    assert settings == {
+        "speculative_algorithm": "DSPARK",
+        "speculative_draft_attention_backend": "flashinfer",
+        "disable_radix_cache": True,
+        "mem_fraction_static": 0.5,
+        "speculative_dspark_block_size": 8,
+    }
+    target = ModelSpec("owner/model", 10, "target", revision="r1", vision=True, batch_size=16)
+    baseline, drafted = sglang_pair(target, "owner/draft", "r2", 3, dspark_settings(0.5))
+    assert (baseline.name, drafted.name) == ("owner/model@sglang", "owner/model+DSpark")
+    assert (baseline.runtime, drafted.runtime, drafted.draft_revision) == ("sglang", "sglang", "r2")
+    assert drafted.draft_parameters == 3
+    assert baseline.speculative == {"disable_radix_cache": True, "mem_fraction_static": 0.5}

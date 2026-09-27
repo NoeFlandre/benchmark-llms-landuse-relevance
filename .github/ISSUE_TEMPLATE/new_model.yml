@@ -1,0 +1,51 @@
+name: Request a model
+description: Propose adding a model or model/runtime configuration to the benchmark.
+title: "[Model]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Include a stable upstream model reference. A request is not a claim that the model is compatible or comparable yet.
+  - type: input
+    id: model_id
+    attributes:
+      label: Model repository and exact revision, if known
+      description: Prefer a canonical Hugging Face repository URL and commit SHA.
+      placeholder: https://huggingface.co/organization/model
+    validations:
+      required: true
+  - type: input
+    id: draft
+    attributes:
+      label: Draft model, if proposing speculative decoding
+      description: Include its repository and revision when available.
+    validations:
+      required: false
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why should it be included?
+      description: What comparison or research question would it answer?
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Runtime and hardware evidence
+      description: Note supported runtimes, expected hardware, and any successful smoke test. Mark unknowns clearly.
+    validations:
+      required: true
+  - type: textarea
+    id: licensing
+    attributes:
+      label: License and usage constraints
+      description: Link the model card or license and note relevant restrictions.
+    validations:
+      required: true
+  - type: textarea
+    id: comparability
+    attributes:
+      label: Expected benchmark comparability
+      description: Mention prompt/output format, context limits, quantization, or other differences from current runs.
+    validations:
+      required: false

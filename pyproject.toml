@@ -1,6 +1,6 @@
 [project]
 name = "landuse-relevance-bench"
-version = "0.1.0"
+version = "0.2.0"
 description = "End-to-end benchmark of small LLMs on land-use relevance sentence classification."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -19,6 +19,8 @@ inference = [
     "huggingface-hub>=0.35",
     # llama_generator.render_chat imports jinja2.sandbox; do not rely on Transformers.
     "jinja2>=3.1",
+    # LFM2.5-VL's processor loads its image processor even for text-only prompts.
+    "torchvision>=0.21",
 ]
 # The zero-shot classifier ships its own runtime; only a scoring run needs it.
 scoring = [
@@ -36,6 +38,13 @@ gliner2 = [
 gguf = [
     "llama-cpp-python==0.3.35",
     "jinja2>=3.1",
+]
+# SGLang pins its own torch and transformers, so it cannot share an environment with
+# `inference`; the uv `conflicts` table below keeps the two resolutions apart.
+speculative = [
+    "sglang>=0.5.20",  # DSpark with LFM2 and LFM2-VL targets
+    "cuda-tile>=1.6.0rc5",
+    "flash-attn-4>=4.0.0b18",
 ]
 publish = [
     "huggingface-hub>=0.35",
@@ -55,12 +64,21 @@ dev = [
     "import-linter>=2.1",
     "radon>=6.0",
     "mutmut>=3.2",
+    "pyyaml>=6.0.3",
+]
+# The documentation site; locked like everything else, synced only by `--group docs`.
+docs = [
+    "mkdocs-material>=9.6",
 ]
 
 [tool.uv]
 conflicts = [
+    [{ extra = "inference" }, { extra = "speculative" }],
     [{ extra = "inference" }, { extra = "gliner2" }],
+    [{ extra = "gliner2" }, { extra = "speculative" }],
 ]
+# SGLang pins pre-release builds; naming them in `speculative` allows only those.
+prerelease = "if-necessary"
 
 [build-system]
 requires = ["hatchling"]
@@ -73,17 +91,44 @@ packages = ["src/landuse_relevance_bench"]
 line-length = 100
 src = ["src", "tests"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["scripts"]
+
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", "PL", "RUF"]
+select = [
+    "E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RET", "ARG", "PTH", "PL", "RUF",
+    # Guards against regressions (zero violations when enabled).
+    "C90", "PIE", "PERF", "BLE", "DTZ", "ERA", "PGH", "TID",
+    # print/assert/boolean-trap/security/annotation guards, scoped by per-file-ignores.
+    "T20", "FBT", "S", "ANN",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["PLR2004", "ARG001", "ARG002", "ARG004", "ARG005", "RUF012", "PLC0415"]
+"tests/**" = [
+    "PLR2004", "ARG001", "ARG002", "ARG004", "ARG005", "RUF012",
+    "PLC0415", "S101", "ANN",
+]
+# The scripts are command-line tools: printing is their output.
+"scripts/**" = ["T20"]
+# The optional-runtime adapters wrap untyped torch/transformers/sglang objects.
+"src/**/adapters/*" = ["ANN401", "PLC0415"]
 # Optional runtimes (torch, transformers, huggingface_hub) are imported inside the
 # functions that need them, so the CLI and the domain stay usable without them.
 # A command's parameters are its user interface; typer needs them in the signature.
-"src/landuse_relevance_bench/cli.py" = ["PLC0415", "PLR0913", "PLR0917"]
-"src/landuse_relevance_bench/adapters/*.py" = ["PLC0415"]
-"src/landuse_relevance_bench/adapters/hf_publish.py" = ["PLR0913"]
+# Typer maps boolean flags to boolean parameters (FBT001/FBT002).
+"src/landuse_relevance_bench/cli.py" = [
+    "PLC0415", "PLR0913", "PLR0917", "FBT001", "FBT002",
+]
+"src/landuse_relevance_bench/adapters/hf_publish.py" = ["PLC0415", "PLR0913"]
+"src/landuse_relevance_bench/adapters/sglang_generator.py" = ["PLC0415"]
+"src/landuse_relevance_bench/adapters/generators.py" = ["PLC0415"]
+"src/landuse_relevance_bench/adapters/revision.py" = ["PLC0415"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -99,12 +144,26 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
+# The floor is the current coverage rounded down; raise it as coverage grows.
+fail_under = 95
 
 [tool.ty.src]
-include = ["src", "tests"]
+include = ["src"]
+
+# Warnings fail the gate, and these rules are errors outright, so the type check cannot
+# weaken silently as diagnostics accumulate.
+[tool.ty.terminal]
+error-on-warning = true
+
+[tool.ty.rules]
+possibly-unresolved-reference = "error"
+unused-ignore-comment = "error"
+redundant-cast = "error"
+division-by-zero = "error"
 
 [tool.importlinter]
 root_packages = ["landuse_relevance_bench"]
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Domain is pure (no adapters, no I/O libraries)"
@@ -114,11 +173,14 @@ forbidden_modules = [
     "landuse_relevance_bench.adapters",
     "landuse_relevance_bench.cli",
     "csv",
+    "json",
     "pathlib",
     "typer",
     "torch",
     "transformers",
     "huggingface_hub",
+    "sglang",
+    "requests",
 ]
 
 [[tool.importlinter.contracts]]
@@ -131,22 +193,23 @@ layers = [
 ]
 
 [tool.mutmut]
-# Mutate the domain; the adapters are thin I/O wrappers where most mutants are
-# equivalent (see docs/debt.md). The rest of the package is copied so the tests
-# that exercise the domain can still import it.
-paths_to_mutate = ["src/landuse_relevance_bench/domain/"]
-tests_dir = ["tests/unit/", "tests/property/"]
+# Mutate core logic and the pure leaderboard scoring/ordering surface.
+source_paths = [
+    "src/landuse_relevance_bench/domain/",
+    "src/landuse_relevance_bench/adapters/results_store.py",
+]
+pytest_add_cli_args_test_selection = ["tests/unit/", "tests/property/", "tests/acceptance/"]
 also_copy = [
     "src/landuse_relevance_bench/__init__.py",
     "src/landuse_relevance_bench/cli.py",
     "src/landuse_relevance_bench/adapters/",
-    "tests/",
     "scripts/",
+    "results/",
+    "docs/",
+    "tests/",
     "data/",
     # Read by tests/unit/test_archive_boundary.py; without them the stats run fails
     # and no mutant is ever tested.
     "README.md",
-    "docs/",
-    "results/",
     "pyproject.toml",
 ]

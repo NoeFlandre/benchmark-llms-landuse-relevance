@@ -2,7 +2,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from scripts.snapshot_status import snapshot_status
 
 from landuse_relevance_bench.adapters.results_store import write_run
 from landuse_relevance_bench.domain.labels import Label
@@ -10,6 +9,7 @@ from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
 from landuse_relevance_bench.domain.roster import model_ids
 from landuse_relevance_bench.domain.scorers import scorer_ids
+from scripts.snapshot_status import snapshot_status
 
 
 def _result(model_id: str, language: str) -> RunResult:

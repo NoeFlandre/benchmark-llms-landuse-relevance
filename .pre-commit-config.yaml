@@ -1,0 +1,21 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: Ruff format (uv.lock)
+        entry: uv run --locked --group dev ruff format --check .
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: ruff-check
+        name: Ruff lint (uv.lock)
+        entry: uv run --locked --group dev ruff check .
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: ty-check
+        name: ty type check (uv.lock)
+        entry: uv run --locked --group dev ty check src
+        language: system
+        types: [python]
+        pass_filenames: false

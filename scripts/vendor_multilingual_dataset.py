@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from landuse_relevance_bench.adapters.hashing import sha256_of_file
@@ -54,13 +54,17 @@ def fetch_json(url: str) -> object:
 
 def fetch_bytes(url: str) -> bytes:
     """Fetch one public resource with throttling and transient-error retries."""
+    if urlsplit(url).scheme != "https":
+        raise TranslationDataError("only HTTPS sources are allowed")
     for attempt in range(MAX_FETCH_ATTEMPTS):
         elapsed = time.monotonic() - _request_state["last_request_at"]
         if elapsed < REQUEST_DELAY_SECONDS:
             time.sleep(REQUEST_DELAY_SECONDS - elapsed)
-        request = Request(url, headers={"User-Agent": "landuse-relevance-bench-v3/1.0"})
+        request = Request(  # noqa: S310 -- fetch_bytes rejects every non-HTTPS scheme above.
+            url, headers={"User-Agent": "landuse-relevance-bench-v3/1.0"}
+        )
         try:
-            with urlopen(request, timeout=60) as response:
+            with urlopen(request, timeout=60) as response:  # noqa: S310 -- HTTPS only.
                 payload = response.read()
             _request_state["last_request_at"] = time.monotonic()
             return payload
@@ -289,7 +293,7 @@ def _fetch_language_rows(
     return tuple(rows)
 
 
-def _hub_translation_paths(
+def _hub_translation_paths(  # noqa: C901
     dataset: str,
     revision: str,
     split: str,
@@ -440,7 +444,7 @@ def _write_language_csv(
             writer.writerow(serialized)
 
 
-def _csv_value(value: Any, column: str) -> str:
+def _csv_value(value: object, column: str) -> str:
     if value is None:
         return ""
     if column == "label" and isinstance(value, bool):

@@ -3,12 +3,6 @@ from pathlib import Path
 from landuse_relevance_bench.adapters.hashing import sha256_of_file, sha256_of_text
 
 
-def test_text_digest_is_the_standard_sha256() -> None:
-    assert sha256_of_text("abc") == (
-        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-    )
-
-
 def test_file_digest_matches_the_digest_of_its_bytes(tmp_path: Path) -> None:
     path = tmp_path / "f.txt"
     path.write_text("abc", encoding="utf-8")

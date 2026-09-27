@@ -6,11 +6,14 @@
 #   LRB_ROOT        project checkout on the node        (default: $HOME/benchmark-llms-landuse-relevance)
 #   LRB_DATA_ROOT   vendored multilingual data root     (default: $LRB_ROOT/data/translations)
 #   LRB_RESULTS     directory for run results           (default: $LRB_ROOT/results)
-#   LRB_BATCH_SIZE  prompts per forward pass            (default: 16)
+#   LRB_BATCH_SIZE  prompts per forward pass            (default: each model's roster setting)
+#   LRB_CONTINUOUS_BATCHING  use Transformers continuous batching (default: 0)
+#   LRB_THROUGHPUT use SGLang multi-request throughput mode (default: 1)
 #   LRB_MAX_NEW_TOKENS  generation budget per prompt     (default: 4096)
 #   LRB_SHARD_INDEX shard index among deterministic pairs (default: OAR array index, else 0)
 #   LRB_SHARD_COUNT number of deterministic pair shards   (default: 1)
-#   LRB_MODEL_ID    optional single model to run instead of the full roster
+#   LRB_MODEL_ID    optional single model/run name instead of the full roster
+#   LRB_RUNTIME     optional runtime for one run          (default: inferred from the roster name)
 #   LRB_LANGUAGES   optional comma-separated language subset (validation runs)
 #   LRB_SCORER_PROMPT  optional prompt file overriding a scorer's own prompt (scoring runs)
 #   LRB_EXPECTED_ROWS  rows every language must have; empty disables the exact
@@ -26,11 +29,14 @@ export PATH="$HOME/.local/bin:$PATH"   # oarsub runs a non-login shell
 LRB_ROOT="${LRB_ROOT:-$HOME/benchmark-llms-landuse-relevance}"
 LRB_DATA_ROOT="${LRB_DATA_ROOT:-$LRB_ROOT/data/translations}"
 LRB_RESULTS="${LRB_RESULTS:-$LRB_ROOT/results}"
-LRB_BATCH_SIZE="${LRB_BATCH_SIZE:-16}"
+LRB_BATCH_SIZE="${LRB_BATCH_SIZE:-}"
+LRB_CONTINUOUS_BATCHING="${LRB_CONTINUOUS_BATCHING:-0}"
+LRB_THROUGHPUT="${LRB_THROUGHPUT:-1}"
 LRB_MAX_NEW_TOKENS="${LRB_MAX_NEW_TOKENS:-4096}"
 LRB_SHARD_INDEX="${LRB_SHARD_INDEX:-${OAR_ARRAY_INDEX:-0}}"
 LRB_SHARD_COUNT="${LRB_SHARD_COUNT:-1}"
 LRB_MODEL_ID="${LRB_MODEL_ID:-}"
+LRB_RUNTIME="${LRB_RUNTIME:-}"
 LRB_DRY_RUN="${LRB_DRY_RUN:-0}"
 LRB_LANGUAGES="${LRB_LANGUAGES:-}"
 LRB_SCORER_PROMPT="${LRB_SCORER_PROMPT:-}"
@@ -56,6 +62,10 @@ fi
 if [[ ! "$LRB_SHARD_INDEX" =~ ^[0-9]+$ || ! "$LRB_SHARD_COUNT" =~ ^[1-9][0-9]*$ \
   || "$LRB_SHARD_INDEX" -ge "$LRB_SHARD_COUNT" ]]; then
   echo "invalid LRB_SHARD_INDEX/LRB_SHARD_COUNT: $LRB_SHARD_INDEX/$LRB_SHARD_COUNT" >&2
+  exit 2
+fi
+if [[ ! "$LRB_CONTINUOUS_BATCHING" =~ ^[01]$ || ! "$LRB_THROUGHPUT" =~ ^[01]$ ]]; then
+  echo "LRB_CONTINUOUS_BATCHING and LRB_THROUGHPUT must be 0 or 1" >&2
   exit 2
 fi
 export HF_HOME="${HF_HOME:-/tmp/$USER/hf-cache}"
@@ -92,6 +102,16 @@ esac
 if (( is_quantized == 1 )); then
   export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gguf-${OAR_JOB_ID:-manual}"
 fi
+if [[ -z "$LRB_RUNTIME" && -n "$LRB_MODEL_ID" ]]; then
+  if [[ "$LRB_MODEL_ID" == *@sglang || "$LRB_MODEL_ID" == *+DSpark* ]]; then
+    LRB_RUNTIME=sglang
+  else
+    LRB_RUNTIME=transformers
+  fi
+fi
+if [[ "$LRB_RUNTIME" == "sglang" && -z "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
+  export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-sglang-${OAR_JOB_ID:-manual}"
+fi
 if [[ -n "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
   # $HOME is quota-limited; a per-job environment is rebuilt from the uv cache anyway.
   trap 'rm -rf "$UV_PROJECT_ENVIRONMENT"' EXIT
@@ -107,6 +127,8 @@ if [[ "$LRB_MODEL_ID" == "$GLICLASS_MODEL_ID" ]]; then
   extras+=(--extra scoring)
 elif [[ "$LRB_MODEL_ID" == "$GLINER2_MODEL_ID" ]]; then
   extras=(--extra gliner2)
+elif [[ "$LRB_RUNTIME" == "sglang" ]]; then
+  extras=(--extra speculative)
 fi
 uv sync "${extras[@]}" --frozen --no-dev
 if [[ "$LRB_MODEL_ID" == "$GLINER2_MODEL_ID" ]]; then
@@ -221,41 +243,76 @@ for (( pair_index = 0; pair_index < pair_count; pair_index++ )); do
     assigned_pair_count=$(( assigned_pair_count + 1 ))
   fi
 done
-echo "== sizing: model=${LRB_MODEL_ID:-all} languages=${#languages[@]} rows=$total_rows pairs=$pair_count assigned_pairs=$assigned_pair_count prompts=$estimated_prompts batch_size=$LRB_BATCH_SIZE max_new_tokens=$LRB_MAX_NEW_TOKENS shard=$LRB_SHARD_INDEX/$LRB_SHARD_COUNT"
+echo "== sizing: model=${LRB_MODEL_ID:-all} languages=${#languages[@]} rows=$total_rows pairs=$pair_count assigned_pairs=$assigned_pair_count prompts=$estimated_prompts batch_size=${LRB_BATCH_SIZE:-roster-default} max_new_tokens=$LRB_MAX_NEW_TOKENS shard=$LRB_SHARD_INDEX/$LRB_SHARD_COUNT runtime=${LRB_RUNTIME:-all}"
 
 if [[ "$LRB_DRY_RUN" == "1" ]]; then
   exit 0
 fi
 
+batch_args=()
+if [[ -n "$LRB_BATCH_SIZE" ]]; then
+  batch_args+=(--batch-size "$LRB_BATCH_SIZE")
+fi
+language_args=()
+if [[ -n "$LRB_LANGUAGES" ]]; then
+  language_args+=(--language "$LRB_LANGUAGES")
+fi
+
 if (( is_scoring == 1 )); then
   # Each scorer declares its own prompt file; override only when asked to.
-  uv run --no-sync lrb score "$LRB_MODEL_ID" \
-    ${LRB_LANGUAGES:+--language "$LRB_LANGUAGES"} \
+  score_args=(
     --data-root "$LRB_DATA_ROOT" \
-    ${LRB_SCORER_PROMPT:+--prompt "$LRB_SCORER_PROMPT"} \
     --out "$LRB_RESULTS" \
-    --batch-size "$LRB_BATCH_SIZE" \
     --shard-index "$LRB_SHARD_INDEX" \
     --shard-count "$LRB_SHARD_COUNT"
+  )
+  if [[ -n "$LRB_SCORER_PROMPT" ]]; then
+    score_args+=(--prompt "$LRB_SCORER_PROMPT")
+  fi
+  score_args+=("${batch_args[@]}")
+  uv run --no-sync lrb score "$LRB_MODEL_ID" "${language_args[@]}" "${score_args[@]}"
 elif [[ -n "$LRB_MODEL_ID" ]]; then
-  uv run --no-sync lrb run "$LRB_MODEL_ID" \
-    ${LRB_LANGUAGES:+--language "$LRB_LANGUAGES"} \
+  run_args=(
     --data-root "$LRB_DATA_ROOT" \
     --prompt data/prompt.txt \
     --out "$LRB_RESULTS" \
-    --batch-size "$LRB_BATCH_SIZE" \
     --max-new-tokens "$LRB_MAX_NEW_TOKENS" \
     --shard-index "$LRB_SHARD_INDEX" \
     --shard-count "$LRB_SHARD_COUNT"
+  )
+  run_args+=("${batch_args[@]}")
+  mode_args=()
+  if [[ "$LRB_RUNTIME" == "sglang" && "$LRB_THROUGHPUT" == "1" ]]; then
+    mode_args+=(--throughput)
+  elif [[ "$LRB_RUNTIME" == "transformers" && "$LRB_CONTINUOUS_BATCHING" == "1" ]]; then
+    mode_args+=(--continuous-batching)
+  fi
+  uv run --no-sync lrb run "$LRB_MODEL_ID" "${language_args[@]}" "${run_args[@]}" "${mode_args[@]}"
 else
-  uv run --no-sync lrb run-all \
+  run_all_args=(
     --data-root "$LRB_DATA_ROOT" \
     --prompt data/prompt.txt \
     --out "$LRB_RESULTS" \
-    --batch-size "$LRB_BATCH_SIZE" \
     --max-new-tokens "$LRB_MAX_NEW_TOKENS" \
     --shard-index "$LRB_SHARD_INDEX" \
     --shard-count "$LRB_SHARD_COUNT"
+  )
+  run_all_args+=("${batch_args[@]}")
+  transformer_mode_args=()
+  if [[ "$LRB_CONTINUOUS_BATCHING" == "1" ]]; then
+    transformer_mode_args+=(--continuous-batching)
+  fi
+  uv run --no-sync lrb run-all "${run_all_args[@]}" --runtime transformers --skip-existing --keep-going "${transformer_mode_args[@]}"
+  # SGLang pins incompatible Torch/Transformers versions; use a job-private environment
+  # for its runs so concurrent OAR jobs cannot replace one another's dependencies.
+  export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-sglang-${OAR_JOB_ID:-manual}"
+  trap 'rm -rf "$UV_PROJECT_ENVIRONMENT"' EXIT
+  uv sync --extra speculative --frozen --no-dev
+  sglang_mode_args=()
+  if [[ "$LRB_THROUGHPUT" == "1" ]]; then
+    sglang_mode_args+=(--throughput)
+  fi
+  uv run --no-sync lrb run-all "${run_all_args[@]}" --runtime sglang --skip-existing --keep-going "${sglang_mode_args[@]}"
 fi
 
 uv run --no-sync lrb report --results-dir "$LRB_RESULTS"

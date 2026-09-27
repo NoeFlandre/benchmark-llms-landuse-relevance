@@ -38,6 +38,12 @@ def test_the_serialised_keys_are_the_published_schema() -> None:
         "predicted": "yes",
         "raw_output": "yes",
         "truncated": False,
+        "parse_mode": None,
+        "latency_seconds": None,
+        "generated_tokens": None,
+        "verify_steps": None,
+        "accepted_drafts": None,
+        "proposed_drafts": None,
     }
 
 

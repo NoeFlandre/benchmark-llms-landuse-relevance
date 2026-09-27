@@ -1,26 +1,60 @@
-"""The mutation gate refuses to pass a run that produced no results."""
-
-import subprocess
-from pathlib import Path
-
 import pytest
-from scripts.check_mutants import MutationRunError, survivors
+
+from scripts import check_mutants
 
 
-def test_a_crashed_run_with_no_results_is_not_a_clean_pass(tmp_path: Path) -> None:
-    with pytest.raises(MutationRunError, match="crash"):
-        survivors(tmp_path)
-
-
-def test_results_without_a_single_killed_mutant_are_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    (tmp_path / "mutants").mkdir()
-    (tmp_path / "mutants" / "x.meta").write_text("{}", encoding="utf-8")
-    listing = subprocess.CompletedProcess(
-        [], 0, stdout="    domain.x__mutmut_1: not checked\n", stderr=""
+def test_mutmut_results_parse_exact_ids_and_statuses() -> None:
+    parsed = check_mutants.parse_results(
+        "package.domain.metrics.evaluate__mutant_a: killed\n"
+        "package.domain.parsing.parse_label__mutant_b: survived\n"
     )
-    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: listing)
+    assert parsed == {
+        "package.domain.metrics.evaluate__mutant_a": "killed",
+        "package.domain.parsing.parse_label__mutant_b": "survived",
+    }
 
-    with pytest.raises(MutationRunError, match="killed no mutants"):
-        survivors(tmp_path)
+
+@pytest.mark.parametrize("output", ["", "summary changed", "one: unknown status"])
+def test_empty_or_unrecognized_mutmut_output_is_an_error(output: str) -> None:
+    with pytest.raises(ValueError, match="unparsable"):
+        check_mutants.parse_results(output)
+
+
+def test_results_without_a_killed_mutant_are_not_a_clean_pass() -> None:
+    with pytest.raises(ValueError, match="killed no mutants"):
+        check_mutants.parse_results("domain.x__mutmut_1: not checked\n")
+
+
+def test_allowlist_requires_one_reason_per_unique_mutant() -> None:
+    assert check_mutants.parse_allowlist(
+        "# Exact reviewed equivalents\nmodule.function__mutant: equivalent behavior\n"
+    ) == {"module.function__mutant": "equivalent behavior"}
+    with pytest.raises(ValueError, match="reason"):
+        check_mutants.parse_allowlist("module.function__mutant\n")
+
+
+def test_gate_reports_new_survivors_stale_entries_and_other_unresolved_states() -> None:
+    actual = {
+        "module.function__allowed": "survived",
+        "module.function__new": "survived",
+        "module.function__timeout": "timeout",
+        "module.function__killed": "killed",
+    }
+    errors = check_mutants.validate_results(
+        actual,
+        {"module.function__allowed": "documented equivalence", "module.function__stale": "old"},
+    )
+    assert "module.function__new" in "\n".join(errors)
+    assert "module.function__stale" in "\n".join(errors)
+    assert "module.function__timeout" in "\n".join(errors)
+
+
+def test_read_mutmut_results_requests_all_mutant_ids(monkeypatch) -> None:
+    def fake_run(command, **kwargs):
+        assert command[-3:] == ["results", "--all", "true"]
+        assert kwargs["check"] is False
+        return type("Completed", (), {"returncode": 0, "stdout": "id: killed\n", "stderr": ""})()
+
+    monkeypatch.setattr(check_mutants.subprocess, "run", fake_run)
+
+    assert check_mutants.read_results() == {"id": "killed"}
