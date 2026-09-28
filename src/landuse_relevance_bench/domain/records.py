@@ -5,18 +5,13 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from landuse_relevance_bench.domain.labels import Label
-from landuse_relevance_bench.domain.metrics import ClassificationMetrics, Outcome
+from landuse_relevance_bench.domain.metrics import ClassificationMetrics, Outcome, evaluate
+from landuse_relevance_bench.domain.parsing import ParseMode
 from landuse_relevance_bench.domain.roster import TRANSFORMERS
 from landuse_relevance_bench.domain.speed import SpeedMetrics, summarise_speed
 
-#: Optional per-generation measurements; absent from older result files.
-_COUNTERS = (
-    "latency_seconds",
-    "generated_tokens",
-    "verify_steps",
-    "accepted_drafts",
-    "proposed_drafts",
-)
+GENERATION = "generation"
+SCORING = "scoring"
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +23,7 @@ class Prediction:
     predicted: Label | None
     raw_output: str
     truncated: bool = False
-    #: Wall time of the generator call that produced this answer (its whole batch).
+    parse_mode: ParseMode | None = None
     latency_seconds: float | None = None
     generated_tokens: int | None = None
     verify_steps: int | None = None
@@ -46,7 +41,12 @@ class Prediction:
             "predicted": None if self.predicted is None else self.predicted.value,
             "raw_output": self.raw_output,
             "truncated": self.truncated,
-            **{name: getattr(self, name) for name in _COUNTERS},
+            "parse_mode": self.parse_mode,
+            "latency_seconds": self.latency_seconds,
+            "generated_tokens": self.generated_tokens,
+            "verify_steps": self.verify_steps,
+            "accepted_drafts": self.accepted_drafts,
+            "proposed_drafts": self.proposed_drafts,
         }
 
     @classmethod
@@ -58,7 +58,12 @@ class Prediction:
             predicted=None if predicted is None else Label(predicted),
             raw_output=payload["raw_output"],
             truncated=payload.get("truncated", False),
-            **{name: payload.get(name) for name in _COUNTERS},
+            parse_mode=payload.get("parse_mode"),
+            latency_seconds=payload.get("latency_seconds"),
+            generated_tokens=payload.get("generated_tokens"),
+            verify_steps=payload.get("verify_steps"),
+            accepted_drafts=payload.get("accepted_drafts"),
+            proposed_drafts=payload.get("proposed_drafts"),
         )
 
 
@@ -67,7 +72,8 @@ class RunMetadata:
     """Everything needed to reproduce or audit a run."""
 
     model_id: str
-    model_revision: str
+    language: str
+    model_revision: str | None
     prompt_sha256: str
     benchmark_sha256: str
     max_new_tokens: int
@@ -78,26 +84,65 @@ class RunMetadata:
     started_at: str
     duration_seconds: float
     source_commit: str = ""
-    #: The roster name of the run; differs from ``model_id`` when one model is run
-    #: several ways (e.g. with and without a speculative draft).
+    # How the verdict was obtained. Generative models are prompted and their text is
+    # parsed; scoring models emit a native score per label and never produce text, so
+    # they can neither leave a verdict unparsed nor run out of budget. Defaulted, so
+    # every result written before scoring models existed still reads back.
+    inference: str = GENERATION
+    # The rule that turned a scoring model's native scores into a verdict; empty for
+    # generative runs, whose rule is the parser.
+    decision_rule: str = ""
+    # Optional performance telemetry. Legacy result files did not carry these keys,
+    # so defaults keep them readable while GPU runs can report their measurements.
+    throughput_items_per_second: float | None = None
+    peak_vram_bytes: int | None = None
+    sequence_length: int | None = None
+    # GGUF quant label for llama.cpp runs; empty for full-precision checkpoints, whose
+    # precision is ``dtype``. Kept separate so a quant is never mistaken for a dtype.
+    quantization: str = ""
+    # Accelerator the timing was measured on; omitted when unknown, like quantization.
+    device_name: str = ""
+    #: Distinguishes a run variant while retaining the actual Hub model id above.
     run_id: str = ""
     runtime: str = TRANSFORMERS
     draft_model_id: str = ""
-    draft_model_revision: str = ""
+    draft_model_revision: str | None = ""
     speculative: Mapping[str, Any] = field(default_factory=dict)
+    package_version: str = ""
+    generation_mode: str = "static-batched"
 
     @property
     def name(self) -> str:
+        """The unique run name; plain runs retain their model id."""
         return self.run_id or self.model_id
+
+    @property
+    def is_generative(self) -> bool:
+        return self.inference == GENERATION
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.language, str) or not self.language.strip():
+            raise ValueError(
+                "run metadata requires a non-empty language; legacy records are archive-only"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        # Omitted when empty, so every full-precision run keeps its exact published bytes.
         payload["speculative"] = dict(self.speculative)
+        for optional in ("quantization", "device_name"):
+            if not payload[optional]:
+                del payload[optional]
         return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "RunMetadata":
-        return cls(**dict(payload))
+        if "language" not in payload or not payload["language"]:
+            raise ValueError("legacy/archive-only run metadata is missing required language")
+        try:
+            return cls(**dict(payload))
+        except TypeError as exc:
+            raise ValueError(f"invalid run metadata: {exc}") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,10 +159,15 @@ class RunResult:
                 f"metrics cover {self.metrics.n_items} items but the run holds "
                 f"{len(self.predictions)} predictions"
             )
+        identifiers = [prediction.item_id for prediction in self.predictions]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("run contains a duplicate item id")
+        if self.metrics != evaluate(outcomes_of(self.predictions)):
+            raise ValueError("metrics do not match predictions")
 
     @property
     def speed(self) -> SpeedMetrics:
-        """Derived from the stored predictions, so older result files still yield one."""
+        """Speed derived from per-prediction evidence and the recorded wall time."""
         return summarise_speed(self.predictions, self.metadata.duration_seconds)
 
     def to_dict(self) -> dict[str, Any]:

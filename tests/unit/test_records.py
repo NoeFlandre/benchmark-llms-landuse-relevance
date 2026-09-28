@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from landuse_relevance_bench.domain.labels import Label
@@ -6,6 +8,7 @@ from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunR
 
 META = RunMetadata(
     model_id="LiquidAI/LFM2.5-350M",
+    language="en",
     model_revision="abc123",
     prompt_sha256="p" * 64,
     benchmark_sha256="b" * 64,
@@ -24,6 +27,11 @@ def _prediction(predicted: Label | None = Label.YES) -> Prediction:
     return Prediction(item_id="0" * 16, expected=Label.YES, predicted=predicted, raw_output="yes")
 
 
+def test_prediction_round_trips_through_a_plain_dict() -> None:
+    prediction = _prediction()
+    assert Prediction.from_dict(prediction.to_dict()) == prediction
+
+
 def test_the_serialised_keys_are_the_published_schema() -> None:
     """Renaming one of these silently invalidates every result file already published."""
     assert _prediction().to_dict() == {
@@ -32,6 +40,7 @@ def test_the_serialised_keys_are_the_published_schema() -> None:
         "predicted": "yes",
         "raw_output": "yes",
         "truncated": False,
+        "parse_mode": None,
         "latency_seconds": None,
         "generated_tokens": None,
         "verify_steps": None,
@@ -57,25 +66,10 @@ def test_a_result_file_written_before_truncation_was_tracked_still_loads() -> No
     assert Prediction.from_dict(legacy).truncated is False
 
 
-def test_a_result_file_from_before_speed_was_tracked_still_loads_and_reports_wall_time() -> None:
-    legacy_meta = {
-        k: v
-        for k, v in META.to_dict().items()
-        if k not in {"run_id", "runtime", "draft_model_id", "draft_model_revision", "speculative"}
-    }
-    legacy = {
-        "metadata": legacy_meta,
-        "metrics": evaluate([(Label.YES, Label.YES)]).to_dict(),
-        "predictions": [
-            {"item_id": "0" * 16, "expected": "yes", "predicted": "yes", "raw_output": "yes"}
-        ],
-    }
-    result = RunResult.from_dict(legacy)
-    assert result.metadata.name == META.model_id
-    assert result.metadata.runtime == "transformers"
-    assert result.speed.wall_seconds == 12.5
-    assert result.speed.latency_p50_seconds is None
-    assert result.speed.generated_tokens is None
+def test_a_null_prediction_round_trips() -> None:
+    prediction = _prediction(None)
+    assert prediction.to_dict()["predicted"] is None
+    assert Prediction.from_dict(prediction.to_dict()) == prediction
 
 
 def test_run_result_round_trips_through_a_plain_dict() -> None:
@@ -87,6 +81,15 @@ def test_run_result_round_trips_through_a_plain_dict() -> None:
     assert RunResult.from_dict(result.to_dict()) == result
 
 
+def test_run_result_dict_is_json_serialisable() -> None:
+    import json
+
+    result = RunResult(
+        metadata=META, predictions=(_prediction(),), metrics=evaluate([(Label.YES, Label.YES)])
+    )
+    assert json.loads(json.dumps(result.to_dict())) == result.to_dict()
+
+
 def test_run_result_rejects_metrics_that_disagree_with_its_predictions() -> None:
     with pytest.raises(ValueError, match="metrics cover 1 items but the run holds 2"):
         RunResult(
@@ -96,22 +99,42 @@ def test_run_result_rejects_metrics_that_disagree_with_its_predictions() -> None
         )
 
 
-def test_a_timed_prediction_round_trips_and_the_run_file_carries_its_speed() -> None:
-    timed = Prediction(
-        item_id="1" * 16,
-        expected=Label.NO,
-        predicted=Label.NO,
-        raw_output="no",
-        truncated=False,
-        latency_seconds=0.25,
-        generated_tokens=4,
-        verify_steps=2,
-        accepted_drafts=3,
-        proposed_drafts=16,
-    )
-    assert Prediction.from_dict(timed.to_dict()) == timed
-    payload = RunResult(
-        metadata=META, predictions=(timed,), metrics=evaluate([(Label.NO, Label.NO)])
-    ).to_dict()
-    assert payload["speed"]["generated_tokens"] == 4
-    assert payload["speed"]["mean_accept_length"] == 2.0
+def test_run_result_rejects_duplicate_item_ids() -> None:
+    duplicate = _prediction()
+    with pytest.raises(ValueError, match="duplicate item id"):
+        RunResult(
+            metadata=META,
+            predictions=(duplicate, duplicate),
+            metrics=evaluate([(Label.YES, Label.YES), (Label.YES, Label.YES)]),
+        )
+
+
+def test_run_result_rejects_metrics_that_disagree_without_a_count_mismatch() -> None:
+    metrics = evaluate([(Label.YES, Label.YES)])
+    with pytest.raises(ValueError, match="metrics do not match predictions"):
+        RunResult(
+            metadata=META,
+            predictions=(_prediction(),),
+            metrics=replace(metrics, accuracy=0.0),
+        )
+
+
+def test_missing_language_is_rejected_as_archive_only_metadata() -> None:
+    payload = META.to_dict()
+    del payload["language"]
+
+    with pytest.raises(ValueError, match=r"archive-only.*language"):
+        RunMetadata.from_dict(payload)
+
+
+def test_metadata_written_before_performance_telemetry_was_added_still_loads() -> None:
+    payload = META.to_dict()
+    payload.pop("throughput_items_per_second")
+    payload.pop("peak_vram_bytes")
+    payload.pop("sequence_length")
+
+    restored = RunMetadata.from_dict(payload)
+
+    assert restored.throughput_items_per_second is None
+    assert restored.peak_vram_bytes is None
+    assert restored.sequence_length is None

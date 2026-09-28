@@ -25,62 +25,64 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
-      - run: uv sync --extra inference --extra publish
-
-      # Each step is a Makefile target, so `make check` runs exactly these gates.
+      # gliner2 conflicts with inference (Transformers 4 vs 5); it is tested in isolation on G5K.
+      - run: uv sync --extra inference --extra scoring --extra publish
       - name: Lint and format
         run: make lint
-
       - name: Types
         run: make types
-
       - name: Unit and property tests with coverage
         run: make test
-
       - name: Acceptance scenarios
         run: make acceptance
-
       - name: Architecture boundaries
         run: make architecture
-
-      # -o test: reuse the coverage the step above just produced.
+      - name: Grid5000 script tests
+        run: make scripts
       - name: CRAP score
         run: make crap -o test
-
-      # mutmut exits 0 when mutants merely survive and nonzero only when the run itself
-      # breaks, so its exit code is kept; check_mutants.py gates the survivors.
-      - name: Mutation testing
-        run: make mutation
-
       - name: CLI smoke test
         run: make smoke
+
+  mutation:
+    name: Mutation gate (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --extra inference --extra scoring --extra publish
+      - name: Mutation testing
+        run: make mutation
 
   lockfile:
     name: Lockfile and speculative extra resolve
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
-      - name: uv.lock is current and the speculative (SGLang) extra resolves on Linux
+      - name: Lockfile and SGLang speculative runtime
         run: make lockfile
 
   docs:
     name: Documentation builds
-    # docs.yml builds (and deploys) the site on every push to main.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
       - run: make docs-build
@@ -90,34 +92,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
-      - name: pip-audit over every locked environment
-        run: make security
+      - run: make security
 
   image:
     name: Container builds
     runs-on: ubuntu-latest
-    # The image carries torch (multi-GB); exporting that to the GHA cache exceeded the
-    # budget, so no layer cache is used and the timeout covers a cold build.
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: false
           build-args: LRB_SOURCE_COMMIT=${{ github.sha }}
 
-  # The one check to mark required: it fails if any job failed, was cancelled or was
-  # skipped unexpectedly, so renaming a job cannot silently drop it from protection.
   all-green:
     name: All green
     if: always()
-    needs: [gauntlet, lockfile, docs, security, image]
+    needs: [gauntlet, mutation, lockfile, docs, security, image]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

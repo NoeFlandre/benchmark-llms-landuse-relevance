@@ -1,7 +1,7 @@
 import pytest
 
 from landuse_relevance_bench.domain.labels import Label
-from landuse_relevance_bench.domain.parsing import parse_label
+from landuse_relevance_bench.domain.parsing import parse_label, parse_with_mode
 
 
 @pytest.mark.parametrize(
@@ -46,3 +46,23 @@ def test_does_not_match_a_token_inside_a_word() -> None:
 
 def test_trailing_prose_after_the_verdict_does_not_flip_it() -> None:
     assert parse_label("no\nExplanation: none") is Label.NO
+
+
+def test_leading_answer_wins_before_later_mentions_of_the_other_label() -> None:
+    parsed = parse_with_mode("Yes — the prompt mentions no, but the answer is yes.")
+    assert (parsed.label, parsed.mode) == (Label.YES, "leading")
+
+
+def test_reasoning_first_output_uses_the_last_label_as_a_fallback() -> None:
+    parsed = parse_with_mode("Criteria for yes: woods. Criteria for no: history. Answer: no")
+    assert (parsed.label, parsed.mode) == (Label.NO, "last")
+
+
+def test_a_single_answer_with_wrapping_punctuation_is_exact() -> None:
+    parsed = parse_with_mode(" **NO** ")
+    assert (parsed.label, parsed.mode) == (Label.NO, "exact")
+
+
+def test_unparsed_output_has_no_parse_mode() -> None:
+    parsed = parse_with_mode("perhaps")
+    assert (parsed.label, parsed.mode) == (None, None)

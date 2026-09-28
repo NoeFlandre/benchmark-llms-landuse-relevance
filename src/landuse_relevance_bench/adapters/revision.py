@@ -11,7 +11,7 @@ def hub_commit(model_id: str) -> str:
         from huggingface_hub import HfApi
 
         return HfApi().model_info(model_id).sha or ""
-    except (ImportError, OSError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001 - Hub/network failures must not abort an optional pin lookup.
         logger.debug("could not resolve %s on the Hub: %s", model_id, exc)
         return ""
 

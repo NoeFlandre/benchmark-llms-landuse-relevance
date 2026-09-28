@@ -1,15 +1,48 @@
+import subprocess
+import sys
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
-from factories import ScriptedGenerator
+from landuse_relevance_bench.adapters import pipeline
 from landuse_relevance_bench.adapters.hashing import sha256_of_file
-from landuse_relevance_bench.adapters.pipeline import RunRequest, execute
+from landuse_relevance_bench.adapters.pipeline import DEFAULT_MAX_NEW_TOKENS, RunRequest, execute
 from landuse_relevance_bench.adapters.results_store import read_run, run_filename
+from landuse_relevance_bench.domain.engine import LabelScores
 from landuse_relevance_bench.domain.labels import Label
+
+
+class StubGenerator:
+    def __init__(self, outputs: Sequence[str]) -> None:
+        self._outputs = list(outputs)
+        self.prompts: list[str] = []
+
+    def generate(self, prompts: Sequence[str]) -> Sequence[str]:
+        self.prompts.extend(prompts)
+        taken, self._outputs = self._outputs[: len(prompts)], self._outputs[len(prompts) :]
+        return taken
+
+
+class MeasuredScorer:
+    peak_vram_bytes: int = 123456
+    sequence_length: int = 8192
+
+    def begin_measurement(self) -> None:
+        self.started = True
+
+    def end_measurement(self) -> None:
+        self.finished = True
+
+    def score(self, inputs):
+        return [LabelScores({Label.YES: 0.9, Label.NO: 0.1}) for _ in inputs]
+
+
+class RuntimeDtypeScorer(MeasuredScorer):
+    runtime_dtype = "float16"
 
 
 @pytest.fixture
@@ -18,6 +51,7 @@ def request_for(tmp_path: Path, benchmark_path: Path, prompt_path: Path):
         return replace(
             RunRequest(
                 model_id="LiquidAI/LFM2.5-350M",
+                language="en",
                 benchmark_path=benchmark_path,
                 prompt_path=prompt_path,
                 output_dir=tmp_path / "results",
@@ -32,33 +66,36 @@ class StubProvider:
     """A generator provider that keeps the generator reachable for assertions."""
 
     def __init__(self, outputs: Sequence[str], revision: str = "rev0") -> None:
-        self.generator = ScriptedGenerator(outputs)
+        self.generator = StubGenerator(outputs)
         self._revision = revision
 
-    def __call__(self, _: RunRequest) -> tuple[ScriptedGenerator, str]:
+    def __call__(self, _: RunRequest) -> tuple[StubGenerator, str]:
         return self.generator, self._revision
 
 
+def _provider(outputs: Sequence[str], revision: str = "rev0") -> StubProvider:
+    return StubProvider(outputs, revision)
+
+
 def test_scores_the_whole_benchmark_and_returns_the_result(request_for) -> None:
-    result = execute(request_for(), StubProvider(["yes", "no"]))
+    result = execute(request_for(), _provider(["yes", "no"]))
     assert result.metrics.n_items == 2
     assert result.metrics.accuracy == 1.0
     assert [p.predicted for p in result.predictions] == [Label.YES, Label.NO]
 
 
 def test_writes_one_result_file_named_after_the_model(request_for, tmp_path: Path) -> None:
-    result = execute(request_for(), StubProvider(["yes", "no"]))
-    path = tmp_path / "results" / run_filename("LiquidAI/LFM2.5-350M")
+    result = execute(request_for(), _provider(["yes", "no"]))
+    path = tmp_path / "results" / run_filename("LiquidAI/LFM2.5-350M", "en")
     assert read_run(path) == result
 
 
 def test_records_the_inputs_it_actually_used(request_for, benchmark_path: Path) -> None:
-    result = execute(
-        request_for(batch_size=1, max_new_tokens=4, seed=7), StubProvider(["yes", "no"])
-    )
+    result = execute(request_for(batch_size=1, max_new_tokens=4, seed=7), _provider(["yes", "no"]))
     metadata = result.metadata
     assert metadata.benchmark_sha256 == sha256_of_file(benchmark_path)
     assert metadata.model_revision == "rev0"
+    assert metadata.language == "en"
     assert metadata.batch_size == 1
     assert metadata.max_new_tokens == 4
     assert metadata.seed == 7
@@ -66,58 +103,172 @@ def test_records_the_inputs_it_actually_used(request_for, benchmark_path: Path) 
     assert metadata.duration_seconds >= 0.0
 
 
+def test_active_default_generation_budget_is_4096(request_for) -> None:
+    result = execute(request_for(), _provider(["yes", "no"]))
+
+    assert DEFAULT_MAX_NEW_TOKENS == 4096
+    assert result.metadata.max_new_tokens == 4096
+
+
 def test_feeds_the_file_prompt_to_the_generator(request_for) -> None:
-    provider = StubProvider(["yes", "no"])
+    provider = _provider(["yes", "no"])
     execute(request_for(), provider)
     assert provider.generator.prompts[0].startswith("Classify.")
     assert provider.generator.prompts[0].endswith("Dense mangrove forest lines the lagoon.")
 
 
 def test_unparsable_generations_survive_into_the_stored_result(request_for) -> None:
-    result = execute(request_for(), StubProvider(["I cannot tell", "no"]))
+    result = execute(request_for(), _provider(["I cannot tell", "no"]))
     assert result.predictions[0].predicted is None
     assert result.predictions[0].raw_output == "I cannot tell"
     assert result.metrics.unparsed_rate == 0.5
 
 
-def test_a_rostered_run_resolves_its_pins_and_records_its_draft(request_for) -> None:
-    rostered = RunRequest.for_run(
-        "LiquidAI/LFM2.5-2.6B+DSpark",
-        benchmark_path=request_for().benchmark_path,
-        prompt_path=request_for().prompt_path,
-        output_dir=request_for().output_dir,
+def test_scoring_records_throughput_and_peak_vram(request_for) -> None:
+    scorer = MeasuredScorer()
+    request = request_for(model_id="Alibaba-NLP/gte-multilingual-reranker-base")
+
+    from landuse_relevance_bench.adapters.pipeline import execute_scoring
+
+    result = execute_scoring(request, lambda _: (scorer, "gte-rev"))
+
+    assert scorer.started and scorer.finished
+    assert result.metadata.model_revision == "gte-rev"
+    assert result.metadata.sequence_length == 8192
+    assert result.metadata.throughput_items_per_second is not None
+    assert result.metadata.throughput_items_per_second > 0.0
+    assert result.metadata.peak_vram_bytes == 123456
+
+
+def test_scoring_records_the_scorer_specific_sequence_length(request_for) -> None:
+    scorer = MeasuredScorer()
+    scorer.sequence_length = 1024
+    request = request_for(model_id="convaiinnovations/laya-multilingual")
+
+    from landuse_relevance_bench.adapters.pipeline import execute_scoring
+
+    result = execute_scoring(request, lambda _: (scorer, "laya-rev"))
+
+    assert result.metadata.sequence_length == 1024
+
+
+def test_scoring_records_a_scorer_runtime_dtype_when_provided(request_for) -> None:
+    scorer = RuntimeDtypeScorer()
+    request = request_for(model_id="convaiinnovations/laya-multilingual")
+
+    from landuse_relevance_bench.adapters.pipeline import execute_scoring
+
+    result = execute_scoring(request, lambda _: (scorer, "laya-rev"))
+
+    assert result.metadata.dtype == "float16"
+
+
+def test_execute_closes_a_model_once_after_success(request_for) -> None:
+    class CloseableGenerator(StubGenerator):
+        def __init__(self) -> None:
+            super().__init__(["yes", "no"])
+            self.close_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    generator = CloseableGenerator()
+    result = execute(request_for(), lambda _: (generator, "rev0"))
+
+    assert result.metrics.n_items == 2
+    assert generator.close_calls == 1
+
+
+def test_execute_closes_a_model_after_prediction_failure_without_masking_it(request_for) -> None:
+    class FailingGenerator(StubGenerator):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.close_calls = 0
+
+        def generate(self, prompts: Sequence[str]) -> Sequence[str]:
+            raise RuntimeError("generation failed")
+
+        def close(self) -> None:
+            self.close_calls += 1
+            raise OSError("cleanup failed")
+
+    generator = FailingGenerator()
+
+    with pytest.raises(RuntimeError, match="generation failed"):
+        execute(request_for(), lambda _: (generator, "rev0"))
+
+    assert generator.close_calls == 1
+
+
+def test_execute_respects_a_caller_owned_generator(request_for) -> None:
+    class CloseableGenerator(StubGenerator):
+        close_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    generator = CloseableGenerator(["yes", "no"])
+    result = execute(
+        request_for(close_generator=False),
+        lambda _: (generator, "rev0"),
     )
-    assert (rostered.batch_size, rostered.runtime) == (1, "sglang")
-    metadata = execute(rostered, StubProvider(["yes", "no"], "654f")).metadata
-    assert metadata.name == "LiquidAI/LFM2.5-2.6B+DSpark"
-    assert metadata.draft_model_id == "LiquidAI/LFM2.5-2.6B-DSpark"
-    assert metadata.draft_model_revision == "458cedab07d0f7b2b05700c77e1aa463d43d6f04"
-    assert metadata.speculative["speculative_algorithm"] == "DSPARK"
-    assert (request_for().output_dir / "LiquidAI__LFM2.5-2.6B+DSpark.json").exists()
+
+    assert result.metrics.n_items == 2
+    assert generator.close_calls == 0
 
 
-def test_explicit_settings_override_the_roster_and_unknown_models_run_plainly() -> None:
-    def for_run(name: str, **overrides: Any) -> RunRequest:
-        return RunRequest.for_run(
-            name,
-            benchmark_path=Path("b"),
-            prompt_path=Path("p"),
-            output_dir=Path("o"),
-            **overrides,
-        )
+def test_gpu_memory_probe_handles_missing_command_empty_output_and_bad_values(monkeypatch) -> None:
+    monkeypatch.setattr(pipeline.shutil, "which", lambda _: None)
+    assert pipeline._free_gpu_memory_bytes() is None
 
-    overridden = for_run("LiquidAI/LFM2.5-VL-3B+DSpark", revision="main", batch_size=4)
-    assert (overridden.revision, overridden.batch_size) == ("main", 4)
-    plain = for_run("some/model")
-    assert (plain.model_id, plain.runtime, plain.revision, plain.batch_size) == (
-        "some/model",
-        "transformers",
-        None,
-        16,
+    monkeypatch.setattr(pipeline.shutil, "which", lambda _: "/fake/nvidia-smi")
+    monkeypatch.setattr(
+        pipeline.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=" 4096 \n 2048\n"),
     )
+    assert pipeline._free_gpu_memory_bytes() == 2048 * 2**20
+
+    monkeypatch.setattr(
+        pipeline.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=""),
+    )
+    assert pipeline._free_gpu_memory_bytes() is None
+    monkeypatch.setattr(
+        pipeline.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout="unknown"),
+    )
+    assert pipeline._free_gpu_memory_bytes() is None
 
 
-def test_the_result_records_each_sentence_s_latency(request_for) -> None:
-    result = execute(request_for(batch_size=1), StubProvider(["yes", "no"]))
-    assert all(p.latency_seconds is not None for p in result.predictions)
-    assert result.speed.latency_p50_seconds is not None
+@pytest.mark.parametrize(
+    "failure",
+    [
+        FileNotFoundError("nvidia-smi"),
+        subprocess.CalledProcessError(1, "nvidia-smi"),
+        subprocess.TimeoutExpired("nvidia-smi", 5),
+    ],
+)
+def test_gpu_memory_probe_treats_nvidia_smi_failures_as_unavailable(monkeypatch, failure) -> None:
+    monkeypatch.setattr(pipeline.shutil, "which", lambda _: "/fake/nvidia-smi")
+
+    def fail(*_args: Any, **_kwargs: Any) -> Any:
+        raise failure
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fail)
+    assert pipeline._free_gpu_memory_bytes() is None
+
+
+def test_device_name_handles_missing_torch_cpu_and_cuda(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "torch", None)
+    assert pipeline._device_name() == ""
+
+    torch = ModuleType("torch")
+    torch.cuda = SimpleNamespace(is_available=lambda: False)
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    assert pipeline._device_name() == ""
+
+    torch.cuda = SimpleNamespace(is_available=lambda: True, get_device_name=lambda _: "A100")
+    assert pipeline._device_name() == "A100"

@@ -1,8 +1,9 @@
 # Known weaknesses
 
-**The benchmark is small.** 154 items means roughly ±8 points of 95% confidence on an
-accuracy near 0.8. Treat gaps smaller than that between two models as noise. Adding
-items is the fix; the content-addressed ids make old results joinable to a larger set.
+**Per-language samples are small.** Each language has 300 items, so a single-language
+accuracy near 0.8 still has wide uncertainty. Treat small gaps between models within
+one language as noise. The 85 aligned splits provide a better overall estimate through
+macro aggregation; the language-aware ids keep those joins explicit.
 
 **One prompt, no variants.** Scores conflate a model's judgement with its sensitivity
 to this specific wording. A prompt-variant sweep is the natural next step; the run
@@ -12,12 +13,9 @@ already pins the prompt digest so such a sweep stays distinguishable.
 scoring would be unreliable today, which is why nothing slices by region yet even though
 the column is carried through.
 
-**Provenance is resolved, not assumed.** `model_revision` is the explicit `--revision`,
-else the loaded config's commit hash, else the commit the Hub reports for the model;
-only when all three are unknown is it recorded empty, and then with a warning.
-`source_commit` comes from `LRB_SOURCE_COMMIT` (set as a Docker build arg, since the
-image has no `.git`) or `git rev-parse HEAD`, and is also warned about when unknown. A
-model outside the roster runs on Transformers with no pinned revision, with a warning.
+**`model_revision` may be empty.** It is read from the loaded config's `_commit_hash`,
+a private Transformers attribute. If that disappears, runs record an empty revision
+rather than failing. Pass `--revision` to pin it explicitly and remove the ambiguity.
 
 **Verdict extraction is a heuristic.** The verdict is the last standalone `yes`/`no` in
 an untruncated generation. A model that concludes and then adds a caveat naming the other
@@ -27,12 +25,21 @@ remove the heuristic entirely, at the cost of no longer measuring instruction-fo
 — see [ADR-0001](adr/0001-greedy-generation.md).
 
 **Mutation testing covers the domain only.** Adapters are covered by tests but not
-mutated; their logic is thin, and mutating filesystem code mostly produces equivalent
-mutants. Revisit if an adapter grows real branching.
+mutated; mutating filesystem and model-runtime code mostly produces equivalent mutants.
+The adapters are no longer thin: `hf_scorer.py` (~690 lines, eight scorer families) and
+`hf_publish.py` (~580 lines) are now the largest modules. Their branching is covered by
+unit tests with fake runtimes, not by mutation.
 
-**Four mutants survive by construction.** `zip(..., strict=True)` in `predict_all` is
-unreachable defence — the explicit length check above it already guarantees equal
-lengths — so mutating `strict` changes nothing. The check is kept for its error message
-and `strict=True` for the lint rule that requires it. One further mutant rewrites
-`"utf-8"` as `"UTF-8"`, which Python treats as the same encoding. The mutation gate
-allows exactly these four.
+**No mutant survives, and none is allowed to.** Until the 2026-09 uplift the gate was
+silently broken: mutmut's copied workspace lacked the documentation one unit test reads,
+so its stats run failed, no mutant was tested, and the survivor count read zero. The
+workspace now copies what the tests read, `check_mutants.py` refuses a run that killed
+nothing, and the domain avoids constructs whose mutants are equivalent (guarded
+`zip(strict=True)` calls, redundant defaults). CI allows zero survivors
+(`scripts/check_mutants.py --max-survivors 0`).
+
+**CRAP ceilings and reviewed exceptions (#73).** CI requires 100% domain line and branch
+coverage and keeps its CRAP ceiling at 8; adapters and the CLI are gated at 15. An
+above-ceiling adapter/CLI function must have an explicit reason and test reference in
+`scripts/crap-allowlist.json`. The checker reports
+each exception and fails if an entry becomes stale, so exceptions cannot silently grow.

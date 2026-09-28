@@ -1,41 +1,94 @@
+import hashlib
 import json
+import sys
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-import yaml
 
-from factories import make_result
+from landuse_relevance_bench.adapters import hf_publish, translations
+from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.hf_publish import (
+    _default_api,
+    _same_gpu_row,
     dataset_card,
     publish_results,
     read_published_runs,
+    write_viewer_dataset,
 )
 from landuse_relevance_bench.domain.labels import Label
-from landuse_relevance_bench.domain.records import Prediction
+from landuse_relevance_bench.domain.metrics import evaluate
+from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
+
+PROMPT = "Classify the sentence.\n\nTARGET SENTENCE: {}\n"
+PROMPT_SHA256 = sha256_of_text(PROMPT)
 
 
-def _predictions(
-    pairs: list[tuple[Label, Label | None]], truncated: int = 0
-) -> tuple[Prediction, ...]:
-    return tuple(
-        Prediction(
-            item_id=f"{i:016x}",
-            expected=expected,
-            predicted=predicted,
-            raw_output="" if predicted is None else str(predicted),
-            truncated=i < truncated,
-        )
-        for i, (expected, predicted) in enumerate(pairs)
+def _result(model_id: str = "LiquidAI/LFM2.5-350M", language: str = "en") -> RunResult:
+    metadata = RunMetadata(
+        model_id=model_id,
+        language=language,
+        model_revision="abc123",
+        prompt_sha256=PROMPT_SHA256,
+        benchmark_sha256="b" * 64,
+        max_new_tokens=8,
+        batch_size=16,
+        seed=0,
+        decoding="greedy",
+        dtype="bfloat16",
+        started_at="2026-09-13T10:00:00Z",
+        duration_seconds=1.0,
+    )
+    prediction = Prediction(
+        item_id="0" * 16, expected=Label.YES, predicted=Label.YES, raw_output="yes"
+    )
+    return RunResult(
+        metadata=metadata, predictions=(prediction,), metrics=evaluate([(Label.YES, Label.YES)])
     )
 
 
-def _score_rows(card: str, section: str = "Scores") -> list[dict[str, str]]:
-    body = card.split(f"## {section}\n", 1)[1].split("\n## ", 1)[0]
-    table = [line for line in body.splitlines() if line.strip().startswith("|")]
-    cells = [[cell.strip() for cell in line.strip().strip("|").split("|")] for line in table]
-    header, rows = cells[0], cells[2:]
-    return [dict(zip(header, row, strict=True)) for row in rows]
+def _result_with_outcomes(model_id: str, outcomes: tuple[tuple[Label, Label], ...]) -> RunResult:
+    predictions = tuple(
+        Prediction(
+            item_id=f"{index:016x}",
+            expected=expected,
+            predicted=predicted,
+            raw_output=predicted.value,
+        )
+        for index, (expected, predicted) in enumerate(outcomes)
+    )
+    return replace(
+        _result(model_id),
+        predictions=predictions,
+        metrics=evaluate([(expected, predicted) for expected, predicted in outcomes]),
+    )
+
+
+def _scoring_result(model_id: str, scores: tuple[float, ...], *, vram_gib: int) -> RunResult:
+    expected = (Label.YES, Label.YES, Label.NO, Label.NO)
+    predictions = tuple(
+        Prediction(
+            item_id=f"{index:016x}",
+            expected=label,
+            predicted=Label.YES if score >= 0.5 else Label.NO,
+            raw_output=f"no={1 - score:.6f} yes={score:.6f}",
+        )
+        for index, (label, score) in enumerate(zip(expected, scores, strict=True))
+    )
+    result = _scored(model_id)
+    return replace(
+        result,
+        predictions=predictions,
+        metrics=evaluate(
+            [(prediction.expected, prediction.predicted) for prediction in predictions]
+        ),
+        metadata=replace(
+            result.metadata,
+            throughput_items_per_second=float(4 - vram_gib),
+            peak_vram_bytes=vram_gib * 1024**3,
+        ),
+    )
 
 
 class FakeApi:
@@ -51,32 +104,286 @@ class FakeApi:
         return f"https://huggingface.co/datasets/{kwargs['repo_id']}"
 
 
-def test_the_card_declares_the_prompt_and_benchmark_digests() -> None:
-    card = dataset_card([make_result()], benchmark_name="benchmark.csv")
-    assert "b" * 64 in card
-    assert "p" * 64 in card
+def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
+    card = dataset_card(
+        [_result("a/one"), _result("a/one", language="fr"), _result("b/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+    )
+    assert card.startswith("---")
+    assert "| model_id | language_count | accuracy_macro |" in card
+    assert "| a/one | 2 |" in card
+    assert "| b/two | 1 |" in card
+    assert "| language |" not in card
+    aggregate = card.split("## Aggregate scores")[1].split("## Runtime performance")[0]
+    assert aggregate.count("| a/one |") == 1
+    assert aggregate.count("| b/two |") == 1
+    assert "| n_items |" not in aggregate
+    assert "benchmark.csv" in card
+
+
+def test_card_discloses_package_version_recorded_in_run_metadata() -> None:
+    result = _result()
+    versioned = replace(
+        result,
+        metadata=replace(result.metadata, package_version="0.2.0"),
+    )
+
+    card = dataset_card([versioned], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert "Package version recorded in run metadata: `0.2.0`." in card
+
+
+def test_aggregate_table_rows_are_not_indented_as_code() -> None:
+    card = dataset_card(
+        [_result("a/one"), _result("b/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+    )
+    aggregate = card.split("## Aggregate scores")[1].split("## Runtime performance")[0]
+    table_lines = [line for line in aggregate.splitlines() if line.lstrip().startswith("|")]
+
+    assert table_lines
+    assert all(line.startswith("|") for line in table_lines)
+
+
+def test_card_summarizes_speed_across_languages_without_expanding_every_run() -> None:
+    original = _result("a/model")
+    timed = replace(original.predictions[0], latency_seconds=0.25, generated_tokens=4)
+    english = replace(
+        original,
+        predictions=(timed,),
+        metadata=replace(original.metadata, runtime="sglang", device_name="NVIDIA A100"),
+    )
+    french = replace(
+        english,
+        metadata=replace(english.metadata, language="fr"),
+        predictions=(replace(timed, item_id="1" * 16),),
+    )
+
+    card = dataset_card([english, french], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    speed = card.split("## Runtime performance")[1].split("## DSpark")[0]
+    assert (
+        "| model_id | runtime | device | generation_mode | batch_size | language_count |" in speed
+    )
+    assert "| a/model | sglang | NVIDIA A100 | static-batched | 16 | 2 | 2.0 | 1.0 |" in speed
+
+
+def test_full_multilingual_card_discloses_gpu_sensitive_reproducibility() -> None:
+    run_ids = (
+        "LiquidAI/LFM2.5-VL-3B@sglang-throughput-b16",
+        "LiquidAI/LFM2.5-VL-3B+DSpark-throughput-b16",
+    )
+    results = []
+    for index in range(85):
+        language = f"{chr(97 + index // 26)}{chr(97 + index % 26)}"
+        for run_id in run_ids:
+            result = _result("LiquidAI/LFM2.5-VL-3B", language=language)
+            results.append(
+                replace(
+                    result,
+                    metadata=replace(
+                        result.metadata,
+                        run_id=run_id,
+                        runtime="sglang",
+                        device_name="NVIDIA RTX 6000 Ada Generation",
+                    ),
+                )
+            )
+
+    card = dataset_card(results, benchmark_name="benchmark.csv", prompt_text=PROMPT)
+    speed = card.split("## Runtime performance")[1].split("## DSpark")[0]
+
+    assert "474/4,500" in speed
+    assert "31/300" in speed
+    assert "158/25,500" in speed
+    assert "0/25,500" in speed
+    assert "2/300" in speed
+    assert "Invalid group type: conv" in speed
+    assert "same runtime, mode and GPU model" in speed
+
+
+def test_dspark_card_requires_language_complete_identical_baseline_coverage() -> None:
+    original = _result("a/model")
+    baseline = replace(
+        original,
+        metadata=replace(
+            original.metadata, run_id="a/model@sglang", runtime="sglang", device_name="A100"
+        ),
+        predictions=(replace(original.predictions[0], latency_seconds=0.5, generated_tokens=4),),
+    )
+    drafted = replace(
+        original,
+        metadata=replace(
+            original.metadata,
+            run_id="a/model+DSpark",
+            runtime="sglang",
+            draft_model_id="a/draft",
+            device_name="A100",
+        ),
+        predictions=(replace(original.predictions[0], latency_seconds=0.25, generated_tokens=4),),
+    )
+    drafted_french = replace(
+        drafted,
+        metadata=replace(drafted.metadata, language="fr"),
+        predictions=(replace(drafted.predictions[0], item_id="1" * 16),),
+    )
+
+    card = dataset_card(
+        [baseline, drafted, drafted_french], benchmark_name="benchmark.csv", prompt_text=PROMPT
+    )
+
+    agreement = card.split("## DSpark speculative decoding")[1]
+    assert "| a/model | a/model@sglang | a/model+DSpark |" in agreement
+    assert (
+        "| a/model | a/model@sglang | a/model+DSpark | 4.0 | 4.0 | 1.00x | no | 1 | 1 | 0 | 0 |"
+        in agreement
+    )
+
+
+def test_the_card_emphasizes_best_and_second_best_aggregate_metrics() -> None:
+    card = dataset_card(
+        [
+            _result_with_outcomes("a/best", ((Label.YES, Label.YES), (Label.NO, Label.NO))),
+            _result_with_outcomes("b/second", ((Label.YES, Label.YES), (Label.NO, Label.YES))),
+            _result_with_outcomes("c/last", ((Label.YES, Label.NO), (Label.NO, Label.YES))),
+        ],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+    )
+    aggregate = card.split("## Aggregate scores")[1].split("## Runtime performance")[0]
+    header = next(line for line in aggregate.splitlines() if line.startswith("| model_id"))
+    best = next(
+        line.strip() for line in aggregate.splitlines() if line.strip().startswith("| a/best |")
+    )
+    second = next(
+        line.strip() for line in aggregate.splitlines() if line.strip().startswith("| b/second |")
+    )
+    last = next(
+        line.strip() for line in aggregate.splitlines() if line.strip().startswith("| c/last |")
+    )
+    columns = [cell.strip() for cell in header.strip("|").split("|")]
+    best_cells = dict(
+        zip(columns, (cell.strip() for cell in best.strip("|").split("|")), strict=True)
+    )
+    second_cells = dict(
+        zip(columns, (cell.strip() for cell in second.strip("|").split("|")), strict=True)
+    )
+    last_cells = dict(
+        zip(columns, (cell.strip() for cell in last.strip("|").split("|")), strict=True)
+    )
+
+    assert best_cells["accuracy_macro"] == "**1.0**"
+    assert second_cells["accuracy_macro"] == "<u>0.5</u>"
+    assert best_cells["matthews_corrcoef_macro"] == "**1.0**"
+    assert second_cells["recall_macro"] == "**1.0**"
+    assert last_cells["recall_macro"] == "<u>0.0</u>"
+
+
+def test_the_card_keeps_the_prompt_without_repeating_its_hash() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert PROMPT in card
+    assert PROMPT_SHA256 not in card
 
 
 def test_published_runs_reads_nested_result_folders_in_stable_order(tmp_path: Path) -> None:
-    (tmp_path / "root__one.json").write_text(
-        json.dumps(make_result("a/one").to_dict()), encoding="utf-8"
+    english = tmp_path / "en"
+    english.mkdir()
+    (english / "root__one.json").write_text(
+        json.dumps(_result("a/one").to_dict()), encoding="utf-8"
     )
-    extra = tmp_path / "recent-models-20260913"
+    extra = tmp_path / "fr"
     extra.mkdir()
     (extra / "nested__two.json").write_text(
-        json.dumps(make_result("b/two").to_dict()), encoding="utf-8"
+        json.dumps(_result("b/two", language="fr").to_dict()), encoding="utf-8"
     )
+    archive = tmp_path / "archive" / "en"
+    archive.mkdir(parents=True)
+    (archive / "old.json").write_text(json.dumps(_result("old/model").to_dict()), encoding="utf-8")
     published = read_published_runs(tmp_path)
 
     assert [result.metadata.model_id for result in published] == ["a/one", "b/two"]
 
 
-def test_card_rejects_metrics_that_are_not_derived_from_predictions() -> None:
-    result = make_result()
-    tampered = replace(result, metrics=replace(result.metrics, accuracy=0.0))
+def test_viewer_export_is_one_neat_multilingual_csv(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "translations"
+    csv_template = (
+        "sentence,label,polygon_name,h3_cell,latitude,longitude,source,region,source_url,"
+        "source_item_id,language\n"
+        '"Forest covers the hill.",yes,Place,h3,1,2,source,region,url,s1,{language}\n'
+    )
+    files = {}
+    for language in ("en", "fr"):
+        path = root / language / f"v3-final-{language}.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(csv_template.format(language=language), encoding="utf-8")
+        files[language] = {
+            "path": f"{language}/v3-final-{language}.csv",
+            "rows": 1,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+    inventory = "\n".join(f"{language}:{files[language]['sha256']}" for language in files)
+    (root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "dataset": "test/dataset",
+                "revision": "test-revision",
+                "split": "train",
+                "languages": ["en", "fr"],
+                "row_count": 1,
+                "source_item_ids": ["s1"],
+                "files": files,
+                "whole_set_sha256": hashlib.sha256(inventory.encode()).hexdigest(),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output = write_viewer_dataset(root, tmp_path / "data" / "benchmark.csv")
+
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert lines[0].startswith("item_id,source_item_id,language,sentence,label")
+    assert len(lines) == 3
+    assert ",en," in lines[1]
+    assert ",fr," in lines[2]
+
+    with pytest.raises(ValueError, match="unknown viewer language"):
+        write_viewer_dataset(root, tmp_path / "unknown.csv", languages=("xx",))
+    monkeypatch.setattr(translations, "load_language_benchmark", lambda *_args, **_kwargs: ())
+    with pytest.raises(ValueError, match="viewer export row mismatch"):
+        write_viewer_dataset(root, tmp_path / "mismatch.csv", languages=("en",))
+
+
+def test_card_rejects_metrics_that_are_not_derived_from_predictions(monkeypatch) -> None:
+    result = _result()
+    monkeypatch.setattr(
+        hf_publish,
+        "evaluate",
+        lambda _outcomes: replace(result.metrics, accuracy=0.0),
+    )
 
     with pytest.raises(ValueError, match="metrics do not match predictions"):
-        dataset_card([tampered], benchmark_name="benchmark.csv")
+        dataset_card([result], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+
+def test_empty_cards_and_mismatched_same_gpu_devices_are_rejected() -> None:
+    with pytest.raises(ValueError, match="empty set of results"):
+        dataset_card([], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    scored = replace(_result(), metadata=replace(_result().metadata, device_name="NVIDIA A100"))
+    rerun = replace(_result(), metadata=replace(_result().metadata, device_name="NVIDIA V100"))
+    assert _same_gpu_row([scored], [rerun]) == ""
+
+
+def test_default_huggingface_api_is_created_lazily(monkeypatch) -> None:
+    class FakeApi:
+        pass
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(HfApi=FakeApi))
+
+    assert isinstance(_default_api(), FakeApi)
 
 
 def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(
@@ -84,7 +391,7 @@ def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(
 ) -> None:
     (tmp_path / "run.json").write_text("{}", encoding="utf-8")
     api = FakeApi()
-    url = publish_results("me/bench", tmp_path, [make_result()], api=api)
+    url = publish_results("me/bench", tmp_path, [_result()], api=api, prompt_text=PROMPT)
     assert api.created[0]["repo_id"] == "me/bench"
     assert api.created[0]["repo_type"] == "dataset"
     assert api.uploaded[0]["folder_path"] == str(tmp_path)
@@ -92,120 +399,646 @@ def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(
 
 
 def test_publishing_writes_the_card_into_the_uploaded_folder(tmp_path: Path) -> None:
-    publish_results("me/bench", tmp_path, [make_result()], api=FakeApi())
+    publish_results("me/bench", tmp_path, [_result()], api=FakeApi(), prompt_text=PROMPT)
     assert "LiquidAI/LFM2.5-350M" in (tmp_path / "README.md").read_text(encoding="utf-8")
 
 
 def test_publishing_nothing_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
-        publish_results("me/bench", tmp_path, [], api=FakeApi())
+        publish_results("me/bench", tmp_path, [], api=FakeApi(), prompt_text=PROMPT)
 
 
-def test_the_card_ranks_one_row_per_model_by_descending_f1() -> None:
-    strong = make_result("a/strong", _predictions([(Label.YES, Label.YES), (Label.NO, Label.NO)]))
-    weak = make_result("z/weak", _predictions([(Label.YES, Label.NO), (Label.NO, Label.YES)]))
-    rows = _score_rows(dataset_card([weak, strong], benchmark_name="benchmark.csv"))
-    assert [row["model_id"] for row in rows] == ["a/strong", "z/weak"]
-    assert [float(row["f1"]) for row in rows] == [1.0, 0.0]
+def test_publishing_refuses_to_upload_an_archive_path(tmp_path: Path) -> None:
+    archive = tmp_path / "archive" / "en"
+    archive.mkdir(parents=True)
+    (archive / "old.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="archive"):
+        publish_results("me/bench", tmp_path, [_result()], api=FakeApi(), prompt_text=PROMPT)
 
 
-def test_the_card_reports_the_truncation_count_by_value() -> None:
-    run = make_result(
-        "a/one",
-        _predictions([(Label.YES, None), (Label.NO, None), (Label.YES, Label.YES)], truncated=2),
-    )
-    (row,) = _score_rows(dataset_card([run], benchmark_name="benchmark.csv"))
-    assert row["truncated"] == "2"
-
-
-def test_the_card_front_matter_declares_what_the_hub_needs() -> None:
-    card = dataset_card([make_result()], benchmark_name="benchmark.csv")
-    front_matter = yaml.safe_load(card.split("---")[1])
-    assert front_matter["license"]
-    assert front_matter["task_categories"]
-
-
-def test_the_card_reports_speed_recorded_in_the_predictions() -> None:
-    timed = tuple(
-        replace(p, latency_seconds=0.5, generated_tokens=10, verify_steps=4)
-        for p in _predictions([(Label.YES, Label.YES), (Label.NO, Label.NO)])
-    )
-    run = make_result("a/fast", timed, runtime="sglang", duration_seconds=2.0)
-    (row,) = _score_rows(dataset_card([run], benchmark_name="benchmark.csv"), "Speed")
-    assert row["runtime"] == "sglang"
-    assert row["generated_tokens"] == "20"
-    assert row["output_tokens_per_second"] == "10.0"
-    assert row["mean_accept_length"] == "2.5"
-
-
-def test_the_card_leaves_speed_blank_for_a_run_that_did_not_record_it() -> None:
-    (row,) = _score_rows(dataset_card([make_result()], benchmark_name="benchmark.csv"), "Speed")
-    assert row["wall_seconds"] == "1.0"
-    assert row["latency_p50_seconds"] == ""
-
-
-def _timed(
-    pairs: list[tuple[Label, Label | None]], tokens: int, steps: int | None
-) -> tuple[Prediction, ...]:
-    return tuple(
-        replace(p, latency_seconds=1.0, generated_tokens=tokens, verify_steps=steps)
-        for p in _predictions(pairs)
+def test_the_card_contains_only_aggregate_metrics() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+    table_header = next(
+        line
+        for line in card.split("## Aggregate scores")[1].splitlines()
+        if line.startswith("| model_id")
     )
 
+    assert "truncated" not in table_header
+    assert "language_count" in table_header
 
-PAIRS: list[tuple[Label, Label | None]] = [(Label.YES, Label.YES), (Label.NO, Label.NO)]
+
+def test_card_is_terse_and_has_no_companion_prose() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert "companion" not in card.lower()
+    assert "configuration" not in card
+    assert "Predictions and scores" not in card
 
 
-def _dspark_card(drafted_pairs: list[tuple[Label, Label | None]]) -> str:
-    runs = [
-        make_result("t/vl", _timed(PAIRS, 10, None), duration_seconds=2.0),
-        make_result(
-            "t/vl",
-            _timed(PAIRS, 10, None),
-            run_id="t/vl@sglang",
-            runtime="sglang",
-            duration_seconds=2.0,
+def test_the_card_documents_the_prompt_and_run_settings() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+    section = card.split("## Task and prompt")[1].split("## Aggregate scores")[0]
+
+    assert PROMPT in section
+    assert "greedy" in section
+    assert "`max_new_tokens=8`" in section
+    assert "bfloat16" in section
+    assert "batch 16" in section
+    assert "seed 0" in section
+
+
+def test_the_card_refuses_a_prompt_that_the_runs_did_not_use() -> None:
+    with pytest.raises(ValueError, match="prompt text does not match"):
+        dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text="something else {}")
+
+
+def test_the_card_refuses_runs_that_disagree_on_their_settings() -> None:
+    result = _result()
+    other = replace(result, metadata=replace(result.metadata, dtype="float16"))
+
+    with pytest.raises(ValueError, match="runs disagree on dtype"):
+        dataset_card([result, other], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+
+def test_the_card_omits_internal_hash_notes() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert "b" * 64 not in card
+    assert "benchmark hashes" not in card
+
+
+def test_the_card_states_the_batch_size_when_the_sweep_agrees_on_one() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert "batch 16" in card
+
+
+def test_the_card_points_at_the_runs_when_batch_sizes_differ() -> None:
+    batched = _result("fits/in-a-batch")
+    hybrid = _result("hybrid/ssm")
+    unbatched = replace(hybrid, metadata=replace(hybrid.metadata, batch_size=1))
+    card = dataset_card([batched, unbatched], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert "batch varies by model" in card
+    assert "batch 16" not in card
+
+
+def test_the_card_still_refuses_settings_that_shape_a_verdict() -> None:
+    result = _result("a/one")
+    other = replace(
+        _result("b/two"), metadata=replace(_result("b/two").metadata, max_new_tokens=32)
+    )
+
+    with pytest.raises(ValueError, match="not comparable"):
+        dataset_card([result, other], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+
+SCORER_PROMPT = "<Instruct>: judge it\n<Query>: is it?\n<Document>: {}\n"
+SCORER_PROMPT_SHA256 = sha256_of_text(SCORER_PROMPT)
+
+
+def _scored(model_id: str, language: str = "en") -> RunResult:
+    result = _result(model_id, language)
+    predictions = tuple(
+        replace(prediction, raw_output="no=0.100000 yes=0.900000")
+        for prediction in result.predictions
+    )
+    return replace(
+        result,
+        predictions=predictions,
+        metadata=replace(
+            result.metadata,
+            inference="scoring",
+            decision_rule="argmax over the native yes/no scores",
+            max_new_tokens=0,
+            prompt_sha256=SCORER_PROMPT_SHA256,
+            sequence_length=8192,
+            throughput_items_per_second=10.0,
+            peak_vram_bytes=1024**3,
         ),
-        make_result(
-            "t/vl",
-            _timed(drafted_pairs, 10, 4),
-            run_id="t/vl+DSpark",
-            runtime="sglang",
-            draft_model_id="t/draft",
-            duration_seconds=0.5,
-        ),
-    ]
-    return dataset_card(runs, benchmark_name="benchmark.csv")
+    )
 
 
-def test_the_card_compares_each_dspark_run_with_its_sglang_baseline_only() -> None:
-    card = _dspark_card(PAIRS)
-    baseline, drafted = _score_rows(card.replace("### t/vl\n", ""), "DSpark speculative decoding")
-    assert baseline["run"] == "t/vl@sglang"
-    assert drafted == {
-        "run": "t/vl+DSpark",
-        "output_tokens_per_second": "40.0",
-        "latency_mean_seconds": "1.0",
-        "speedup": "4.00x",
-        "mean_accept_length": "2.5",
-        "identical_predictions": "yes",
-        "accuracy": "1.0",
-        "precision": "1.0",
-        "recall": "1.0",
-        "f1": "1.0",
-        "balanced_accuracy": "1.0",
-        "matthews_corrcoef": "1.0",
-        "unparsed_rate": "0.0",
+def test_scoring_models_are_reported_in_their_own_section() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    generative, rest = card.split("## Scoring models")
+    scoring = rest.split("## Runtime performance")[0]
+
+    assert "| gen/one |" in generative and "| gen/one |" not in scoring
+    assert "| score/two |" in scoring and "| score/two |" not in generative
+    assert "argmax over the native yes/no scores" in scoring
+
+
+def test_encoder_output_behavior_is_summarized_from_published_runs() -> None:
+    encoder_id = "LiquidAI/LFM2.5-Encoder-350M"
+
+    def encoder_run(language: str, outcomes: tuple[tuple[Label, Label], ...]) -> RunResult:
+        result = _result_with_outcomes(encoder_id, outcomes)
+        predictions = tuple(
+            replace(
+                prediction,
+                raw_output=(
+                    "no=0.100000 yes=0.900000"
+                    if prediction.predicted is Label.YES
+                    else "no=0.900000 yes=0.100000"
+                ),
+            )
+            for prediction in result.predictions
+        )
+        scoring_metadata = _scored(encoder_id, language).metadata
+        return replace(result, predictions=predictions, metadata=scoring_metadata)
+
+    card = dataset_card(
+        [
+            _result_with_outcomes(
+                "gen/one",
+                (
+                    (Label.YES, Label.YES),
+                    (Label.YES, Label.YES),
+                    (Label.NO, Label.NO),
+                    (Label.NO, Label.NO),
+                ),
+            ),
+            encoder_run(
+                "en",
+                (
+                    (Label.YES, Label.YES),
+                    (Label.YES, Label.YES),
+                    (Label.NO, Label.YES),
+                    (Label.NO, Label.NO),
+                ),
+            ),
+            encoder_run(
+                "fr",
+                (
+                    (Label.YES, Label.YES),
+                    (Label.YES, Label.NO),
+                    (Label.NO, Label.YES),
+                    (Label.NO, Label.NO),
+                ),
+            ),
+        ],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    scoring = card.split("## Scoring models")[1].split("## Runtime performance")[0]
+
+    assert "Observed output behavior" in scoring
+    assert "predicted `yes` for 2 to 3 of 4 items per language across 2 languages" in scoring
+
+
+def test_scoring_summary_emphasizes_best_values_and_lower_vram() -> None:
+    card = dataset_card(
+        [
+            _result_with_outcomes(
+                "gen/one",
+                (
+                    (Label.YES, Label.YES),
+                    (Label.YES, Label.YES),
+                    (Label.NO, Label.NO),
+                    (Label.NO, Label.NO),
+                ),
+            ),
+            _scoring_result("score/best", (0.9, 0.8, 0.2, 0.1), vram_gib=1),
+            _scoring_result("score/second", (0.9, 0.4, 0.7, 0.2), vram_gib=2),
+            _scoring_result("score/last", (0.2, 0.1, 0.9, 0.8), vram_gib=3),
+        ],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    summary = card.split("### Best thresholded scoring metrics")[1]
+    header = next(line for line in summary.splitlines() if line.startswith("| model |"))
+    best = next(line for line in summary.splitlines() if line.startswith("| score/best |"))
+    second = next(line for line in summary.splitlines() if line.startswith("| score/second |"))
+    columns = [cell.strip() for cell in header.strip("|").split("|")]
+    best_cells = dict(
+        zip(columns, (cell.strip() for cell in best.strip("|").split("|")), strict=True)
+    )
+    second_cells = dict(
+        zip(columns, (cell.strip() for cell in second.strip("|").split("|")), strict=True)
+    )
+
+    assert best_cells["F1 @ threshold"].startswith("**")
+    assert second_cells["F1 @ threshold"].startswith("<u>")
+    assert best_cells["items/s"] == "**3.00**"
+    assert second_cells["items/s"] == "<u>2.00</u>"
+    assert best_cells["peak VRAM (GiB)"] == "**1.00**"
+    assert second_cells["peak VRAM (GiB)"] == "<u>2.00</u>"
+
+
+def test_the_card_says_why_scoring_models_never_look_unparsed() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "by construction" not in card
+
+
+def test_generation_settings_ignore_the_scoring_runs() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "`max_new_tokens=8`" in card
+
+
+def test_a_card_of_only_scoring_runs_is_refused() -> None:
+    with pytest.raises(ValueError, match="without any generative run"):
+        dataset_card(
+            [_scored("score/two")],
+            benchmark_name="benchmark.csv",
+            prompt_text=PROMPT,
+            scorer_prompt_text=SCORER_PROMPT,
+        )
+
+
+def test_a_sweep_with_no_scoring_models_has_no_scoring_section() -> None:
+    card = dataset_card([_result("gen/one")], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert "## Scoring models" not in card
+
+
+def test_the_card_shows_the_reranker_input_it_was_actually_given() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    scoring = card.split("## Scoring models")[1]
+
+    assert SCORER_PROMPT in scoring
+    assert SCORER_PROMPT_SHA256 not in scoring
+    assert "Judge whether the Document meets the requirements" not in scoring
+    assert "Scoring prompt" in scoring
+    assert PROMPT not in scoring
+
+
+def test_the_card_refuses_a_scoring_prompt_the_runs_did_not_use() -> None:
+    with pytest.raises(ValueError, match="scoring prompt text does not match"):
+        dataset_card(
+            [_result("gen/one"), _scored("score/two")],
+            benchmark_name="benchmark.csv",
+            prompt_text=PROMPT,
+            scorer_prompt_text="a different reranker prompt {}",
+        )
+
+
+def test_the_card_warns_that_a_reranker_score_is_not_calibrated_to_a_boundary() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    scoring = card.split("## Scoring models")[1]
+
+    assert "not calibrated" not in scoring
+    assert "threshold_sweep.csv" in scoring
+
+
+def test_the_card_is_minimal_but_keeps_benchmark_settings_and_sequence_length() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "85" not in card
+    assert "item/language" in card
+    assert "sequence length" in card.lower()
+    assert "max_new_tokens=8" in card
+    assert "Predictions and scores" not in card
+    assert "| setting | value |" not in card
+    assert "result layout" not in card
+    assert "dataset viewer |" not in card
+
+
+def test_the_card_keeps_a_compact_model_specific_scoring_setup() -> None:
+    card = dataset_card(
+        [
+            _result("gen/one"),
+            _scored("Alibaba-NLP/gte-multilingual-reranker-base"),
+            _scored("mixedbread-ai/mxbai-rerank-base-v2"),
+            _scored("convaiinnovations/laya-multilingual"),
+        ],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "### Scoring setup" in card
+    assert "prompt + sentence pair" in card
+    assert "official query/document turn" in card
+    assert "JSON state + 4 `noul` questions/call" in card
+    assert "Laya `noul` yes probability" in card
+    assert "sequence length (tokens)" in card
+    assert "bfloat16; batch 16; seed 0" in card
+    assert "abc123" in card
+    assert "peak VRAM (GiB)" in card
+    assert "1073741824" not in card
+    assert "| Qwen/Qwen3-Reranker-0.6B |" not in card
+
+
+def test_scoring_setup_does_not_repeat_the_score_formula_as_its_cutoff() -> None:
+    card = dataset_card(
+        [
+            _result("gen/one"),
+            _scored("Alibaba-NLP/gte-multilingual-reranker-base"),
+            _scored("mixedbread-ai/mxbai-rerank-base-v2"),
+            _scored("convaiinnovations/laya-multilingual"),
+        ],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    setup_rows = {
+        model_id: next(line for line in card.splitlines() if line.startswith(f"| {model_id} |"))
+        for model_id in (
+            "Alibaba-NLP/gte-multilingual-reranker-base",
+            "mixedbread-ai/mxbai-rerank-base-v2",
+            "convaiinnovations/laya-multilingual",
+        )
     }
 
+    assert (
+        "sigmoid relevance logit; yes if score ≥ 0.5"
+        in setup_rows["Alibaba-NLP/gte-multilingual-reranker-base"]
+    )
+    assert (
+        "sigmoid(1-logit - 0-logit - 4.5); yes if score ≥ 0.5"
+        in setup_rows["mixedbread-ai/mxbai-rerank-base-v2"]
+    )
+    assert (
+        "Laya `noul` yes probability; yes if score ≥ 0.5"
+        in setup_rows["convaiinnovations/laya-multilingual"]
+    )
 
-def test_the_card_says_when_a_dspark_run_changed_the_predictions() -> None:
-    changed: list[tuple[Label, Label | None]] = [(Label.YES, Label.YES), (Label.NO, Label.YES)]
-    card = _dspark_card(changed)
-    rows = _score_rows(card.replace("### t/vl\n", ""), "DSpark speculative decoding")
-    assert rows[-1]["identical_predictions"] == "no"
-    assert (rows[0]["accuracy"], rows[-1]["accuracy"]) == ("1.0", "0.5")
+
+def test_scoring_setup_describes_settings_that_vary_between_runs() -> None:
+    float16_run = _scored("convaiinnovations/laya-multilingual", language="en")
+    float16_run = replace(float16_run, metadata=replace(float16_run.metadata, dtype="float16"))
+    bfloat16_run = _scored("convaiinnovations/laya-multilingual", language="fr")
+    card = dataset_card(
+        [_result("gen/one"), float16_run, bfloat16_run],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    laya_setup = next(
+        line
+        for line in card.splitlines()
+        if line.startswith("| convaiinnovations/laya-multilingual |")
+    )
+
+    assert "varies across runs (dtype is recorded per run)" in laya_setup
+    assert "varies by model" not in laya_setup
 
 
-def test_the_card_omits_the_speculative_check_without_a_speculative_run() -> None:
-    assert "DSpark" not in dataset_card([make_result()], benchmark_name="benchmark.csv")
+def test_scoring_summary_pairs_each_best_metric_with_its_threshold() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    summary = card.split("### Best thresholded scoring metrics")[1]
+    header = summary.splitlines()[2]
+
+    assert header == (
+        "| model | languages | MCC @ threshold | F1 @ threshold | "
+        "balanced accuracy @ threshold | precision @ threshold | recall @ threshold | "
+        "ROC-AUC | items/s | peak VRAM (GiB) |"
+    )
+    assert "| score/two |" in summary
+    score_row = next(line for line in summary.splitlines() if line.startswith("| score/two |"))
+    assert score_row.count(" @ ") == 5
+    assert "| **10.00** | **1.00** |" in score_row
+    assert "best_mcc_threshold" not in header
+    assert "threshold_sweep.csv" in card
+
+
+def test_public_card_omits_redundant_scoring_table_and_aggregate_columns() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+    aggregate = card.split("## Aggregate scores")[1].split("## Scoring models")[0]
+    scoring = card.split("## Scoring models")[1]
+
+    assert "| model_id | language_count | accuracy_macro | balanced_accuracy_macro |" in aggregate
+    assert "n_items_total" not in aggregate
+    assert "f1_min" not in aggregate
+    assert "unparsed_rate_macro" not in aggregate
+    assert "| model_id | language_count |" not in scoring
+    assert "thresholds are selected on this benchmark" in scoring
+
+
+def test_the_card_uses_model_defined_for_legacy_missing_sequence_lengths() -> None:
+    base = _scored("Qwen/Qwen3-Reranker-0.6B")
+    scored = replace(base, metadata=replace(base.metadata, sequence_length=None))
+    card = dataset_card(
+        [_result("gen/one"), scored],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "| Qwen/Qwen3-Reranker-0.6B |" in card
+    assert (
+        "| Qwen/Qwen3-Reranker-0.6B | causal-LM reranker: manual yes/no reranker turn | "
+        "yes/no next-token probability; argmax over the native yes/no scores | "
+        "model-defined |"
+    ) in card
+
+
+def test_the_card_explicitly_selects_the_viewer_split() -> None:
+    card = dataset_card(
+        [_result("gen/one")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        viewer_file="data/train.csv",
+    )
+
+    assert "configs:" in card
+    assert "path: data/train.csv" in card
+    assert "data_dir:" not in card
+
+
+def test_the_card_uses_an_explicit_viewer_file_path() -> None:
+    card = dataset_card(
+        [_result("gen/one")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        viewer_file="data/train.csv",
+    )
+    metadata = card.split("---", 2)[1]
+
+    assert "data_dir:" not in metadata
+    assert "path: data/train.csv" in metadata
+    assert "path: train.csv" not in metadata
+
+
+def test_the_card_uses_one_compact_line_for_shared_benchmark_settings() -> None:
+    card = dataset_card([_result()], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+    benchmark = card.split("## Task and prompt")[1].split("## Aggregate scores")[0]
+
+    assert "| setting | value |" not in benchmark
+    assert "1 language x 1 item/language" in card
+    assert "`yes`/`no`" in card
+    assert "English" in benchmark
+    assert "greedy" in benchmark
+    assert "max_new_tokens=8" in benchmark
+    assert "bfloat16" in benchmark
+    assert "batch 16" in benchmark
+
+
+def test_the_card_contains_no_plot_content() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "## Plots" not in card
+    assert "![" not in card
+
+
+def test_the_card_has_neat_spacing_between_sections() -> None:
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two")],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    assert "\n\n\n" not in card
+
+
+ZEROSHOT_PROMPT = "TARGET SENTENCE: {}\n\nHYPOTHESIS: It is about land use.\n"
+
+
+def test_the_card_matches_each_scoring_prompt_to_the_runs_that_used_it() -> None:
+    zeroshot = replace(
+        _scored("nli/model"),
+        metadata=replace(
+            _scored("nli/model").metadata, prompt_sha256=sha256_of_text(ZEROSHOT_PROMPT)
+        ),
+    )
+    logprob = replace(
+        _scored("LiquidAI/LFM2.5-2.6B@logprob"),
+        metadata=replace(
+            _scored("x").metadata,
+            model_id="LiquidAI/LFM2.5-2.6B@logprob",
+            prompt_sha256=PROMPT_SHA256,
+        ),
+    )
+    card = dataset_card(
+        [_result("gen/one"), _scored("score/two"), zeroshot, logprob],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+        extra_scorer_prompt_texts=(ZEROSHOT_PROMPT,),
+    )
+    scoring = card.split("## Scoring models")[1]
+
+    assert ZEROSHOT_PROMPT in scoring
+    assert "`nli/model`:" in scoring
+    assert "`LiquidAI/LFM2.5-2.6B@logprob` uses the task prompt above." in scoring
+
+
+def test_the_card_compares_log_probabilities_with_parsed_generation() -> None:
+    generated = _result_with_outcomes(
+        "LiquidAI/LFM2.5-2.6B",
+        (
+            (Label.YES, Label.YES),
+            (Label.YES, Label.YES),
+            (Label.NO, Label.NO),
+            (Label.NO, Label.NO),
+        ),
+    )
+    generated = replace(
+        generated,
+        metadata=replace(
+            generated.metadata, model_id="LiquidAI/LFM2.5-2.6B", duration_seconds=3600.0
+        ),
+    )
+    scored = _scoring_result("LiquidAI/LFM2.5-2.6B@logprob", (0.9, 0.8, 0.2, 0.1), vram_gib=1)
+    scored = replace(
+        scored,
+        metadata=replace(scored.metadata, prompt_sha256=PROMPT_SHA256, duration_seconds=36.0),
+    )
+    card = dataset_card(
+        [generated, scored],
+        benchmark_name="benchmark.csv",
+        prompt_text=PROMPT,
+    )
+
+    section = card.split("### LFM2.5-2.6B: log-probabilities vs generation")[1]
+    assert "| generation + parsing | 1.0 |" in section
+    assert "| yes/no log-probs | 1.0 | 1.0 | 0.0 | 1 | 0.01 | 9000.0 |" in section
+    assert "| n/a | 1.00 | 900000.0 |" in section
+
+
+def test_the_card_names_a_gguf_quant_without_calling_it_a_dtype() -> None:
+    quant = replace(
+        _result("unsloth/Big-GGUF@IQ2"),
+        metadata=replace(
+            _result().metadata, model_id="unsloth/Big-GGUF@IQ2", dtype="gguf", quantization="IQ2"
+        ),
+    )
+    card = dataset_card(
+        [_result("gen/one"), quant], benchmark_name="benchmark.csv", prompt_text=PROMPT
+    )
+
+    assert "`bfloat16`" in card
+    assert "`unsloth/Big-GGUF@IQ2` runs the `IQ2` GGUF quant through llama.cpp" in card
+
+
+def test_the_comparison_adds_a_same_gpu_timing_row_from_reruns() -> None:
+    gpu = "NVIDIA A100"
+    generated = replace(
+        _result("LiquidAI/LFM2.5-2.6B"),
+        metadata=replace(_result().metadata, model_id="LiquidAI/LFM2.5-2.6B"),
+    )
+    rerun = replace(
+        generated, metadata=replace(generated.metadata, duration_seconds=700.0, device_name=gpu)
+    )
+    scored = _scored("LiquidAI/LFM2.5-2.6B@logprob")
+    scored = replace(
+        scored,
+        metadata=replace(
+            scored.metadata,
+            model_id="LiquidAI/LFM2.5-2.6B@logprob",
+            prompt_sha256=PROMPT_SHA256,
+            duration_seconds=2.0,
+            device_name=gpu,
+        ),
+    )
+    card = dataset_card(
+        [generated, scored], benchmark_name="b", prompt_text=PROMPT, timing_results=[rerun]
+    )
+
+    assert (
+        f"| same GPU ({gpu}; en): generation vs log-probs | | | | | 700 s vs 2.0 s (350x) | |"
+        in card
+    )

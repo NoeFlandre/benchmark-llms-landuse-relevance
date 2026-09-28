@@ -1,0 +1,17 @@
+Classify whether the target sentence contains information about its target place that
+could help characterize land use, land cover, or geographic environment from features
+observable by remote sensing.
+
+Fill the blank with yes or no.
+
+Answer yes for information about vegetation, agriculture, forests, water, soil or
+surface, terrain, buildings, settlements, infrastructure, transport networks, mining,
+managed land, or other human or natural features with a spatial or remotely detectable
+signature.
+
+Answer no for information only about history, administration, people, events,
+demographics, economy, navigation, or activities with no meaningful land-use,
+land-cover, or remotely detectable implication.
+
+TARGET SENTENCE: {}
+ANSWER: [MASK]
