@@ -98,7 +98,7 @@ def test_dspark_runs_have_pinned_same_runtime_baselines() -> None:
 def test_an_invalid_runtime_or_non_sglang_draft_is_rejected() -> None:
     with pytest.raises(ValueError, match="unknown runtime"):
         ModelSpec("owner/model", 1, "", runtime="vllm")
-    with pytest.raises(ValueError, match="a speculative draft needs the sglang runtime"):
+    with pytest.raises(ValueError, match=r"^a speculative draft needs the sglang runtime$"):
         ModelSpec("owner/model", 1, "", draft_model_id="owner/draft")
 
 
