@@ -181,3 +181,8 @@ def test_quantile_interpolates_inside_and_at_the_lower_endpoint() -> None:
     assert _quantile(values, 0.5) == 2.5
     assert _quantile(values, 1 / 3) == pytest.approx(1.0)
     assert _quantile([2.0], 0.975) == 2.0
+
+
+def test_wilson_interval_clamps_a_float_overshoot_above_one() -> None:
+    # Unclamped, 16/16 evaluates to 1.0000000000000002.
+    assert wilson_interval(16, 16)[1] == 1.0

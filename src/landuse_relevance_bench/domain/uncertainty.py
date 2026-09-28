@@ -54,8 +54,6 @@ def exact_mcnemar_p_value(first_only_correct: int, second_only_correct: int) -> 
     if first_only_correct < 0 or second_only_correct < 0:
         raise ValueError("discordant pair counts cannot be negative")
     discordant = first_only_correct + second_only_correct
-    if discordant == 0:
-        return 1.0
     smaller = min(first_only_correct, second_only_correct)
     tail = sum(comb(discordant, k) for k in range(smaller + 1)) / (2**discordant)
     return min(1.0, 2 * tail)

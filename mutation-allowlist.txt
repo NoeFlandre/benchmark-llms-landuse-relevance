@@ -1,14 +1,30 @@
 # Exact mutmut IDs reviewed as equivalent; format: mutant_id: reason
-landuse_relevance_bench.adapters.results_store.x_leaderboard_rows__mutmut_42: top is None only when ranked is empty, so the row expression is never evaluated
 landuse_relevance_bench.adapters.results_store.x_score_columns__mutmut_87: omitted seed uses bootstrap_interval default seed 0
 landuse_relevance_bench.adapters.results_store.x_score_columns__mutmut_98: omitted seed uses bootstrap_interval default seed 0
 landuse_relevance_bench.adapters.results_store.x_write_leaderboard_csv__mutmut_17: UTF-8 codec names are case-insensitive aliases
-landuse_relevance_bench.adapters.results_store.x_write_run__mutmut_17: ensure_ascii=None is falsey and emits the same Unicode JSON as False
-landuse_relevance_bench.adapters.results_store.x_write_run__mutmut_28: UTF-8 codec names are case-insensitive aliases
 landuse_relevance_bench.domain.agreement.x__complete_coverage__mutmut_1: RunResult enforces unique IDs and pairs are the ID intersection, making both conditions equivalent
-landuse_relevance_bench.domain.dataset.x_item_id_for__mutmut_5: UTF-8 codec names are case-insensitive aliases
 landuse_relevance_bench.domain.orchestration.x_predict_all__mutmut_32: output count is checked before zip, so strictness is redundant
 landuse_relevance_bench.domain.orchestration.x_predict_all__mutmut_35: output count is checked before zip, so strictness is redundant
 landuse_relevance_bench.domain.orchestration.x_predict_all__mutmut_36: output count is checked before zip, so strictness is redundant
 landuse_relevance_bench.domain.uncertainty.x_exact_mcnemar_p_value__mutmut_12: for discordant counts zero or one the computed exact two-sided p-value is 1
 landuse_relevance_bench.domain.uncertainty.x_wilson_interval__mutmut_50: Wilson upper endpoint for valid counts is at most one, so the cap is redundant
+landuse_relevance_bench.adapters.results_store.x_write_run__mutmut_14: encoding=None uses the locale encoding, UTF-8 on every supported platform (PEP 538/540)
+landuse_relevance_bench.adapters.results_store.x_write_run__mutmut_16: omitted encoding uses the locale encoding, UTF-8 on every supported platform (PEP 538/540)
+landuse_relevance_bench.adapters.results_store.x_write_run__mutmut_20: ensure_ascii=None is falsey and emits the same Unicode JSON as False
+landuse_relevance_bench.adapters.results_store.x_write_run__mutmut_31: UTF-8 codec names are case-insensitive aliases
+landuse_relevance_bench.adapters.results_store.x_read_run__mutmut_3: encoding=None uses the locale encoding, UTF-8 on every supported platform (PEP 538/540)
+landuse_relevance_bench.adapters.results_store.x_read_run__mutmut_5: UTF-8 codec names are case-insensitive aliases
+landuse_relevance_bench.adapters.results_store.x_leaderboard_rows__mutmut_7: <= differs from < only for a repeated model-language pair, which is invalid input
+landuse_relevance_bench.adapters.results_store.x_scoring_summary_rows__mutmut_26: roc_auc_macro is identical on every sweep row of a model
+landuse_relevance_bench.adapters.results_store.x_write_reports__mutmut_38: the sweep argument is a cache; recomputing it from the same results gives the same rows
+landuse_relevance_bench.adapters.results_store.x_write_reports__mutmut_40: the sweep argument is a cache; recomputing it from the same results gives the same rows
+landuse_relevance_bench.adapters.results_store.x_write_leaderboard_csv__mutmut_8: newline=None translates to os.linesep, identical to newline="" on POSIX
+landuse_relevance_bench.adapters.results_store.x_write_leaderboard_csv__mutmut_9: encoding=None uses the locale encoding, UTF-8 on every supported platform (PEP 538/540)
+landuse_relevance_bench.adapters.results_store.x_write_leaderboard_csv__mutmut_11: omitted newline translates to os.linesep, identical to newline="" on POSIX
+landuse_relevance_bench.adapters.results_store.x_write_leaderboard_csv__mutmut_12: omitted encoding uses the locale encoding, UTF-8 on every supported platform (PEP 538/540)
+landuse_relevance_bench.adapters.results_store.x_write_leaderboard_csv__mutmut_17: UTF-8 codec names are case-insensitive aliases
+landuse_relevance_bench.adapters.results_store.x__write_rows__mutmut_8: newline=None translates to os.linesep, identical to newline="" on POSIX
+landuse_relevance_bench.adapters.results_store.x__write_rows__mutmut_9: encoding=None uses the locale encoding, UTF-8 on every supported platform (PEP 538/540)
+landuse_relevance_bench.adapters.results_store.x__write_rows__mutmut_11: omitted newline translates to os.linesep, identical to newline="" on POSIX
+landuse_relevance_bench.adapters.results_store.x__write_rows__mutmut_12: omitted encoding uses the locale encoding, UTF-8 on every supported platform (PEP 538/540)
+landuse_relevance_bench.adapters.results_store.x__write_rows__mutmut_17: UTF-8 codec names are case-insensitive aliases

@@ -20,6 +20,7 @@ from landuse_relevance_bench.adapters.results_store import (
     run_filename,
     scoring_summary_rows,
     threshold_sweep_rows,
+    write_aggregates_csv,
     write_leaderboard_csv,
     write_reports,
     write_run,
@@ -348,3 +349,14 @@ def test_write_reports_writes_exact_csv_files_into_new_directories(tmp_path: Pat
 def test_write_leaderboard_csv_creates_missing_parent_directories(tmp_path: Path) -> None:
     path = write_leaderboard_csv([_run("a/m", MIXED)], tmp_path / "x" / "y" / "board.csv")
     assert path.read_text(encoding="utf-8").startswith("model_id,language,n_items,")
+
+
+def test_read_runs_refuses_a_result_in_another_language_directory(tmp_path: Path) -> None:
+    _write_payload(tmp_path / "en" / "a__m.json", _run("a/m", ((Y, Y),), language="fr").to_dict())
+    with pytest.raises(ValueError, match=r"expected a language directory$"):
+        read_runs(tmp_path)
+
+
+def test_write_aggregates_csv_creates_missing_parent_directories(tmp_path: Path) -> None:
+    path = write_aggregates_csv([_run("a/m", MIXED)], tmp_path / "x" / "y" / "aggregates.csv")
+    assert path.read_text(encoding="utf-8").startswith("model_id,language_count,")
