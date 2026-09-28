@@ -91,7 +91,9 @@ def test_run_result_dict_is_json_serialisable() -> None:
 
 
 def test_run_result_rejects_metrics_that_disagree_with_its_predictions() -> None:
-    with pytest.raises(ValueError, match="metrics cover 1 items but the run holds 2"):
+    with pytest.raises(
+        ValueError, match=r"^metrics cover 1 items but the run holds 2 predictions$"
+    ):
         RunResult(
             metadata=META,
             predictions=(_prediction(), _prediction()),
@@ -101,7 +103,7 @@ def test_run_result_rejects_metrics_that_disagree_with_its_predictions() -> None
 
 def test_run_result_rejects_duplicate_item_ids() -> None:
     duplicate = _prediction()
-    with pytest.raises(ValueError, match="duplicate item id"):
+    with pytest.raises(ValueError, match=r"^run contains a duplicate item id$"):
         RunResult(
             metadata=META,
             predictions=(duplicate, duplicate),
@@ -111,7 +113,7 @@ def test_run_result_rejects_duplicate_item_ids() -> None:
 
 def test_run_result_rejects_metrics_that_disagree_without_a_count_mismatch() -> None:
     metrics = evaluate([(Label.YES, Label.YES)])
-    with pytest.raises(ValueError, match="metrics do not match predictions"):
+    with pytest.raises(ValueError, match=r"^metrics do not match predictions$"):
         RunResult(
             metadata=META,
             predictions=(_prediction(),),
@@ -138,3 +140,39 @@ def test_metadata_written_before_performance_telemetry_was_added_still_loads() -
     assert restored.throughput_items_per_second is None
     assert restored.peak_vram_bytes is None
     assert restored.sequence_length is None
+
+
+def test_a_fully_populated_prediction_round_trips_every_field() -> None:
+    prediction = Prediction(
+        item_id="1" * 16,
+        expected=Label.NO,
+        predicted=Label.YES,
+        raw_output="Yes.",
+        truncated=True,
+        parse_mode="leading",
+        latency_seconds=0.25,
+        generated_tokens=7,
+        verify_steps=3,
+        accepted_drafts=4,
+        proposed_drafts=6,
+    )
+    assert Prediction.from_dict(prediction.to_dict()) == prediction
+
+
+def test_a_legacy_prediction_defaults_every_optional_field() -> None:
+    legacy = {"item_id": "0" * 16, "expected": "yes", "predicted": "no", "raw_output": "no"}
+    assert Prediction.from_dict(legacy) == Prediction(
+        item_id="0" * 16, expected=Label.YES, predicted=Label.NO, raw_output="no"
+    )
+
+
+def test_run_result_dict_has_exactly_the_published_sections() -> None:
+    result = RunResult(
+        metadata=META, predictions=(_prediction(),), metrics=evaluate([(Label.YES, Label.YES)])
+    )
+    payload = result.to_dict()
+    assert list(payload) == ["metadata", "metrics", "speed", "predictions"]
+    assert payload["metadata"] == META.to_dict()
+    assert payload["metrics"] == result.metrics.to_dict()
+    assert payload["speed"] == result.speed.to_dict()
+    assert payload["predictions"] == [_prediction().to_dict()]
