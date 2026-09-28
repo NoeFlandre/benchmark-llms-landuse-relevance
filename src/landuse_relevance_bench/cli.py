@@ -1,493 +1,392 @@
 """Scriptable entry points for running, scoring and publishing the benchmark."""
 
-import enum
 import json
-import logging
-import os
-import re
-import subprocess
-from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated
 
 import typer
 
 from landuse_relevance_bench import __version__
-from landuse_relevance_bench.adapters.benchmark_csv import BenchmarkFileError
 from landuse_relevance_bench.adapters.pipeline import (
     DEFAULT_DTYPE,
     DEFAULT_MAX_NEW_TOKENS,
-    GeneratorProvider,
     RunRequest,
-    execute,
 )
-from landuse_relevance_bench.adapters.prompt_file import PromptFileError
-from landuse_relevance_bench.adapters.results_store import (
-    describe_agreement,
-    leaderboard_rows,
-    read_runs,
-    run_filename,
-    write_leaderboard_csv,
+from landuse_relevance_bench.adapters.providers import (
+    cached_generator_provider,
+    cached_scorer_provider,
 )
-from landuse_relevance_bench.domain.agreement import Agreement, speculative_agreements
+from landuse_relevance_bench.adapters.results_store import read_runs, write_reports
+from landuse_relevance_bench.application import (
+    DEFAULT_DATA_ROOT,
+    DEFAULT_PROMPT,
+    DEFAULT_RESULTS,
+    DEFAULT_SCORER_PROMPT,
+    benchmark_one,
+    comparable_runs,
+    completed_pairs,
+    extra_scorer_prompts,
+    languages_for_scorer,
+    load_prompts,
+    manifest_for,
+    mode_options,
+    planned_pairs,
+    print_run_plan,
+    publish_allow_patterns,
+    report_lines,
+    score_one,
+    selected_languages,
+    selected_models,
+)
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
-from landuse_relevance_bench.domain.records import RunResult
-from landuse_relevance_bench.domain.roster import (
-    ROSTER,
-    RUNTIMES,
-    TRANSFORMERS,
-    model_ids,
-    spec_for,
-)
-from landuse_relevance_bench.domain.speed import SpeedMetrics
+from landuse_relevance_bench.domain.roster import ROSTER, model_ids
+from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, scorer_for, scorer_ids
+from landuse_relevance_bench.domain.sharding import pair_statuses
 
-DEFAULT_BENCHMARK = Path("data/benchmark.csv")
-DEFAULT_PROMPT = Path("data/prompt.txt")
-DEFAULT_RESULTS = Path("results")
-
-app = typer.Typer(help=__doc__)
-
-Runtime = enum.StrEnum("Runtime", {name: name for name in RUNTIMES})
-
-LOGGER_NAME = "landuse_relevance_bench"
-
-Benchmark = Annotated[Path, typer.Option("--benchmark", help="Labelled benchmark CSV.")]
-Prompt = Annotated[Path, typer.Option("--prompt", help="Prompt template with a {} placeholder.")]
-Results = Annotated[
-    Path,
-    typer.Option(
-        "--out", "--results-dir", help="Directory to write run results into (--out is an alias)."
-    ),
-]
-ResultsDir = Annotated[
-    Path, typer.Option("--results-dir", help="Directory holding stored run results.")
-]
-BatchSize = Annotated[
-    int | None,
-    typer.Option(help=f"Prompts per forward pass [default: roster's, else {DEFAULT_BATCH_SIZE}]."),
-]
-MaxNewTokens = Annotated[int, typer.Option(help="Generation budget per prompt, in tokens.")]
-Seed = Annotated[int, typer.Option(help="Random seed set before loading the model.")]
-Dtype = Annotated[str, typer.Option(help="Torch dtype name.")]
-Only = Annotated[str | None, typer.Option("--only", help="Regex; keep only run names it matches.")]
-RuntimeFilter = Annotated[
-    list[Runtime] | None,
-    typer.Option("--runtime", help="Keep only runs on this runtime; repeatable."),
-]
-Json = Annotated[bool, typer.Option("--json", help="Print machine-readable JSON instead of text.")]
-
-
-class _EchoHandler(logging.Handler):
-    """Log records go to stderr through typer, so test runners capture them too."""
-
-    def emit(self, record: logging.LogRecord) -> None:
-        typer.echo(self.format(record), err=True)
-
-
-def configure_logging(verbosity: int) -> None:
-    """-q shows errors only, the default shows warnings, -v progress, -vv debug detail."""
-    levels = {-1: logging.ERROR, 0: logging.WARNING, 1: logging.INFO}
-    logger = logging.getLogger(LOGGER_NAME)
-    logger.setLevel(levels.get(verbosity, logging.DEBUG))
-    if not any(isinstance(h, _EchoHandler) for h in logger.handlers):
-        handler = _EchoHandler()
-        handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-        logger.addHandler(handler)
-    logger.propagate = False
-
-
-def _print_version(value: bool) -> None:
-    if value:
-        typer.echo(__version__)
-        raise typer.Exit
+app = typer.Typer(add_completion=False, help=__doc__, invoke_without_command=True)
 
 
 @app.callback()
-def main(
-    version: Annotated[
-        bool,
-        typer.Option(
-            "--version", callback=_print_version, is_eager=True, help="Print the version and exit."
-        ),
-    ] = False,
-    verbose: Annotated[
-        int, typer.Option("--verbose", "-v", count=True, help="More output; repeat for debug.")
-    ] = 0,
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only report errors.")] = False,
-) -> None:
-    """Scriptable entry points for running, scoring and publishing the benchmark."""
-    del version
-    configure_logging(-1 if quiet else verbose)
+def _root(version: Annotated[bool, typer.Option("--version", is_eager=True)] = False) -> None:
+    """Expose the installed package version to scripts and container checks."""
+    if version:
+        typer.echo(__version__)
+        raise typer.Exit()
 
 
-def _echo_json(payload: object) -> None:
-    typer.echo(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
+DataRoot = Annotated[Path, typer.Option("--data-root", help="Vendored multilingual data root.")]
+Prompt = Annotated[Path, typer.Option("--prompt", help="Prompt template with a {} placeholder.")]
+Results = Annotated[Path, typer.Option("--out", help="Directory to write run results into.")]
+Language = Annotated[
+    list[str] | None,
+    typer.Option("--language", help="Language code(s), repeatable or comma-separated."),
+]
 
 
-def generator_provider() -> GeneratorProvider:
-    """Imported lazily so the CLI stays usable without a model runtime installed."""
-    from landuse_relevance_bench.adapters.generators import provide
-
-    return provide
-
-
-SOURCE_COMMIT_ENV = "LRB_SOURCE_COMMIT"
-
-
-def source_commit() -> str:
-    """The commit the code was run from, recorded alongside every result.
-
-    ``LRB_SOURCE_COMMIT`` wins, so an image built without ``.git`` can still name its
-    commit; otherwise git is asked. An unknown commit is recorded empty, with a warning.
-    """
-    pinned = os.environ.get(SOURCE_COMMIT_ENV, "").strip()
-    if pinned:
-        return pinned
-    try:
-        # git is looked up on PATH on purpose: it is wherever the user installed it.
-        completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"],  # noqa: S607
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        completed = None
-    commit = completed.stdout.strip() if completed else ""
-    if not commit:
-        logging.getLogger(LOGGER_NAME).warning(
-            "could not determine the source commit; set %s to record it", SOURCE_COMMIT_ENV
-        )
-    return commit
-
-
-def _benchmark_one(request: RunRequest, *, as_json: bool = False) -> None:
-    """Run one model, reporting input problems as usage errors rather than tracebacks."""
-    try:
-        result = execute(request, generator_provider(), source_commit=source_commit())
-    except (OSError, BenchmarkFileError, PromptFileError, ValueError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+@app.command()
+def models(as_json: Annotated[bool, typer.Option("--json", help="Emit JSON.")] = False) -> None:
+    """List the models in the benchmark roster."""
     if as_json:
-        _echo_json(
-            {
-                "model_id": request.name,
-                "metrics": result.metrics.to_dict(),
-                "speed": result.speed.to_dict(),
-                "duration_seconds": result.metadata.duration_seconds,
-            }
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "id": spec.name,
+                        "parameters": spec.total_parameters,
+                        "runtime": spec.runtime,
+                        "note": spec.note,
+                    }
+                    for spec in ROSTER
+                ],
+                sort_keys=True,
+            )
         )
         return
-    metrics = result.metrics
-    typer.echo(
-        f"{request.model_id}  accuracy={metrics.accuracy:.3f}  f1={metrics.f1:.3f}  "
-        f"mcc={metrics.matthews_corrcoef:.3f}  unparsed={metrics.unparsed_rate:.3f}  "
-        f"({result.metadata.duration_seconds:.1f}s, {_speed_summary(result.speed)})"
-    )
-
-
-def _speed_summary(speed: SpeedMetrics) -> str:
-    parts = [f"{speed.sentences_per_second or 0:.2f} sent/s"]
-    if speed.latency_p50_seconds is not None:
-        parts.append(f"p50={speed.latency_p50_seconds:.3f}s p95={speed.latency_p95_seconds:.3f}s")
-    if speed.output_tokens_per_second is not None:
-        parts.append(f"{speed.output_tokens_per_second:.1f} tok/s")
-    if speed.mean_accept_length is not None:
-        parts.append(f"accept={speed.mean_accept_length:.2f}")
-    if speed.draft_accept_rate is not None:
-        parts.append(f"accept_rate={speed.draft_accept_rate:.3f}")
-    return " ".join(parts)
-
-
-@app.command(epilog="Examples:  lrb models  |  lrb models --runtime sglang --json")
-def models(runtime: RuntimeFilter = None, as_json: Json = False) -> None:
-    """List the models in the benchmark roster (name, size, runtime, note; tab-separated)."""
-    specs = [spec for spec in ROSTER if not runtime or spec.runtime in runtime]
-    if as_json:
-        _echo_json(
-            [
-                {
-                    "name": spec.name,
-                    "model_id": spec.model_id,
-                    "total_parameters": spec.total_parameters,
-                    "runtime": spec.runtime,
-                    "note": spec.note,
-                }
-                for spec in specs
-            ]
-        )
-        return
-    for spec in specs:
+    for spec in ROSTER:
         typer.echo(f"{spec.name}\t{spec.total_parameters / 1e9:.2f}B\t{spec.runtime}\t{spec.note}")
 
 
-@app.command(
-    epilog="Examples:  lrb run LiquidAI/LFM2.5-350M  |  "
-    "lrb run some/model --revision c0ffee --results-dir results --json"
-)
+@app.command()
+def scorers() -> None:
+    """List the non-generative models scored on the same benchmark."""
+    for spec in SCORER_ROSTER:
+        typer.echo(f"{spec.model_id}\t{spec.total_parameters / 1e9:.2f}B\t{spec.kind}\t{spec.note}")
+
+
+@app.command()
+def languages(data_root: DataRoot = DEFAULT_DATA_ROOT) -> None:
+    """List every active language and its configured row count."""
+    manifest = manifest_for(data_root)
+    for language in manifest.languages:
+        typer.echo(f"{language}\t{manifest.files[language].rows}")
+
+
+@app.command()
 def run(
-    model_id: Annotated[
-        str, typer.Argument(help="A rostered run name, or any Hugging Face model id.")
-    ],
-    benchmark: Benchmark = DEFAULT_BENCHMARK,
+    model_id: Annotated[str, typer.Argument(help="Hugging Face model repository id.")],
+    data_root: DataRoot = DEFAULT_DATA_ROOT,
     prompt: Prompt = DEFAULT_PROMPT,
     out: Results = DEFAULT_RESULTS,
+    language: Language = None,
     revision: Annotated[str | None, typer.Option(help="Pin the model to a commit.")] = None,
-    batch_size: BatchSize = None,
-    max_new_tokens: MaxNewTokens = DEFAULT_MAX_NEW_TOKENS,
-    seed: Seed = 0,
-    dtype: Dtype = DEFAULT_DTYPE,
-    as_json: Json = False,
+    batch_size: Annotated[int | None, typer.Option(help="Prompts per forward pass.")] = None,
+    max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
+    seed: Annotated[int, typer.Option()] = 0,
+    dtype: Annotated[str, typer.Option(help="Torch dtype name.")] = DEFAULT_DTYPE,
+    continuous_batching: Annotated[bool, typer.Option("--continuous-batching")] = False,
+    throughput: Annotated[
+        bool, typer.Option(help="Use SGLang multi-request throughput mode.")
+    ] = False,
+    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
+    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
 ) -> None:
-    """Benchmark one model and write its result under --out."""
-    request = RunRequest.for_run(
-        model_id,
-        benchmark_path=benchmark,
-        prompt_path=prompt,
-        output_dir=out,
-        revision=revision,
-        batch_size=batch_size,
-        max_new_tokens=max_new_tokens,
-        seed=seed,
-        dtype=dtype,
-    )
-    _benchmark_one(request, as_json=as_json)
+    """Benchmark one model on every selected language."""
+    if model_id in scorer_ids():
+        raise typer.BadParameter(
+            f"{model_id!r} is a scoring model; `lrb score` benchmarks scoring models"
+        )
+    manifest, selected = selected_languages(data_root, language)
+    pairs = planned_pairs((model_id,), selected, shard_index, shard_count)
+    print_run_plan((model_id,), selected, manifest, pairs, out)
+    provider = cached_generator_provider()
+    try:
+        for _, selected_language in pairs:
+            benchmark_one(
+                RunRequest.for_run(
+                    model_id,
+                    language=selected_language,
+                    benchmark_path=data_root / manifest.files[selected_language].path,
+                    prompt_path=prompt,
+                    output_dir=out,
+                    revision=revision,
+                    batch_size=batch_size,
+                    max_new_tokens=max_new_tokens,
+                    seed=seed,
+                    dtype=dtype,
+                    continuous_batching=continuous_batching,
+                    throughput_mode=throughput,
+                    close_generator=False,
+                ),
+                provider,
+            )
+    finally:
+        provider.close_cached()
 
 
-@app.command(
-    name="run-all",
-    epilog="Examples:  lrb run-all --results-dir results  |  "
-    "lrb run-all --runtime transformers --only 'LFM2.5-VL' --skip-existing --keep-going",
-)
+@app.command()
+def score(
+    model_id: Annotated[str, typer.Argument(help="Scoring roster id.")],
+    data_root: DataRoot = DEFAULT_DATA_ROOT,
+    prompt: Annotated[
+        Path | None,
+        typer.Option("--prompt", help="Prompt template; defaults to the scorer's own."),
+    ] = None,
+    out: Results = DEFAULT_RESULTS,
+    language: Language = None,
+    revision: Annotated[str | None, typer.Option(help="Pin the model to a commit.")] = None,
+    batch_size: Annotated[int, typer.Option(help="Prompts per forward pass.")] = DEFAULT_BATCH_SIZE,
+    seed: Annotated[int, typer.Option()] = 0,
+    dtype: Annotated[str, typer.Option(help="Torch dtype name.")] = DEFAULT_DTYPE,
+    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
+    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+) -> None:
+    """Score one non-generative model on every selected language."""
+    if model_id not in scorer_ids():
+        raise typer.BadParameter(
+            f"{model_id!r} is not in the scoring roster; `lrb run` benchmarks generative models"
+        )
+    spec = scorer_for(model_id)
+    prompt = prompt or Path(spec.prompt)
+    manifest, selected = selected_languages(data_root, language)
+    selected = languages_for_scorer(spec, selected, language)
+    pairs = planned_pairs((model_id,), selected, shard_index, shard_count)
+    print_run_plan((model_id,), selected, manifest, pairs, out)
+    provider = cached_scorer_provider()
+    for _, selected_language in pairs:
+        score_one(
+            RunRequest(
+                model_id=model_id,
+                language=selected_language,
+                benchmark_path=data_root / manifest.files[selected_language].path,
+                prompt_path=prompt,
+                output_dir=out,
+                revision=revision,
+                batch_size=batch_size,
+                seed=seed,
+                dtype=dtype,
+            ),
+            provider,
+        )
+
+
+@app.command(name="run-all")
 def run_all(
-    benchmark: Benchmark = DEFAULT_BENCHMARK,
+    data_root: DataRoot = DEFAULT_DATA_ROOT,
     prompt: Prompt = DEFAULT_PROMPT,
     out: Results = DEFAULT_RESULTS,
-    batch_size: BatchSize = None,
-    max_new_tokens: MaxNewTokens = DEFAULT_MAX_NEW_TOKENS,
-    seed: Seed = 0,
-    dtype: Dtype = DEFAULT_DTYPE,
-    only: Only = None,
-    runtime: RuntimeFilter = None,
-    skip_existing: Annotated[
-        bool,
-        typer.Option(
-            "--skip-existing", help="Skip runs whose result file already exists and is non-empty."
-        ),
+    language: Language = None,
+    batch_size: Annotated[int | None, typer.Option()] = None,
+    continuous_batching: Annotated[
+        bool, typer.Option("--continuous-batching", help="Use Transformers continuous batching.")
     ] = False,
-    keep_going: Annotated[
-        bool,
-        typer.Option(
-            "--keep-going", help="Carry on after a failed run; exit 1 at the end if any failed."
-        ),
+    throughput: Annotated[
+        bool, typer.Option("--throughput", help="Use SGLang multi-request throughput mode.")
     ] = False,
-) -> None:
-    """Benchmark every rostered model in turn, optionally filtered and resumable."""
-    failed: list[str] = []
-    for model in _selected(model_ids(), only, runtime):
-        if skip_existing and _has_result(out, model):
-            typer.echo(f"skip {model} (result already in {out})")
-            continue
-        request = RunRequest.for_run(
-            model,
-            benchmark_path=benchmark,
-            prompt_path=prompt,
-            output_dir=out,
-            batch_size=batch_size,
-            max_new_tokens=max_new_tokens,
-            seed=seed,
-            dtype=dtype,
-        )
-        if not keep_going:
-            _benchmark_one(request)
-            continue
-        try:
-            _benchmark_one(request)
-        except RUN_FAILURES as exc:
-            typer.echo(f"FAILED {model}: {exc}", err=True)
-            failed.append(model)
-    if failed:
-        typer.echo(f"{len(failed)} run(s) failed: {', '.join(failed)}", err=True)
-        raise typer.Exit(code=1)
-
-
-#: What ``--keep-going`` survives: bad input, runtime and CUDA errors, a missing runtime.
-RUN_FAILURES = (typer.BadParameter, RuntimeError, OSError, ValueError, ImportError)
-
-
-def _runtime_of(name: str) -> str:
-    try:
-        return spec_for(name).runtime
-    except KeyError:
-        return TRANSFORMERS
-
-
-def _selected(names: Iterable[str], only: str | None, runtimes: Sequence[str] | None) -> list[str]:
-    """The run names matching the ``--only`` regex and any of the ``--runtime`` choices."""
-    pattern = _compile(only)
-    return [
-        name
-        for name in names
-        if (pattern is None or pattern.search(name))
-        and (not runtimes or _runtime_of(name) in runtimes)
-    ]
-
-
-def _compile(only: str | None) -> re.Pattern[str] | None:
-    if only is None:
-        return None
-    try:
-        return re.compile(only)
-    except re.error as exc:
-        raise typer.BadParameter(f"invalid --only regex {only!r}: {exc}") from exc
-
-
-def _has_result(directory: Path, name: str) -> bool:
-    path = directory / run_filename(name)
-    return path.is_file() and path.stat().st_size > 0
-
-
-@app.command(
-    epilog="Examples:  lrb report --results-dir results  |  lrb report --json | python -m json.tool"
-)
-def report(
-    results_dir: ResultsDir = DEFAULT_RESULTS,
-    out: Annotated[
-        Path | None,
-        typer.Option("--out", help="Leaderboard CSV path [default: RESULTS_DIR/leaderboard.csv]."),
+    max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
+    seed: Annotated[int, typer.Option()] = 0,
+    dtype: Annotated[str, typer.Option()] = DEFAULT_DTYPE,
+    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
+    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+    only: Annotated[str | None, typer.Option("--only", help="Regex over roster run names.")] = None,
+    runtime: Annotated[
+        list[str] | None,
+        typer.Option("--runtime", help="Restrict to transformers or sglang (repeatable)."),
     ] = None,
-    as_json: Json = False,
+    skip_existing: Annotated[bool, typer.Option("--skip-existing")] = True,
+    keep_going: Annotated[bool, typer.Option("--keep-going")] = False,
 ) -> None:
-    """Aggregate stored runs into a leaderboard; exits 1 if a lossless check fails."""
-    runs = _load_runs(results_dir, read_runs)
-    destination = out or results_dir / "leaderboard.csv"
-    write_leaderboard_csv(runs, destination)
-    agreements = speculative_agreements(runs)
-    mismatched = [a for a in agreements if a.same_runtime and not a.lossless]
-    if as_json:
-        _echo_json(
-            {
-                "leaderboard": leaderboard_rows(runs),
-                "speculative_checks": [describe_agreement(a) for a in agreements],
-                "leaderboard_csv": str(destination),
-            }
+    """Benchmark every rostered model on every selected language."""
+    manifest, selected = selected_languages(data_root, language)
+    models = selected_models(only, runtime)
+    if not models:
+        raise typer.BadParameter("no rostered runs match the selected filters")
+    pairs = planned_pairs(models, selected, shard_index, shard_count)
+    print_run_plan(models, selected, manifest, pairs, out)
+    pairs_by_model: dict[str, list[str]] = {}
+    for model, selected_language in pairs:
+        pairs_by_model.setdefault(model, []).append(selected_language)
+    failures = False
+    for model, languages_for_model in pairs_by_model.items():
+        provider = cached_generator_provider()
+        model_batch_size, use_continuous_batching, use_throughput = mode_options(
+            model,
+            batch_size,
+            continuous_batching=continuous_batching,
+            throughput=throughput,
         )
-    else:
-        _echo_report(runs, agreements, destination)
-    if mismatched:
-        typer.echo("speculative run disagrees with its same-runtime baseline", err=True)
+        try:
+            for selected_language in languages_for_model:
+                try:
+                    benchmark_one(
+                        RunRequest.for_run(
+                            model,
+                            language=selected_language,
+                            benchmark_path=data_root / manifest.files[selected_language].path,
+                            prompt_path=prompt,
+                            output_dir=out,
+                            batch_size=model_batch_size,
+                            continuous_batching=use_continuous_batching,
+                            throughput_mode=use_throughput,
+                            max_new_tokens=max_new_tokens,
+                            seed=seed,
+                            dtype=dtype,
+                            close_generator=False,
+                        ),
+                        provider,
+                        skip_existing=skip_existing,
+                    )
+                except Exception as exc:
+                    if not keep_going:
+                        raise
+                    typer.echo(f"{model} [{selected_language}] failed: {exc}", err=True)
+                    failures = True
+        finally:
+            provider.close_cached()
+    if failures:
         raise typer.Exit(code=1)
 
 
-def _echo_report(
-    runs: Sequence[RunResult], agreements: Sequence[Agreement], destination: Path
+@app.command()
+def status(
+    data_root: DataRoot = DEFAULT_DATA_ROOT,
+    results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
+    language: Language = None,
+    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
+    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+    include_scorers: Annotated[
+        bool, typer.Option("--include-scorers", help="Also list scoring models.")
+    ] = False,
 ) -> None:
-    for row in leaderboard_rows(runs):
-        typer.echo(
-            f"{row['model_id']:<34} f1={row['f1']:.3f} acc={row['accuracy']:.3f} "
-            f"mcc={row['matthews_corrcoef']:.3f} unparsed={row['unparsed_rate']:.3f}  "
-            f"{_speed_cells(row)}"
-        )
-    for agreement in agreements:
-        typer.echo(f"speculative check: {describe_agreement(agreement)}")
-    typer.echo(f"\nleaderboard written to {destination}")
+    """Show complete or pending state for the selected model-language shard."""
+    _, selected = selected_languages(data_root, language)
+    roster = model_ids() + (scorer_ids() if include_scorers else ())
+    pairs = planned_pairs(roster, selected, shard_index, shard_count)
+    for pair_status in pair_statuses(pairs, completed_pairs(pairs, results_dir)):
+        typer.echo(f"{pair_status.model_id}\t{pair_status.language}\t{pair_status.status}")
 
 
-def _load_runs(results_dir: Path, reader: Callable[[Path], Iterable[RunResult]]) -> list[RunResult]:
-    """Read stored runs, reporting a missing or empty directory as a usage error."""
+@app.command()
+def report(
+    results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
+    out: Annotated[Path | None, typer.Option("--out", help="Leaderboard CSV path.")] = None,
+    language: Language = None,
+) -> None:
+    """Aggregate stored runs into detailed and model-level leaderboards."""
     if not results_dir.is_dir():
         raise typer.BadParameter(f"no run results directory at {results_dir}")
-    runs = list(reader(results_dir))
-    if not runs:
-        raise typer.BadParameter(f"no run results found in {results_dir}")
-    return runs
+    try:
+        stored = read_runs(results_dir)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    runs = comparable_runs(stored, language, results_dir)
+    written = write_reports(runs, out or results_dir / "leaderboard.csv")
+    for line in report_lines(runs):
+        typer.echo(line)
+    typer.echo(f"\nleaderboard written to {written['leaderboard']}")
+    typer.echo(f"aggregates written to {written['aggregates']}")
+    typer.echo(f"threshold sweep written to {written['threshold_sweep']}")
+    typer.echo(f"scoring summary written to {written['scoring_summary']}")
 
 
-def _speed_cells(row: dict[str, object]) -> str:
-    cells = [
-        f"{label}={row[key]}"
-        for label, key in (
-            ("sent/s", "sentences_per_second"),
-            ("p50", "latency_p50_seconds"),
-            ("p95", "latency_p95_seconds"),
-            ("tok/s", "output_tokens_per_second"),
-            ("accept", "mean_accept_length"),
-            ("accept_rate", "draft_accept_rate"),
-        )
-        if row[key] is not None
-    ]
-    return " ".join(cells)
-
-
-DEFAULT_COMMIT_MESSAGE = "Publish small-LLM land-use relevance benchmark results"
-
-
-@app.command(
-    epilog="Examples:  lrb publish me/landuse-bench --results-dir results --dry-run  |  "
-    "lrb publish me/landuse-bench --commit-message 'Add LFM2.5-VL runs'"
-)
+@app.command()
 def publish(
     repo_id: Annotated[str, typer.Argument(help="Hugging Face dataset repository id.")],
-    results_dir: ResultsDir = DEFAULT_RESULTS,
-    benchmark: Benchmark = DEFAULT_BENCHMARK,
-    private: Annotated[bool, typer.Option(help="Create the dataset repository private.")] = False,
-    dry_run: Annotated[
-        bool,
+    data_root: DataRoot = DEFAULT_DATA_ROOT,
+    results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
+    prompt: Prompt = DEFAULT_PROMPT,
+    scorer_prompt: Annotated[
+        Path, typer.Option("--scorer-prompt", help="Prompt template used by scoring models.")
+    ] = DEFAULT_SCORER_PROMPT,
+    benchmark_name: Annotated[str, typer.Option("--benchmark-name")] = "v3-multilingual",
+    timing_dir: Annotated[
+        Path | None,
         typer.Option(
-            "--dry-run",
-            help="Show the target, files and card that would be pushed; touch nothing.",
+            "--timing-dir", help="Same-GPU generative reruns for the log-prob timing row."
         ),
-    ] = False,
-    commit_message: Annotated[
-        str, typer.Option("--commit-message", help="Commit message for the Hub upload.")
-    ] = DEFAULT_COMMIT_MESSAGE,
+    ] = None,
+    language: Language = None,
+    private: Annotated[bool, typer.Option(help="Create the dataset repository private.")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Preview without Hub upload.")] = False,
 ) -> None:
     """Push the stored runs, leaderboard and a generated card to the Hub."""
-    from landuse_relevance_bench.adapters import hf_publish
+    from landuse_relevance_bench.adapters.hf_publish import publish_results, read_published_runs
 
-    runs = _load_runs(results_dir, hf_publish.read_published_runs)
-    if dry_run:
-        _preview_publish(repo_id, results_dir, runs, private=private, benchmark=benchmark)
-        return
-    write_leaderboard_csv(runs, results_dir / "leaderboard.csv")
+    if not results_dir.is_dir():
+        raise typer.BadParameter(f"no run results directory at {results_dir}")
     try:
-        url = hf_publish.publish_results(
-            repo_id,
+        published = read_published_runs(results_dir)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    language_filter: list[str] | None = None
+    if language is not None:
+        _, selected = selected_languages(data_root, language)
+        language_filter = list(selected)
+    runs = comparable_runs(published, language_filter, results_dir)
+    # A reranker's score is not calibrated to a 0.5 boundary, so the sweep is published
+    # alongside the headline rows.
+    if not dry_run:
+        write_reports(runs, results_dir / "leaderboard.csv")
+    prompt_text, scorer_prompt_text = load_prompts(prompt, scorer_prompt)
+    if dry_run:
+        from landuse_relevance_bench.adapters.hf_publish import dataset_card
+
+        preview = dataset_card(
+            runs,
+            benchmark_name=benchmark_name,
+            prompt_text=prompt_text,
+            scorer_prompt_text=scorer_prompt_text,
+            extra_scorer_prompt_texts=extra_scorer_prompts(scorer_prompt),
+            timing_results=read_runs(timing_dir) if timing_dir else (),
+            viewer_file="data/train.csv",
+        )
+        typer.echo(f"dry-run: would publish {len(runs)} result(s) to {repo_id}")
+        typer.echo(preview)
+        return
+    url = publish_results(
+        repo_id,
+        results_dir,
+        runs,
+        private=private,
+        benchmark_name=benchmark_name,
+        prompt_text=prompt_text,
+        scorer_prompt_text=scorer_prompt_text,
+        extra_scorer_prompt_texts=extra_scorer_prompts(scorer_prompt),
+        timing_results=read_runs(timing_dir) if timing_dir else (),
+        data_root=data_root,
+        allow_patterns=publish_allow_patterns(
             results_dir,
             runs,
-            private=private,
-            commit_message=commit_message,
-            benchmark_name=benchmark.name,
-        )
-    except ImportError as exc:
-        _fail(f"publishing needs huggingface-hub; install with --extra publish ({exc})")
-    except OSError as exc:  # huggingface_hub HTTP, auth and network errors are OSErrors
-        _fail(f"publishing to {repo_id} failed: {_first_line(exc)}")
+            include_snapshot_status=language_filter is None,
+        ),
+    )
     typer.echo(f"published {len(runs)} run(s) to {url}")
-
-
-def _preview_publish(
-    repo_id: str, results_dir: Path, runs: Sequence[RunResult], *, private: bool, benchmark: Path
-) -> None:
-    """What ``publish`` would do, computed without the Hub and without writing a file."""
-    from landuse_relevance_bench.adapters.hf_publish import dataset_card
-
-    generated = {"README.md", "leaderboard.csv"}
-    existing = {
-        p.relative_to(results_dir).as_posix() for p in results_dir.rglob("*") if p.is_file()
-    }
-    visibility = "private" if private else "public"
-    typer.echo(f"dry run: would publish {len(runs)} run(s) to dataset {repo_id} ({visibility})")
-    typer.echo("files that would be uploaded:")
-    for name in sorted(existing | generated):
-        typer.echo(f"  {name}{'  (generated)' if name in generated else ''}")
-    typer.echo("\n--- README.md ---")
-    typer.echo(dataset_card(runs, benchmark_name=benchmark.name))
-
-
-def _first_line(exc: BaseException) -> str:
-    return (str(exc).strip().splitlines() or [type(exc).__name__])[0]
-
-
-def _fail(message: str) -> NoReturn:
-    typer.echo(f"Error: {message}", err=True)
-    raise typer.Exit(code=1)

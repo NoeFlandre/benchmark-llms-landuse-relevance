@@ -1,68 +1,346 @@
 #!/usr/bin/env bash
-# Runs on a reserved Grid'5000 GPU node: benchmarks every rostered run and
-# checkpoints each result as soon as it is produced.
-#
-# Two runtimes, two environments: SGLang pins its own torch and transformers, so the
-# Transformers runs go first under the `inference` extra, then the environment is
-# re-synced with the `speculative` extra for the SGLang runs (plain and DSpark).
+# Runs on a reserved Grid'5000 GPU node: benchmarks every rostered model-language
+# pair and checkpoints each result as soon as it is produced.
 #
 # Environment:
 #   LRB_ROOT        project checkout on the node        (default: $HOME/benchmark-llms-landuse-relevance)
+#   LRB_DATA_ROOT   vendored multilingual data root     (default: $LRB_ROOT/data/translations)
 #   LRB_RESULTS     directory for run results           (default: $LRB_ROOT/results)
-#   LRB_BATCH_SIZE  prompts per forward pass            (default: each run's roster setting)
+#   LRB_BATCH_SIZE  prompts per forward pass            (default: each model's roster setting)
+#   LRB_CONTINUOUS_BATCHING  use Transformers continuous batching (default: 0)
+#   LRB_THROUGHPUT use SGLang multi-request throughput mode (default: 1)
 #   LRB_MAX_NEW_TOKENS  generation budget per prompt     (default: 4096)
-#   LRB_RUNTIMES    runtimes to run, in order           (default: "transformers sglang")
-#   LRB_ONLY        regex; run only matching run names  (default: every run)
+#   LRB_SHARD_INDEX zero-based shard index among deterministic pairs (default: OAR array index - 1)
+#   LRB_SHARD_COUNT number of deterministic pair shards   (default: 1)
+#   LRB_MODEL_ID    optional single model/run name instead of the full roster
+#   LRB_RUNTIME     optional runtime for one run          (default: inferred from the roster name)
+#   LRB_LANGUAGES   optional comma-separated language subset (validation runs)
+#   LRB_SCORER_PROMPT  optional prompt file overriding a scorer's own prompt (scoring runs)
+#   LRB_EXPECTED_ROWS  rows every language must have; empty disables the exact
+#                      check but keeps the uniformity check   (default: 300)
+#   LRB_CUDA_MODULE Lmod module providing nvcc for llama.cpp (default: cuda-toolkit/12.9.1,
+#                   falling back to the site's default cuda-toolkit)
+#   LRB_LMOD_INIT   Lmod init script sourced before `module` (default: /etc/profile.d/lmod.sh)
+#   LRB_DRY_RUN     print sizing information and exit     (default: 0)
 #   HF_HOME         Hugging Face cache                  (default: node-local /tmp scratch)
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:$PATH"   # oarsub runs a non-login shell
 LRB_ROOT="${LRB_ROOT:-$HOME/benchmark-llms-landuse-relevance}"
+LRB_DATA_ROOT="${LRB_DATA_ROOT:-$LRB_ROOT/data/translations}"
 LRB_RESULTS="${LRB_RESULTS:-$LRB_ROOT/results}"
 LRB_BATCH_SIZE="${LRB_BATCH_SIZE:-}"
+LRB_CONTINUOUS_BATCHING="${LRB_CONTINUOUS_BATCHING:-0}"
+LRB_THROUGHPUT="${LRB_THROUGHPUT:-1}"
 LRB_MAX_NEW_TOKENS="${LRB_MAX_NEW_TOKENS:-4096}"
-LRB_RUNTIMES="${LRB_RUNTIMES:-transformers sglang}"
-LRB_ONLY="${LRB_ONLY:-.}"
+if [[ -n "${LRB_SHARD_INDEX:-}" ]]; then
+  LRB_SHARD_INDEX="$LRB_SHARD_INDEX"
+elif [[ -n "${OAR_ARRAY_INDEX:-}" ]]; then
+  if [[ ! "$OAR_ARRAY_INDEX" =~ ^[1-9][0-9]*$ ]]; then
+    echo "invalid OAR_ARRAY_INDEX: $OAR_ARRAY_INDEX" >&2
+    exit 2
+  fi
+  LRB_SHARD_INDEX=$((OAR_ARRAY_INDEX - 1))
+else
+  LRB_SHARD_INDEX=0
+fi
+LRB_SHARD_COUNT="${LRB_SHARD_COUNT:-1}"
+LRB_MODEL_ID="${LRB_MODEL_ID:-}"
+LRB_RUNTIME="${LRB_RUNTIME:-}"
+LRB_DRY_RUN="${LRB_DRY_RUN:-0}"
+LRB_LANGUAGES="${LRB_LANGUAGES:-}"
+LRB_SCORER_PROMPT="${LRB_SCORER_PROMPT:-}"
+LRB_EXPECTED_ROWS="${LRB_EXPECTED_ROWS-300}"
+LRB_CUDA_MODULE="${LRB_CUDA_MODULE:-cuda-toolkit/12.9.1}"
+GTE_MODEL_ID="Alibaba-NLP/gte-multilingual-reranker-base"
+GTE_TRANSFORMERS_VERSION="5.11.0"
+GLINER2_MODEL_ID="fastino/gliner2.5-multi-v1"
+GLICLASS_MODEL_ID="knowledgator/gliclass-multilang-mini"
+
+if [[ "${1:-}" == "--dry-run" ]]; then
+  LRB_DRY_RUN=1
+  shift
+fi
+if (( $# > 0 )); then
+  echo "usage: $0 [--dry-run]" >&2
+  exit 2
+fi
+if [[ -n "$LRB_EXPECTED_ROWS" && ! "$LRB_EXPECTED_ROWS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "invalid LRB_EXPECTED_ROWS: $LRB_EXPECTED_ROWS" >&2
+  exit 2
+fi
+if [[ ! "$LRB_SHARD_INDEX" =~ ^[0-9]+$ || ! "$LRB_SHARD_COUNT" =~ ^[1-9][0-9]*$ \
+  || "$LRB_SHARD_INDEX" -ge "$LRB_SHARD_COUNT" ]]; then
+  echo "invalid LRB_SHARD_INDEX/LRB_SHARD_COUNT: $LRB_SHARD_INDEX/$LRB_SHARD_COUNT" >&2
+  exit 2
+fi
+if [[ ! "$LRB_CONTINUOUS_BATCHING" =~ ^[01]$ || ! "$LRB_THROUGHPUT" =~ ^[01]$ ]]; then
+  echo "LRB_CONTINUOUS_BATCHING and LRB_THROUGHPUT must be 0 or 1" >&2
+  exit 2
+fi
 export HF_HOME="${HF_HOME:-/tmp/$USER/hf-cache}"
 export HF_HUB_DISABLE_TELEMETRY=1
 export TOKENIZERS_PARALLELISM=false
+# Laya's loader probes TensorFlow unless this is disabled; the benchmark is
+# PyTorch-only and should not spend startup time importing a second runtime.
+export USE_TF=0
 
 cd "$LRB_ROOT"
 mkdir -p "$LRB_RESULTS" "$HF_HOME"
 
+# Quantized (GGUF) roster ids follow the convention `repo-GGUF@QUANT`, e.g.
+# `unsloth/Qwen3.8-27B-GGUF@UD-IQ2_XXS`. SGLang run ids such as `model@sglang` also
+# contain '@', so match the GGUF repo suffix, not '@' alone. The environment must be
+# chosen before any `lrb` command can run, so such an id selects the llama.cpp
+# environment here and is confirmed against `lrb models` right after the sync.
+is_quantized=0
+if [[ "$LRB_MODEL_ID" == *-GGUF@* ]]; then
+  is_quantized=1
+fi
+
+# GTE's remote model code calls get_extended_attention_mask, absent from the
+# locked Transformers 5.17 runtime. Keep its compatible runtime isolated.
+# gliner2 pins Transformers<5 and llama.cpp needs a CUDA build: both get their own
+# environment so the locked runtime every other model uses is never touched.
+case "$LRB_MODEL_ID" in
+  "$GTE_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gte-${OAR_JOB_ID:-manual}" ;;
+  # gliclass is an extra the default sync removes, so a concurrent job on the shared
+  # environment would uninstall it mid-run.
+  "$GLICLASS_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gliclass-${OAR_JOB_ID:-manual}" ;;
+  "$GLINER2_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gliner2-${OAR_JOB_ID:-manual}" ;;
+esac
+if (( is_quantized == 1 )); then
+  export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gguf-${OAR_JOB_ID:-manual}"
+fi
+if [[ -z "$LRB_RUNTIME" && -n "$LRB_MODEL_ID" ]]; then
+  if [[ "$LRB_MODEL_ID" == *@sglang || "$LRB_MODEL_ID" == *+DSpark* ]]; then
+    LRB_RUNTIME=sglang
+  else
+    LRB_RUNTIME=transformers
+  fi
+fi
+if [[ "$LRB_RUNTIME" == "sglang" && -z "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
+  export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-sglang-${OAR_JOB_ID:-manual}"
+fi
+if [[ -n "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
+  # $HOME is quota-limited; a per-job environment is rebuilt from the uv cache anyway.
+  trap 'rm -rf "$UV_PROJECT_ENVIRONMENT"' EXIT
+fi
+
+if [[ "$LRB_RUNTIME" == "sglang" ]]; then
+  # SGLang's DeepEP import needs CUDA_HOME to JIT its kernels. OAR starts a
+  # non-login shell, so load the toolkit explicitly before importing SGLang.
+  # shellcheck disable=SC1091
+  source "${LRB_LMOD_INIT:-/etc/profile.d/lmod.sh}" 2>/dev/null || true
+  module load "$LRB_CUDA_MODULE" 2>/dev/null || module load cuda-toolkit 2>/dev/null || true
+  if ! command -v nvcc >/dev/null; then
+    echo "no CUDA toolkit (nvcc) available; SGLang needs CUDA_HOME for DeepEP" >&2
+    exit 1
+  fi
+  cuda_root="$(dirname "$(dirname "$(command -v nvcc)")")"
+  export CUDA_HOME="$cuda_root"
+  export LD_LIBRARY_PATH="$cuda_root/lib64:$cuda_root/lib:${LD_LIBRARY_PATH:-}"
+  # LFM2.5 declares 131072 context tokens; SGLang's derived default is 128000.
+  # Permit the model's configured context length instead of aborting launch.
+  export SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN="${SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN:-1}"
+fi
+
 echo "== node: $(hostname)  job: ${OAR_JOB_ID:-none}"
-nvidia-smi --query-gpu=name,memory.total,compute_cap --format=csv,noheader || true
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
+
+# Every runtime is resolved by uv.lock. `gliner2` conflicts with `inference`
+# (Transformers<5 vs 5), so its environment syncs that extra alone.
+extras=(--extra inference)
+if [[ "$LRB_MODEL_ID" == "$GLICLASS_MODEL_ID" ]]; then
+  extras+=(--extra scoring)
+elif [[ "$LRB_MODEL_ID" == "$GLINER2_MODEL_ID" ]]; then
+  extras=(--extra gliner2)
+elif [[ "$LRB_RUNTIME" == "sglang" ]]; then
+  extras=(--extra speculative)
+fi
+uv sync "${extras[@]}" --frozen --no-dev
+if [[ "$LRB_MODEL_ID" == "$GLINER2_MODEL_ID" ]]; then
+  echo "== runtime: gliner2 (locked, isolated Transformers 4)"
+fi
+if (( is_quantized == 1 )); then
+  quantized_listed=0
+  while IFS=$'\t' read -r roster_id _; do
+    if [[ "$roster_id" == "$LRB_MODEL_ID" ]]; then
+      quantized_listed=1
+    fi
+  done < <(uv run --no-sync lrb models)
+  if (( quantized_listed == 0 )); then
+    echo "unknown LRB_MODEL_ID: $LRB_MODEL_ID" >&2
+    exit 2
+  fi
+  # OAR runs a non-login shell, so Lmod must be sourced before `module` exists.
+  # shellcheck disable=SC1091
+  source "${LRB_LMOD_INIT:-/etc/profile.d/lmod.sh}" 2>/dev/null || true
+  module load "$LRB_CUDA_MODULE" 2>/dev/null || module load cuda-toolkit 2>/dev/null || true
+  if ! command -v nvcc >/dev/null; then
+    echo "no CUDA toolkit (nvcc) available to build llama.cpp" >&2
+    exit 1
+  fi
+  # The module puts nvcc on PATH but not the runtime libraries libllama.so links to.
+  cuda_root="$(dirname "$(dirname "$(command -v nvcc)")")"
+  export LD_LIBRARY_PATH="$cuda_root/lib64:$cuda_root/lib:${LD_LIBRARY_PATH:-}"
+  # The `gguf` extra is locked, but its wheel must be compiled against this node's
+  # CUDA toolkit, so it is rebuilt from source constrained to the locked versions.
+  gguf_constraints="$UV_PROJECT_ENVIRONMENT/gguf-constraints.txt"
+  uv export --frozen --no-dev --no-hashes --no-emit-project \
+    --extra inference --extra gguf > "$gguf_constraints"
+  CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=native" uv pip install \
+    --python "$UV_PROJECT_ENVIRONMENT/bin/python" --constraint "$gguf_constraints" \
+    --no-binary llama-cpp-python llama-cpp-python jinja2
+  echo "== runtime: llama-cpp-python (locked version, CUDA build)"
+fi
+if [[ "$LRB_MODEL_ID" == "$GTE_MODEL_ID" ]]; then
+  uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    "transformers==$GTE_TRANSFORMERS_VERSION"
+  installed_transformers_version="$(
+    "$UV_PROJECT_ENVIRONMENT/bin/python" -c \
+      'from importlib.metadata import version; print(version("transformers"))'
+  )"
+  if [[ "$installed_transformers_version" != "$GTE_TRANSFORMERS_VERSION" ]]; then
+    echo "expected Transformers $GTE_TRANSFORMERS_VERSION, found $installed_transformers_version" >&2
+    exit 1
+  fi
+  echo "== runtime: Transformers $installed_transformers_version (GTE compatibility)"
+fi
+
+mapfile -t language_rows < <(uv run --no-sync lrb languages --data-root "$LRB_DATA_ROOT")
+if (( ${#language_rows[@]} == 0 )); then
+  echo "no active languages found under $LRB_DATA_ROOT" >&2
+  exit 1
+fi
+
+languages=()
+rows_per_language=""
+for language_row in "${language_rows[@]}"; do
+  IFS=$'\t' read -r language row_count <<<"$language_row"
+  if [[ -z "$language" || ! "$row_count" =~ ^[0-9]+$ ]]; then
+    echo "invalid language inventory row: $language_row" >&2
+    exit 1
+  fi
+  if [[ -n "$LRB_EXPECTED_ROWS" && "$row_count" != "$LRB_EXPECTED_ROWS" ]]; then
+    echo "language $language has $row_count rows; expected $LRB_EXPECTED_ROWS" >&2
+    exit 1
+  fi
+  if [[ -z "$rows_per_language" ]]; then
+    rows_per_language="$row_count"
+  elif [[ "$rows_per_language" != "$row_count" ]]; then
+    echo "language row counts are not uniform" >&2
+    exit 1
+  fi
+  languages+=("$language")
+done
+
+mapfile -t models < <(uv run --no-sync lrb models | cut -f1)
+mapfile -t scoring_models < <(uv run --no-sync lrb scorers | cut -f1)
+# A scoring model is benchmarked by `lrb score`, not `lrb run`: it is never prompted for
+# text. Dispatch on which roster the id belongs to so the submitter does not have to.
+is_scoring=0
+if [[ -n "$LRB_MODEL_ID" ]]; then
+  for model in "${scoring_models[@]}"; do
+    if [[ "$model" == "$LRB_MODEL_ID" ]]; then
+      is_scoring=1
+      break
+    fi
+  done
+  if (( is_scoring == 0 )); then
+    model_found=0
+    for model in "${models[@]}"; do
+      if [[ "$model" == "$LRB_MODEL_ID" ]]; then
+        model_found=1
+        break
+      fi
+    done
+    if (( model_found == 0 )); then
+      echo "unknown LRB_MODEL_ID: $LRB_MODEL_ID" >&2
+      exit 2
+    fi
+  fi
+  models=("$LRB_MODEL_ID")
+fi
+pair_count=$(( ${#models[@]} * ${#languages[@]} ))
+total_rows=$(( rows_per_language * ${#languages[@]} ))
+estimated_prompts=$(( rows_per_language * pair_count ))
+assigned_pair_count=0
+for (( pair_index = 0; pair_index < pair_count; pair_index++ )); do
+  if (( pair_index % LRB_SHARD_COUNT == LRB_SHARD_INDEX )); then
+    assigned_pair_count=$(( assigned_pair_count + 1 ))
+  fi
+done
+echo "== sizing: model=${LRB_MODEL_ID:-all} languages=${#languages[@]} rows=$total_rows pairs=$pair_count assigned_pairs=$assigned_pair_count prompts=$estimated_prompts batch_size=${LRB_BATCH_SIZE:-roster-default} max_new_tokens=$LRB_MAX_NEW_TOKENS shard=$LRB_SHARD_INDEX/$LRB_SHARD_COUNT runtime=${LRB_RUNTIME:-all}"
+
+if [[ "$LRB_DRY_RUN" == "1" ]]; then
+  exit 0
+fi
 
 batch_args=()
 if [[ -n "$LRB_BATCH_SIZE" ]]; then
-  batch_args=(--batch-size "$LRB_BATCH_SIZE")
+  batch_args+=(--batch-size "$LRB_BATCH_SIZE")
+fi
+language_args=()
+if [[ -n "$LRB_LANGUAGES" ]]; then
+  language_args+=(--language "$LRB_LANGUAGES")
 fi
 
-failed=0
-for runtime in $LRB_RUNTIMES; do
-  case "$runtime" in
-    transformers) extra=inference ;;
-    sglang) extra=speculative ;;
-    *) echo "unknown runtime $runtime" >&2; exit 2 ;;
-  esac
-  echo "== environment: $runtime (extra: $extra)"
-  uv sync --extra "$extra" --frozen --no-dev
-
-  # `lrb run-all` filters by runtime and name, skips checkpointed results and keeps
-  # going past a failed run, reporting it in the exit code.
-  uv run --no-sync lrb run-all \
-    --runtime "$runtime" \
-    --only "$LRB_ONLY" \
-    --skip-existing \
-    --keep-going \
-    --benchmark data/benchmark.csv \
+if (( is_scoring == 1 )); then
+  # Each scorer declares its own prompt file; override only when asked to.
+  score_args=(
+    --data-root "$LRB_DATA_ROOT" \
+    --out "$LRB_RESULTS" \
+    --shard-index "$LRB_SHARD_INDEX" \
+    --shard-count "$LRB_SHARD_COUNT"
+  )
+  if [[ -n "$LRB_SCORER_PROMPT" ]]; then
+    score_args+=(--prompt "$LRB_SCORER_PROMPT")
+  fi
+  score_args+=("${batch_args[@]}")
+  uv run --no-sync lrb score "$LRB_MODEL_ID" "${language_args[@]}" "${score_args[@]}"
+elif [[ -n "$LRB_MODEL_ID" ]]; then
+  run_args=(
+    --data-root "$LRB_DATA_ROOT" \
     --prompt data/prompt.txt \
     --out "$LRB_RESULTS" \
     --max-new-tokens "$LRB_MAX_NEW_TOKENS" \
-    "${batch_args[@]}" || failed=1
-done
+    --shard-index "$LRB_SHARD_INDEX" \
+    --shard-count "$LRB_SHARD_COUNT"
+  )
+  run_args+=("${batch_args[@]}")
+  mode_args=()
+  if [[ "$LRB_RUNTIME" == "sglang" && "$LRB_THROUGHPUT" == "1" ]]; then
+    mode_args+=(--throughput)
+  elif [[ "$LRB_RUNTIME" == "transformers" && "$LRB_CONTINUOUS_BATCHING" == "1" ]]; then
+    mode_args+=(--continuous-batching)
+  fi
+  uv run --no-sync lrb run "$LRB_MODEL_ID" "${language_args[@]}" "${run_args[@]}" "${mode_args[@]}"
+else
+  run_all_args=(
+    --data-root "$LRB_DATA_ROOT" \
+    --prompt data/prompt.txt \
+    --out "$LRB_RESULTS" \
+    --max-new-tokens "$LRB_MAX_NEW_TOKENS" \
+    --shard-index "$LRB_SHARD_INDEX" \
+    --shard-count "$LRB_SHARD_COUNT"
+  )
+  run_all_args+=("${batch_args[@]}")
+  transformer_mode_args=()
+  if [[ "$LRB_CONTINUOUS_BATCHING" == "1" ]]; then
+    transformer_mode_args+=(--continuous-batching)
+  fi
+  uv run --no-sync lrb run-all "${run_all_args[@]}" --runtime transformers --skip-existing --keep-going "${transformer_mode_args[@]}"
+  # SGLang pins incompatible Torch/Transformers versions; use a job-private environment
+  # for its runs so concurrent OAR jobs cannot replace one another's dependencies.
+  export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-sglang-${OAR_JOB_ID:-manual}"
+  trap 'rm -rf "$UV_PROJECT_ENVIRONMENT"' EXIT
+  uv sync --extra speculative --frozen --no-dev
+  sglang_mode_args=()
+  if [[ "$LRB_THROUGHPUT" == "1" ]]; then
+    sglang_mode_args+=(--throughput)
+  fi
+  uv run --no-sync lrb run-all "${run_all_args[@]}" --runtime sglang --skip-existing --keep-going "${sglang_mode_args[@]}"
+fi
 
-# A same-runtime DSpark mismatch makes `report` exit non-zero; keep the job's
-# results either way and surface the failure in the OAR log.
 uv run --no-sync lrb report --results-dir "$LRB_RESULTS"
-exit "$failed"

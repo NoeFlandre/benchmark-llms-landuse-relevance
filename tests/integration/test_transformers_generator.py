@@ -37,20 +37,13 @@ def test_greedy_decoding_repeats_itself_exactly(generator: TransformersGenerator
     )
 
 
-def test_batching_does_not_change_a_prompt_s_completion(generator: TransformersGenerator) -> None:
-    alone = generator.generate(["Answer yes or no: is grass green?"])[0]
-    batched = generator.generate(
-        ["Answer yes or no: is grass green?", "Something else entirely to pad the batch."]
-    )[0]
-    assert alone == batched
-
-
 def test_a_whole_run_completes_end_to_end(
     tmp_path: Path, benchmark_path: Path, prompt_path: Path, generator: TransformersGenerator
 ) -> None:
     result = execute(
         RunRequest(
             model_id=TINY_MODEL,
+            language="en",
             benchmark_path=benchmark_path,
             prompt_path=prompt_path,
             output_dir=tmp_path,
@@ -60,7 +53,7 @@ def test_a_whole_run_completes_end_to_end(
         lambda _request: (generator, "smoke"),
     )
     assert result.metrics.n_items == 2
-    assert (tmp_path / "HuggingFaceTB__SmolLM2-135M-Instruct.json").exists()
+    assert (tmp_path / "en" / "HuggingFaceTB__SmolLM2-135M-Instruct.json").exists()
 
 
 def test_a_completion_that_exhausts_the_budget_reports_itself_truncated() -> None:

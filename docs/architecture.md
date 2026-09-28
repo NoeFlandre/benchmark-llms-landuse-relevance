@@ -1,39 +1,53 @@
 # Architecture
 
-Three layers, enforced by `import-linter` and by a test that fails the build if the
+Four layers, enforced by `import-linter` and by a test that fails the build if the
 rule is broken:
 
 ```
-cli  →  adapters  →  domain
+cli  →  application  →  adapters  →  domain
 ```
 
 ## `domain` — pure
 
-No filesystem, no network, no model runtime; `json`, `csv`, `pathlib` and `torch` are
-all forbidden imports here. Holds the label type, prompt rendering, verdict parsing,
-the metrics, the speed summary, the speculative-decoding agreement check, the run
-records, the roster, and `predict_all`, which drives a benchmark across anything
-satisfying the one-method `TextGenerator` protocol and times each call to it.
+No filesystem, no network, no model runtime; `csv`, `pathlib`, `typer`, `torch`,
+`transformers` and `huggingface_hub` are forbidden imports here. Holds the label type,
+prompt rendering, verdict parsing, the metrics and threshold sweeps, the run records,
+the generative and scoring rosters, and the orchestration that drives a benchmark
+across anything satisfying one of two protocols: `TextGenerator` (prompts in, text
+out) or `LabelScorer` (prompt/sentence pairs in, yes/no scores out).
 
-That protocol is the single seam to a model runtime. Every test above the unit level
-substitutes a scripted generator through it, which is why the acceptance suite runs
-end to end in seconds without a GPU.
+Those two protocols are the only seams to a model runtime. Every test above the unit
+level substitutes a scripted generator or scorer through them, which is why the
+acceptance suite runs end to end in seconds without a GPU.
 
 ## `adapters` — the edges
 
-Benchmark CSV loading, prompt loading, content digests, the results store, the
-Transformers generators (text and vision-language), the SGLang generator (plain or
-with a DSpark draft), the runtime dispatch in `generators`, and Hub publishing. `pipeline.execute` is the one use case:
-load inputs, run the model, score exactly the predictions it produced, write the file.
+Translation-manifest and CSV loading, prompt loading, content digests, the results
+store, and Hub publishing. Generators: Transformers, and llama.cpp for GGUF quants
+(`llama_generator.py`). Scorers (`hf_scorer.py`): Qwen reranker, GTE, mxbai, Laya,
+causal log-probability, the NLI zero-shot pipeline, GLiClass and GLiNER2 — see
+[ADR-0007](adr/0007-additional-runtimes.md).
+`pipeline.execute` and `pipeline.execute_scoring` are the use cases: load one language,
+run the model, score exactly the predictions it produced, and write the nested
+model-language checkpoint. Active readers explicitly exclude `results/archive/`.
 
 ## `cli` — the surface
 
-`lrb models | run | run-all | report | publish`. Optional dependencies are imported
-lazily, so `lrb report` works on a laptop with no `torch` installed.
+`lrb models | languages | run | run-all | scorers | score | status | report | publish`.
+Optional dependencies are imported lazily, so `lrb report` works on a laptop with no
+`torch` installed. Scoring adapters expose a common typed input and preserve both
+normalised and native relevance values; the results adapter derives threshold sweeps
+and best-operating-point summaries from those stored values.
+
+## `application` — the command use cases
+
+Language and run selection, sharded run plans, checkpoint-aware runs and report
+lines. It turns bad input into usage errors, so `cli` only declares commands and
+options. Model providers, including the one-model-at-a-time cache that logs free GPU
+memory before each load and after each close, live in `adapters/providers.py`.
 
 ## Quality gates
 
-`make check` runs the gauntlet: ruff → ty → unit + property (with a coverage floor) →
-acceptance → architecture → CRAP → mutation → CLI smoke → docs build → lockfile check →
-pip-audit. CI calls the same Makefile targets, so the two cannot drift; CodeQL runs
-in its own workflow.
+`make check` runs the gauntlet: ruff → ty → unit → property → acceptance →
+architecture → CRAP. Mutation testing is separate (`make mutation`); CI runs the same
+commands plus mutation, gated by `scripts/check_mutants.py --max-survivors 0`.

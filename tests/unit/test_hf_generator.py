@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-import torch
 
 from landuse_relevance_bench.adapters import hf_generator
 from landuse_relevance_bench.adapters.hf_generator import (
@@ -15,6 +14,9 @@ from landuse_relevance_bench.adapters.hf_generator import (
 )
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.domain.engine import Generation
+from landuse_relevance_bench.domain.roster import ROSTER
+
+torch = pytest.importorskip("torch")
 
 SETTINGS = GeneratorSettings(max_new_tokens=3, dtype="bfloat16", seed=0)
 EOS = 2
@@ -49,7 +51,8 @@ class FakeTokenizer:
 
     def decode(self, completion: Any, *, skip_special_tokens: bool) -> str:
         assert skip_special_tokens
-        return "  " + " ".join(f"t{i}" for i in completion.tolist() if i != EOS) + "\n"
+        token_ids = completion.tolist() if hasattr(completion, "tolist") else completion
+        return "  " + " ".join(f"t{i}" for i in token_ids if i != EOS) + "\n"
 
 
 class FakeModel:
@@ -152,6 +155,7 @@ def test_the_revision_is_empty_when_the_commit_hash_is_null() -> None:
 def _request(revision: str | None) -> RunRequest:
     return RunRequest(
         model_id="some/model",
+        language="en",
         benchmark_path=Path("unused"),
         prompt_path=Path("unused"),
         output_dir=Path("unused"),
@@ -207,6 +211,12 @@ def test_a_vision_language_model_gets_a_text_only_typed_user_turn() -> None:
     ]
 
 
+def test_a_closed_generator_rejects_new_work() -> None:
+    generator = TransformersGenerator(FakeTokenizer(), None, SETTINGS)
+    with pytest.raises(RuntimeError, match="generator is closed"):
+        generator.generate(["Is this land use?"])
+
+
 def test_provide_loads_a_vision_language_model_through_its_own_loader(monkeypatch) -> None:
     loaded: list[str] = []
 
@@ -217,10 +227,12 @@ def test_provide_loads_a_vision_language_model_through_its_own_loader(monkeypatc
     monkeypatch.setattr(hf_generator.VisionLanguageGenerator, "load", staticmethod(fake_load))
     request = RunRequest.for_run(
         "LiquidAI/LFM2.5-VL-3B",
+        language="en",
         benchmark_path=Path("unused"),
         prompt_path=Path("unused"),
         output_dir=Path("unused"),
     )
     _, revision = hf_generator.provide(request)
     assert loaded == ["LiquidAI/LFM2.5-VL-3B"]
-    assert revision == "35a118d938ce6d123ac2d371649f24a8efb69058"
+    spec = next(spec for spec in ROSTER if spec.model_id == request.model_id)
+    assert revision == spec.revision

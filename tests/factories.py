@@ -14,6 +14,7 @@ def make_metadata(**overrides: object) -> RunMetadata:
     return replace(
         RunMetadata(
             model_id="LiquidAI/LFM2.5-350M",
+            language="en",
             model_revision="abc123",
             prompt_sha256="p" * 64,
             benchmark_sha256="b" * 64,

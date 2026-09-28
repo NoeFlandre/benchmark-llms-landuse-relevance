@@ -3,16 +3,24 @@
 This is the runtime the LFM2.5-VL-3B-DSpark model card prescribes: the target is
 launched with the draft attached (``speculative_algorithm="DSPARK"``), and the same
 engine without the ``speculative_*`` arguments is the like-for-like baseline. SGLang
-is an optional extra imported only when a model is loaded. See ADR-0007.
+is an optional extra imported only when a model is loaded. See ADR-0010.
 """
 
+import logging
+import multiprocessing
+import os
+import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from typing import Any, Protocol
 
 from landuse_relevance_bench.adapters.hf_generator import chat_template_kwargs, user_turn
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.adapters.revision import resolve_revision
+from landuse_relevance_bench.adapters.sglang_compat import patch_lfm2_vl, with_site_dir
 from landuse_relevance_bench.domain.engine import Generation
+
+logger = logging.getLogger(__name__)
 
 
 class Engine(Protocol):
@@ -56,6 +64,7 @@ def as_generation(output: Mapping[str, Any]) -> Generation:
         verify_steps=int(steps) if steps else None,
         accepted_drafts=meta.get("spec_num_correct_drafts"),
         proposed_drafts=meta.get("spec_num_proposed_drafts"),
+        latency_seconds=(None if meta.get("e2e_latency") is None else float(meta["e2e_latency"])),
     )
 
 
@@ -63,16 +72,25 @@ class SGLangGenerator:
     """Completes chat-templated prompts with greedy decoding on an SGLang engine."""
 
     def __init__(
-        self, engine: Engine, encode: Callable[[str], list[int]], max_new_tokens: int
+        self,
+        engine: Engine,
+        encode: Callable[[str], list[int]],
+        max_new_tokens: int,
+        *,
+        draft_revision: str = "",
     ) -> None:
         self._engine = engine
         self._encode = encode
         self._max_new_tokens = max_new_tokens
+        self.draft_revision = draft_revision
 
     @classmethod
     def load(cls, request: RunRequest) -> "SGLangGenerator":
         import sglang  # ty: ignore[unresolved-import]  # the `speculative` extra
 
+        # SGLang spawns its scheduler; the shim must load there as well as here.
+        os.environ.update(with_site_dir(dict(os.environ)))
+        patch_lfm2_vl()
         encode = _chat_encoder(request)
         engine = sglang.Engine(**engine_arguments(request))
         return cls(engine, encode, request.max_new_tokens)
@@ -89,6 +107,23 @@ class SGLangGenerator:
     def close(self) -> None:
         """Stop the engine's scheduler processes and free the GPU for the next run."""
         self._engine.shutdown()
+        # shutdown() returns before the spawned scheduler exits, and the GPU memory is
+        # only released when it does; wait so the next run loads onto a freed device.
+        wait_for_children(multiprocessing.active_children(), timeout_seconds=CHILD_EXIT_TIMEOUT)
+
+
+CHILD_EXIT_TIMEOUT = 120.0
+
+
+def wait_for_children(children: Sequence[Any], *, timeout_seconds: float) -> list[Any]:
+    """Join ``children`` within one shared deadline; return those still alive."""
+    deadline = time.monotonic() + timeout_seconds
+    for child in children:
+        child.join(max(0.0, deadline - time.monotonic()))
+    alive = [child for child in children if child.is_alive()]
+    if alive:
+        logger.warning("%d SGLang process(es) still running after shutdown", len(alive))
+    return alive
 
 
 def _chat_encoder(request: RunRequest) -> Callable[[str], list[int]]:
@@ -117,5 +152,19 @@ def _chat_encoder(request: RunRequest) -> Callable[[str], list[int]]:
 
 
 def provide(request: RunRequest) -> tuple[SGLangGenerator, str]:
-    generator = SGLangGenerator.load(request)
-    return generator, resolve_revision(request.model_id, request.revision)
+    """Load target and draft weights at pinned revisions where available."""
+    resolved_request = request
+    if request.draft_model_id:
+        draft_revision = resolve_revision(request.draft_model_id, request.draft_revision)
+        resolved_request = replace(request, draft_revision=draft_revision or None)
+    generator = SGLangGenerator.load(resolved_request)
+    generator.draft_revision = resolved_request.draft_revision or ""
+    try:
+        target_revision = resolve_revision(request.model_id, request.revision)
+    except BaseException:
+        try:
+            generator.close()
+        except Exception:
+            logger.exception("SGLang engine cleanup failed after revision lookup error")
+        raise
+    return generator, target_revision

@@ -8,8 +8,22 @@ from landuse_relevance_bench.domain.orchestration import predict_all
 
 TEMPLATE = "SENTENCE: {}"
 ITEMS = (
-    build_item({"sentence": "Dense forest covers the ridge.", "label": "yes"}),
-    build_item({"sentence": "He was elected in 1974.", "label": "no"}),
+    build_item(
+        {
+            "sentence": "Dense forest covers the ridge.",
+            "label": "yes",
+            "source_item_id": "source-1",
+            "language": "en",
+        }
+    ),
+    build_item(
+        {
+            "sentence": "He was elected in 1974.",
+            "label": "no",
+            "source_item_id": "source-2",
+            "language": "en",
+        }
+    ),
 )
 
 
@@ -28,6 +42,14 @@ def test_pairs_each_raw_output_with_its_item_and_parses_it() -> None:
     assert [p.expected for p in predictions] == [Label.YES, Label.NO]
     assert [p.predicted for p in predictions] == [Label.YES, Label.NO]
     assert [p.raw_output for p in predictions] == ["Answer: yes", "no."]
+
+
+def test_records_parse_mode_for_parsed_and_unparsed_outputs() -> None:
+    predictions = predict_all(
+        ITEMS, TEMPLATE, ScriptedGenerator(["yes, because the prompt says no", "perhaps"])
+    )
+
+    assert [prediction.parse_mode for prediction in predictions] == ["leading", None]
 
 
 def test_keeps_unparsable_output_as_a_null_prediction() -> None:
@@ -87,3 +109,9 @@ def test_each_prediction_carries_its_batch_latency_and_token_counts() -> None:
     first, second = predict_all(ITEMS, TEMPLATE, generator, batch_size=1, clock=lambda: next(ticks))
     assert (first.latency_seconds, first.generated_tokens, first.verify_steps) == (0.5, 3, 2)
     assert (second.latency_seconds, second.accepted_drafts, second.proposed_drafts) == (0.25, 5, 8)
+
+
+def test_per_generation_latency_overrides_the_whole_batch_wall_time() -> None:
+    generator = ScriptedGenerator([Generation("yes", latency_seconds=0.125)])
+    (prediction,) = predict_all(ITEMS[:1], TEMPLATE, generator, clock=lambda: 100.0)
+    assert prediction.latency_seconds == 0.125

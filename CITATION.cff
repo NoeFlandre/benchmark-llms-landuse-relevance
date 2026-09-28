@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this benchmark or its software, cite the repository and release."
+title: "Benchmarking Small Language Models on Land-Use Relevance"
+type: software
+authors:
+  - family-names: Flandre
+    given-names: Noe
+version: 0.2.0
+date-released: 2026-09-26
+repository-code: "https://github.com/NoeFlandre/benchmark-llms-landuse-relevance"
+license: MIT

@@ -2,7 +2,7 @@
 
 Every figure is recomputed from the per-prediction timings and token counts, so a
 result file carries its own evidence and an older file without them still yields the
-wall-time figures it can support. See ADR-0006.
+wall-time figures it can support. See ADR-0009.
 """
 
 import math

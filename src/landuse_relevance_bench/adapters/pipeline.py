@@ -2,6 +2,8 @@
 
 import logging
 import math
+import shutil
+import subprocess
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -9,19 +11,37 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from landuse_relevance_bench import __version__
 from landuse_relevance_bench.adapters.benchmark_csv import load_benchmark
 from landuse_relevance_bench.adapters.hashing import sha256_of_file, sha256_of_text
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
 from landuse_relevance_bench.adapters.results_store import write_run
-from landuse_relevance_bench.domain.engine import Generation, TextGenerator
+from landuse_relevance_bench.domain.engine import Generation, LabelScorer, TextGenerator
 from landuse_relevance_bench.domain.metrics import evaluate
-from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE, predict_all
-from landuse_relevance_bench.domain.records import RunMetadata, RunResult, outcomes_of
-from landuse_relevance_bench.domain.roster import TRANSFORMERS, ModelSpec, spec_for
+from landuse_relevance_bench.domain.orchestration import (
+    DEFAULT_BATCH_SIZE,
+    predict_all,
+    score_all,
+)
+from landuse_relevance_bench.domain.records import (
+    SCORING,
+    Prediction,
+    RunMetadata,
+    RunResult,
+    outcomes_of,
+)
+from landuse_relevance_bench.domain.roster import (
+    SGLANG,
+    TRANSFORMERS,
+    ModelSpec,
+    quantization_of,
+    spec_for,
+)
+from landuse_relevance_bench.domain.scorers import scorer_for
 
 DEFAULT_MAX_NEW_TOKENS = 4096
 DEFAULT_DTYPE = "bfloat16"
-
+SCORING_SEQUENCE_LENGTH = 8192
 logger = logging.getLogger(__name__)
 
 
@@ -30,6 +50,7 @@ class RunRequest:
     """Everything one benchmark run needs, resolved from the CLI."""
 
     model_id: str
+    language: str
     benchmark_path: Path
     prompt_path: Path
     output_dir: Path
@@ -44,6 +65,9 @@ class RunRequest:
     draft_model_id: str = ""
     draft_revision: str | None = None
     speculative: Mapping[str, Any] = field(default_factory=dict)
+    continuous_batching: bool = False
+    throughput_mode: bool = False
+    close_generator: bool = True
 
     @property
     def name(self) -> str:
@@ -56,45 +80,101 @@ class RunRequest:
         *,
         revision: str | None = None,
         batch_size: int | None = None,
+        continuous_batching: bool = False,
+        throughput_mode: bool = False,
         **common: Any,
     ) -> "RunRequest":
-        """A request for a rostered run, or a plain Transformers run of any Hub model.
-
-        Explicit ``revision`` and ``batch_size`` override the roster's pins.
-        """
+        """Build a request from the roster, preserving plain runs for unlisted models."""
+        if continuous_batching and throughput_mode:
+            raise ValueError("choose either continuous batching or SGLang throughput mode")
         try:
             spec = spec_for(name)
         except KeyError:
             logger.warning(
-                "%s is not in the benchmark roster; running it on %s with no pinned "
-                "revision and the default batch size",
+                "%s is not in the benchmark roster; running it on %s with no pinned revision "
+                "and the default batch size",
                 name,
                 TRANSFORMERS,
             )
             spec = ModelSpec(name, 0, "unlisted")
+        resolved_batch_size = (
+            DEFAULT_BATCH_SIZE
+            if throughput_mode and batch_size is None
+            else _first_set(batch_size, spec.batch_size, DEFAULT_BATCH_SIZE)
+        )
+        if continuous_batching and (spec.runtime != TRANSFORMERS or spec.vision):
+            raise ValueError("continuous batching requires the Transformers runtime")
+        if throughput_mode and spec.runtime != SGLANG:
+            raise ValueError("throughput mode requires the SGLang runtime")
+        if throughput_mode and resolved_batch_size <= 1:
+            raise ValueError("throughput mode requires batch_size > 1")
+        run_id = spec.run_id
+        if continuous_batching:
+            run_id = f"{spec.name}@continuous-b{resolved_batch_size}"
+        elif throughput_mode:
+            run_id = f"{spec.name}-throughput-b{resolved_batch_size}"
         return cls(
             model_id=spec.model_id,
-            run_id=spec.run_id,
+            run_id=run_id,
             revision=revision or spec.revision,
-            batch_size=_first_set(batch_size, spec.batch_size, DEFAULT_BATCH_SIZE),
+            batch_size=resolved_batch_size,
             runtime=spec.runtime,
             vision=spec.vision,
             draft_model_id=spec.draft_model_id,
             draft_revision=spec.draft_revision,
             speculative=spec.speculative,
+            continuous_batching=continuous_batching,
+            throughput_mode=throughput_mode,
             **common,
         )
 
 
 def _first_set(*values: int | None) -> int:
-    return next(v for v in values if v is not None)
+    return next(value for value in values if value is not None)
+
+
+def _free_gpu_memory_bytes() -> int | None:
+    """Return the least free NVIDIA GPU memory without importing the inference stack."""
+    executable = shutil.which("nvidia-smi")
+    if executable is None:
+        return None
+    try:
+        completed = subprocess.run(  # noqa: S603 -- executable is resolved; args are constants.
+            [executable, "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    readings = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    if not readings:
+        return None
+    try:
+        return min(int(reading) for reading in readings) * 2**20
+    except ValueError:
+        logger.debug("Could not parse free NVIDIA GPU memory: %r", completed.stdout)
+        return None
+
+
+def _close_generator(generator: TextGenerator) -> None:
+    close = getattr(generator, "close", None)
+    if callable(close):
+        close()
+
+
+def _log_gpu_memory(name: str, stage: str, free_bytes: int | None) -> None:
+    if free_bytes is not None:
+        logger.info("%s: free GPU memory %s: %.1f MiB", name, stage, free_bytes / 2**20)
 
 
 GeneratorProvider = Callable[[RunRequest], tuple[TextGenerator, str]]
+ScorerProvider = Callable[[RunRequest], tuple[LabelScorer, str]]
 
 
 class ProgressReporting:
-    """Wraps a generator to log each batch as it is sent, so long runs show progress."""
+    """Log batch completion without changing generator outputs."""
 
     def __init__(
         self, inner: TextGenerator, name: str, total_prompts: int, batch_size: int
@@ -127,39 +207,192 @@ def execute(
     source_commit: str = "",
 ) -> RunResult:
     """Run the benchmark for one model and write the result next to the others."""
-    items = load_benchmark(request.benchmark_path)
+    items = load_benchmark(request.benchmark_path, expected_language=request.language)
     template = load_prompt(request.prompt_path)
     logger.info("%s: loading model (%d prompts)", request.name, len(items))
+    free_before = _free_gpu_memory_bytes()
+    _log_gpu_memory(request.name, "before model load", free_before)
     generator, revision = provide_generator(request)
-    generator = ProgressReporting(generator, request.name, len(items), request.batch_size)
+    progress_generator = ProgressReporting(generator, request.name, len(items), request.batch_size)
+    try:
+        run = _timed(
+            lambda: predict_all(items, template, progress_generator, batch_size=request.batch_size)
+        )
+    except BaseException:
+        if request.close_generator:
+            try:
+                _close_generator(generator)
+            except Exception:
+                logger.exception(
+                    "%s: generator cleanup failed after prediction error", request.name
+                )
+            _log_gpu_memory(request.name, "after failed run cleanup", _free_gpu_memory_bytes())
+        raise
+    else:
+        if request.close_generator:
+            try:
+                _close_generator(generator)
+            except Exception:
+                logger.exception("%s: generator cleanup failed after prediction", request.name)
+            _log_gpu_memory(request.name, "after run cleanup", _free_gpu_memory_bytes())
+    metadata = _metadata(
+        request,
+        generator,
+        run,
+        revision=revision,
+        template=template,
+        source_commit=source_commit,
+        max_new_tokens=request.max_new_tokens,
+        decoding="greedy",
+        quantization=quantization_of(request.model_id),
+    )
+    return _store(request, metadata, run.predictions)
 
+
+def execute_scoring(
+    request: RunRequest,
+    provide_scorer: ScorerProvider,
+    *,
+    source_commit: str = "",
+) -> RunResult:
+    """Score one non-generative model over the benchmark and store the result.
+
+    Written into the same tree as a generative run so a language's results stay
+    together, but marked as a scoring run and carrying the rule that produced its
+    verdicts, so the two families can be reported apart.
+    """
+    spec = scorer_for(request.model_id)
+    items = load_benchmark(request.benchmark_path, expected_language=request.language)
+    template = load_prompt(request.prompt_path)
+    scorer, revision = provide_scorer(request)
+
+    def measured() -> tuple[Prediction, ...]:
+        _begin_measurement(scorer)
+        try:
+            return score_all(items, template, scorer, batch_size=request.batch_size)
+        finally:
+            _end_measurement(scorer)
+
+    run = _timed(measured)
+    metadata = _metadata(
+        request,
+        scorer,
+        run,
+        revision=revision,
+        template=template,
+        source_commit=source_commit,
+        # Nothing is decoded, so there is no token budget and no decoding strategy.
+        max_new_tokens=0,
+        decoding="none",
+        inference=SCORING,
+        decision_rule=spec.decision_rule,
+        peak_vram_bytes=_peak_vram_bytes(scorer),
+        sequence_length=_sequence_length(scorer),
+    )
+    return _store(request, metadata, run.predictions)
+
+
+@dataclass(frozen=True, slots=True)
+class _TimedRun:
+    predictions: tuple[Prediction, ...]
+    started_at: str
+    duration: float
+
+
+def _timed(run: Callable[[], tuple[Prediction, ...]]) -> _TimedRun:
     started_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     started = time.monotonic()
-    predictions = predict_all(items, template, generator, batch_size=request.batch_size)
-    duration = time.monotonic() - started
+    predictions = run()
+    return _TimedRun(predictions, started_at, time.monotonic() - started)
 
-    result = RunResult(
-        metadata=RunMetadata(
-            model_id=request.model_id,
-            model_revision=revision,
-            prompt_sha256=sha256_of_text(template),
-            benchmark_sha256=sha256_of_file(request.benchmark_path),
-            max_new_tokens=request.max_new_tokens,
-            batch_size=request.batch_size,
-            seed=request.seed,
-            decoding="greedy",
-            dtype=request.dtype,
-            started_at=started_at,
-            duration_seconds=round(duration, 3),
-            source_commit=source_commit,
-            run_id=request.run_id,
-            runtime=request.runtime,
-            draft_model_id=request.draft_model_id,
-            draft_model_revision=request.draft_revision or "",
-            speculative=dict(request.speculative),
+
+def _metadata(  # noqa: PLR0913 - the provenance fields are distinct inputs
+    request: RunRequest,
+    model: object,
+    run: _TimedRun,
+    *,
+    revision: str | None,
+    template: str,
+    source_commit: str,
+    **specific: Any,
+) -> RunMetadata:
+    """Fields every run records, plus the ones its method adds."""
+    duration = run.duration
+    return RunMetadata(
+        model_id=request.model_id,
+        run_id=request.run_id,
+        language=request.language,
+        model_revision=revision,
+        prompt_sha256=sha256_of_text(template),
+        benchmark_sha256=sha256_of_file(request.benchmark_path),
+        batch_size=_effective_batch_size(model, request),
+        seed=request.seed,
+        dtype=str(getattr(model, "runtime_dtype", request.dtype)),
+        started_at=run.started_at,
+        duration_seconds=round(duration, 3),
+        source_commit=source_commit,
+        runtime=request.runtime,
+        draft_model_id=request.draft_model_id,
+        draft_model_revision=(getattr(model, "draft_revision", "") or request.draft_revision or ""),
+        speculative=dict(request.speculative),
+        package_version=__version__,
+        generation_mode=(
+            "transformers-continuous-batching"
+            if request.continuous_batching
+            else "sglang-throughput"
+            if request.throughput_mode
+            else "static-batched"
         ),
+        throughput_items_per_second=len(run.predictions) / duration if duration > 0.0 else None,
+        device_name=_device_name(),
+        **specific,
+    )
+
+
+def _store(
+    request: RunRequest, metadata: RunMetadata, predictions: tuple[Prediction, ...]
+) -> RunResult:
+    result = RunResult(
+        metadata=metadata,
         predictions=predictions,
         metrics=evaluate(outcomes_of(predictions)),
     )
     write_run(result, request.output_dir)
     return result
+
+
+def _begin_measurement(scorer: LabelScorer) -> None:
+    hook = getattr(scorer, "begin_measurement", None)
+    if callable(hook):
+        hook()
+
+
+def _end_measurement(scorer: LabelScorer) -> None:
+    hook = getattr(scorer, "end_measurement", None)
+    if callable(hook):
+        hook()
+
+
+def _peak_vram_bytes(scorer: LabelScorer) -> int | None:
+    value = getattr(scorer, "peak_vram_bytes", None)
+    return int(value) if value is not None else None
+
+
+def _device_name() -> str:
+    """The GPU a run was timed on, so throughput claims name their hardware."""
+    try:
+        import torch
+    except ImportError:
+        return ""
+    return torch.cuda.get_device_name(0) if torch.cuda.is_available() else ""
+
+
+def _sequence_length(scorer: LabelScorer) -> int | None:
+    """The input cap a scorer truncates at; ``None`` when its SDK decides internally."""
+    value = getattr(scorer, "sequence_length", SCORING_SEQUENCE_LENGTH)
+    return None if value is None else int(value)
+
+
+def _effective_batch_size(model: object, request: RunRequest) -> int:
+    """The batch actually run: an adapter that works item by item says so."""
+    return int(getattr(model, "effective_batch_size", request.batch_size))

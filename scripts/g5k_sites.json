@@ -1,0 +1,6 @@
+{
+  "sites": [
+    {"name": "nancy", "frontend": "nancy", "weight": 2},
+    {"name": "grenoble", "frontend": "grenoble", "weight": 1}
+  ]
+}

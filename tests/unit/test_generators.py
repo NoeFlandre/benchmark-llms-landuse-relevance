@@ -7,7 +7,11 @@ from landuse_relevance_bench.adapters import generators, hf_generator, sglang_ge
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 
 REQUEST = RunRequest(
-    model_id="a/b", benchmark_path=Path("x"), prompt_path=Path("x"), output_dir=Path("x")
+    model_id="a/b",
+    language="en",
+    benchmark_path=Path("x"),
+    prompt_path=Path("x"),
+    output_dir=Path("x"),
 )
 
 
