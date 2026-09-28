@@ -58,3 +58,23 @@ def test_read_mutmut_results_requests_all_mutant_ids(monkeypatch) -> None:
     monkeypatch.setattr(check_mutants.subprocess, "run", fake_run)
 
     assert check_mutants.read_results() == {"id": "killed"}
+
+
+def test_gate_script_runs_main_and_fails_on_an_invalid_allowlist(tmp_path) -> None:
+    """Regression: without a ``__main__`` guard the script did nothing and exited 0."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(check_mutants.__file__)
+    allowlist = tmp_path / "allowlist.txt"
+    allowlist.write_text("a-mutant-id-without-a-reason\n", encoding="utf-8")
+    done = subprocess.run(  # noqa: S603 - runs this repository's own script
+        [sys.executable, str(script), "--allowlist", str(allowlist)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    )
+    assert done.returncode != 0
+    assert "mutation gate" in done.stdout

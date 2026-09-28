@@ -26,6 +26,9 @@ conflicts = [[
     { package = "landuse-relevance-bench", extra = "speculative" },
 ]]
 
+[options]
+prerelease-mode = "if-necessary"
+
 [[package]]
 name = "accelerate"
 version = "1.15.0"
