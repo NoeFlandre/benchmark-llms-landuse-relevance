@@ -6,6 +6,12 @@
 
 <!-- Link the issue(s), for example: Closes #123. -->
 
+## Changelog
+
+<!-- Update [CHANGELOG.md](../CHANGELOG.md) for user-visible changes. Add a
+     “Scoring changes” entry whenever a change affects a metric; otherwise say
+     “Not applicable.” -->
+
 ## Change type
 
 - [ ] Bug fix

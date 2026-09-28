@@ -119,6 +119,15 @@ def test_reading_legacy_metadata_explains_that_it_is_archive_only(tmp_path: Path
         read_run(path)
 
 
+def test_reading_results_without_package_version_uses_the_legacy_default(tmp_path: Path) -> None:
+    payload = _result().to_dict()
+    del payload["metadata"]["package_version"]
+    path = tmp_path / "legacy-version.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert read_run(path).metadata.package_version == ""
+
+
 def test_recursive_reading_skips_archive_results(tmp_path: Path) -> None:
     write_run(_result(), tmp_path)
     archive = tmp_path / "archive" / "en"
