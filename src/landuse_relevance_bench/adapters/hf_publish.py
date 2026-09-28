@@ -89,6 +89,22 @@ def _uniform(results: Sequence[RunResult], name: str, value_of: Any) -> Any:
     return values.pop()
 
 
+def _package_version_section(results: Sequence[RunResult]) -> str:
+    versions = sorted(
+        {result.metadata.package_version for result in results if result.metadata.package_version}
+    )
+    if not versions:
+        return ""
+    label = "Package version" if len(versions) == 1 else "Package versions"
+    values = ", ".join(f"`{version}`" for version in versions)
+    missing_note = (
+        " (some runs lack version metadata)"
+        if any(not result.metadata.package_version for result in results)
+        else ""
+    )
+    return f"\n\n{label} recorded in run metadata: {values}{missing_note}."
+
+
 def dataset_card(
     results: Sequence[RunResult],
     *,
@@ -119,6 +135,7 @@ def dataset_card(
     scoring_prompts = _scoring_prompts(
         scoring, prompt_text, (scorer_prompt_text, *extra_scorer_prompt_texts)
     )
+    version_section = _package_version_section(results)
     decoding = _uniform(generative, "decoding", lambda r: r.metadata.decoding)
     # A GGUF quant has no torch dtype; its precision is its recorded quant label.
     full_precision = [r for r in generative if not r.metadata.quantization]
@@ -196,7 +213,7 @@ tags:
 `{benchmark_name}` · {len(languages)} {language_label} x {n_items} {item_label}/language ·
 {len(languages) * n_items:,} items · binary `yes`/`no` labels.
 
-[Code](https://github.com/NoeFlandre/benchmark-llms-landuse-relevance)
+[Code](https://github.com/NoeFlandre/benchmark-llms-landuse-relevance){version_section}
 
 ## Task and prompt
 

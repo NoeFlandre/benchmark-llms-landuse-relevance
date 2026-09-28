@@ -122,6 +122,18 @@ def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
     assert "benchmark.csv" in card
 
 
+def test_card_discloses_package_version_recorded_in_run_metadata() -> None:
+    result = _result()
+    versioned = replace(
+        result,
+        metadata=replace(result.metadata, package_version="0.2.0"),
+    )
+
+    card = dataset_card([versioned], benchmark_name="benchmark.csv", prompt_text=PROMPT)
+
+    assert "Package version recorded in run metadata: `0.2.0`." in card
+
+
 def test_aggregate_table_rows_are_not_indented_as_code() -> None:
     card = dataset_card(
         [_result("a/one"), _result("b/two")],

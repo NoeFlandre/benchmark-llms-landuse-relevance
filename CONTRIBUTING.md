@@ -3,6 +3,9 @@
 Thanks for helping improve the benchmark. Keep changes reproducible and easy to
 review, especially when they affect model execution, scoring, or published results.
 
+Record user-visible changes in [CHANGELOG.md](CHANGELOG.md). Add an entry under
+“Scoring changes” whenever a change affects a metric.
+
 ## Before opening a pull request
 
 1. Check the existing [issues](https://github.com/NoeFlandre/benchmark-llms-landuse-relevance/issues)
