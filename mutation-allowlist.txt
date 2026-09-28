@@ -22,7 +22,6 @@ landuse_relevance_bench.adapters.results_store.x_write_leaderboard_csv__mutmut_8
 landuse_relevance_bench.adapters.results_store.x_write_leaderboard_csv__mutmut_9: encoding=None uses the locale encoding, UTF-8 on every supported platform (PEP 538/540)
 landuse_relevance_bench.adapters.results_store.x_write_leaderboard_csv__mutmut_11: omitted newline translates to os.linesep, identical to newline="" on POSIX
 landuse_relevance_bench.adapters.results_store.x_write_leaderboard_csv__mutmut_12: omitted encoding uses the locale encoding, UTF-8 on every supported platform (PEP 538/540)
-landuse_relevance_bench.adapters.results_store.x_write_leaderboard_csv__mutmut_17: UTF-8 codec names are case-insensitive aliases
 landuse_relevance_bench.adapters.results_store.x__write_rows__mutmut_8: newline=None translates to os.linesep, identical to newline="" on POSIX
 landuse_relevance_bench.adapters.results_store.x__write_rows__mutmut_9: encoding=None uses the locale encoding, UTF-8 on every supported platform (PEP 538/540)
 landuse_relevance_bench.adapters.results_store.x__write_rows__mutmut_11: omitted newline translates to os.linesep, identical to newline="" on POSIX
