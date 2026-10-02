@@ -1,22 +1,25 @@
-# ADR-0002 — Unparsable generations count as errors
+# ADR-0002 - Unparsable generations are errors
 
 **Status:** accepted · 2026-09-13
 
 ## Context
 
-Small models sometimes answer "It depends" or produce an empty string. Such a
-generation carries no verdict. The benchmark could drop it, coerce it to the
-majority class, or count it against the model.
+Small models sometimes answer "It depends" or write an empty string. Such a generation
+has no verdict. The benchmark has three options. It can drop the generation. It can
+change it to the majority class. It can count it against the model.
 
 ## Decision
 
-Track unparsable generations as their own confusion bucket and include them in the
-denominator of every rate. `unparsed_rate` is reported alongside accuracy and F1.
+Track the unparsable generations as their own confusion bucket. Include them in the
+denominator of every rate. Report `unparsed_rate` together with accuracy and F1.
 
 ## Consequences
 
-- Accuracy of a model that never answers is 0.0, not undefined and not 0.5.
-- Dropping them would silently shrink the benchmark per model, making leaderboard rows
-  incomparable; coercing them would credit a model for a coin flip it never made.
-- The raw generation is always stored, so any other convention can be recomputed from
-  the published results without re-running the models.
+- The accuracy of a model that never answers is 0.0. It is not undefined and it is not
+  0.5.
+- If the benchmark drops these generations, the benchmark becomes smaller for each model
+  without notice. The rows of the leaderboard are then not comparable. If the benchmark
+  changes them to the majority class, it gives the model credit for a coin flip that the
+  model never made.
+- The benchmark always stores the raw generation. Therefore, you can recompute any other
+  convention from the published results. You do not need to run the models again.

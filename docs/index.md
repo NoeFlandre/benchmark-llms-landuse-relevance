@@ -1,13 +1,15 @@
 # Land-use relevance LLM benchmark
 
-Do small open-weight language models know when a sentence about a place says
-something a satellite could see, across 85 languages?
+Do small open-weight language models know when a sentence about a place describes
+something that a satellite can see? The benchmark tests this in 85 languages.
 
-Each language split contains the same 300 adjudicated source items. A row is labelled
-`yes` if it carries land-use, land-cover, or geographic-environment signal — vegetation,
-water, terrain, buildings, roads, mining, managed land — and `no` if it only concerns
-history, administration, people, or events. One English prompt, one token of expected
-output, 18 previously tested open-weight models, scored end to end on Grid'5000 GPUs.
+Each language split has the same 300 adjudicated source items. An item has the label
+`yes` if it has land-use, land-cover, or geographic-environment signal. Examples are
+vegetation, water, terrain, buildings, roads, mining, and managed land. An item has the
+label `no` if it is only about history, administration, people, or events.
+
+The benchmark uses one English prompt. The expected output is one token. It tests 18
+open-weight models that the project tested before. It runs on Grid'5000 GPUs.
 
 ```bash
 uv sync --extra inference
@@ -18,9 +20,10 @@ uv run lrb report
 ```
 
 - [The benchmark and the prompt](benchmark.md)
-- [Running it on Grid'5000](grid5000.md)
+- [Run the benchmark on Grid'5000](grid5000.md)
 - [Results](results.md)
-- [How the code is arranged](architecture.md)
+- [The code architecture](architecture.md)
+- [Glossary](glossary.md)
 
-The active benchmark is defined by the translation manifest; archived files are kept
+The translation manifest defines the active benchmark. The project keeps archived files
 outside active discovery and publication.
