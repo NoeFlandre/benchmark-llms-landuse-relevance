@@ -1,65 +1,73 @@
-# ADR-0010 — DSpark speculative decoding, and checking it is lossless
+# ADR-0010 - DSpark speculative decoding and the lossless check
 
 **Status:** accepted · 2026-09-25
 
 ## Context
 
 Liquid AI publishes DSpark draft models for LFM2.5-1.2B-Instruct, LFM2.5-2.6B,
-LFM2.5-8B-A1B and LFM2.5-VL-3B. A draft proposes a block of tokens that the target
-verifies in one pass; under greedy decoding the output is, by construction, what the
-target alone would have produced. The drafts are served by SGLang (>= 0.5.19 for the
-VL target; LFM2/LFM2-MoE text targets need DSpark support from SGLang PR #31041;
-0.5.20 ships an `lfm2_dspark` draft model, so the extra requires `sglang>=0.5.20`,
-unverified on a GPU at the time of writing).
+LFM2.5-8B-A1B, and LFM2.5-VL-3B. A draft proposes a block of tokens. The target verifies
+the block in one pass. Under greedy decoding, the output is, by construction, the output
+that the target alone produces.
+
+SGLang serves the drafts:
+
+- The VL target needs SGLang >= 0.5.19.
+- The LFM2 and LFM2-MoE text targets need DSpark support from SGLang PR #31041.
+- SGLang 0.5.20 includes an `lfm2_dspark` draft model. Therefore, the extra requires
+  `sglang>=0.5.20`. At the time of writing, nobody verified this on a GPU.
 
 ## Decision
 
-For each target with a draft the roster holds two SGLang runs on pinned weights:
+For each target that has a draft, the roster holds two SGLang runs on pinned weights:
 
-- `<target>@sglang` — the card's launch "without the `--speculative-*` flags"
-  (`disable_radix_cache`, `mem_fraction_static`), batch size 1;
-- `<target>+DSpark` — the same launch with the draft attached exactly as the card
-  prescribes: `speculative_algorithm=DSPARK`, `speculative_draft_model_path`,
-  `speculative_draft_attention_backend=flashinfer`, and for VL-3B
-  `speculative_dspark_block_size=9` (`mem_fraction_static` 0.8 for VL-3B, 0.75 for the
-  text targets, whose block size is read from the draft config).
+- `<target>@sglang` - the launch of the card "without the `--speculative-*` flags"
+  (`disable_radix_cache`, `mem_fraction_static`), batch size 1.
+- `<target>+DSpark` - the same launch with the draft attached exactly as the card
+  specifies:
+    - `speculative_algorithm=DSPARK`
+    - `speculative_draft_model_path`
+    - `speculative_draft_attention_backend=flashinfer`
+    - for VL-3B: `speculative_dspark_block_size=9`
+    - `mem_fraction_static` is 0.8 for VL-3B and 0.75 for the text targets. For the text
+      targets, the code reads the block size from the draft config.
 
-The plain Transformers run of each target stays in the roster, so the SGLang pair adds
-a like-for-like speed comparison without replacing the reference run. VL-3B is
-prompted with a text-only user turn through its processor's chat template.
+The plain Transformers run of each target stays in the roster. The SGLang pair adds a
+like-for-like speed comparison. It does not replace the reference run. VL-3B receives a
+text-only user turn through the chat template of its processor.
 
-Prompts reach SGLang as token ids produced by the same chat template as the
-Transformers runs, so the three runs of a target see the same input tokens.
+Prompts reach SGLang as token ids. The same chat template as the Transformers runs
+produces them. Therefore, the three runs of a target receive the same input tokens.
 
-SGLang pins its own torch and transformers, so it is a separate `speculative` extra,
-declared conflicting with `inference` in `[tool.uv]`; the Grid'5000 node script
-re-syncs the environment between the two runtimes.
+SGLang pins its own torch and transformers. For this reason, it is a separate
+`speculative` extra. `[tool.uv]` declares that it conflicts with `inference`. The node
+script of Grid'5000 syncs the environment again between the two runtimes.
 
 ## The lossless check
 
-`lrb report` and the dataset card compare every speculative run against every plain
-run of the same target with the same budget and prompt, item by item, counting
-differing verdicts and differing raw generations.
+`lrb report` and the dataset card compare every speculative run with every plain run of
+the same target. The runs must have the same budget and prompt. The comparison goes item
+by item. It counts the verdicts that differ and the raw generations that differ.
 
-- Against the **same-runtime** baseline (`@sglang`) any difference is a defect —
-  wrong settings, a non-greedy kernel, or a draft for another target — and `lrb
-  report` exits non-zero.
-- Against the **Transformers** run it is reported for information only: two runtimes'
-  bf16 kernels can break a near-tie differently, so a small number of differing
-  generations there does not mean the draft changed the output.
+- Compare with the baseline of the **same runtime** (`@sglang`). Any difference is a
+  defect. The cause can be wrong settings, a kernel that is not greedy, or a draft for
+  another target. In this case, `lrb report` exits with a non-zero code.
+- Compare with the **Transformers** run. The report gives this information only. The
+  bf16 kernels of two runtimes can break a near-tie in different ways. A small number of
+  generations that differ does not show that the draft changed the output.
 
 ## Consequences
 
-- Scores of `+DSpark` should equal those of `@sglang`; the speed columns (ADR-0009)
-  carry the result, including SGLang's mean accept length and draft accept rate.
-- The roster now has 13 runs, eight of them on SGLang at batch size 1; budget the
-  Grid'5000 walltime accordingly.
-- If a card's recipe changes, the roster's settings change with it and the result
-  files record which settings were used (`speculative` in the metadata).
-- SGLang's DSpark worker reads `lm_head` and the hidden-state capture hook from the
-  top-level target model, while `Lfm2VlForConditionalGeneration` keeps both on its
-  inner `language_model`, so `LFM2.5-VL-3B+DSpark` failed at engine start.
-  `adapters/sglang_compat.py` forwards them to the inner model (same weights), loaded
-  into SGLang's spawned processes through `PYTHONPATH`. On English it was
-  byte-identical to `LFM2.5-VL-3B@sglang` on 300/300 items with the draft engaged
-  (accept rate 0.29). Remove the shim once SGLang resolves these on the wrapper.
+- The scores of `+DSpark` must equal the scores of `@sglang`. The speed columns (ADR-0009)
+  carry the result. They include the mean accept length and the draft accept rate of
+  SGLang.
+- The roster now has 13 runs. Eight of them run on SGLang at batch size 1. Plan the
+  Grid'5000 walltime for this.
+- If the recipe of a card changes, the settings of the roster change with it. The result
+  files record the settings that the run used (`speculative` in the metadata).
+- The DSpark worker of SGLang reads `lm_head` and the hidden-state capture hook from the
+  top-level target model. But `Lfm2VlForConditionalGeneration` keeps both on its inner
+  `language_model`. For this reason, `LFM2.5-VL-3B+DSpark` failed at engine start.
+- `adapters/sglang_compat.py` forwards them to the inner model (same weights). The code
+  loads it into the spawned processes of SGLang through `PYTHONPATH`. On English, the
+  output was byte-identical to `LFM2.5-VL-3B@sglang` on 300/300 items, with the draft
+  engaged (accept rate 0.29). Remove the shim when SGLang resolves these on the wrapper.
