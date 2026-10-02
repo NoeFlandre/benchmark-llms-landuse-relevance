@@ -98,7 +98,7 @@ def test_dspark_runs_have_pinned_same_runtime_baselines() -> None:
 def test_an_invalid_runtime_or_non_sglang_draft_is_rejected() -> None:
     with pytest.raises(ValueError, match="unknown runtime"):
         ModelSpec("owner/model", 1, "", runtime="vllm")
-    with pytest.raises(ValueError, match="a speculative draft needs the sglang runtime"):
+    with pytest.raises(ValueError, match=r"^a speculative draft needs the sglang runtime$"):
         ModelSpec("owner/model", 1, "", draft_model_id="owner/draft")
 
 
@@ -117,3 +117,39 @@ def test_dspark_settings_and_pair_preserve_the_target_recipe() -> None:
     assert (baseline.runtime, drafted.runtime, drafted.draft_revision) == ("sglang", "sglang", "r2")
     assert drafted.draft_parameters == 3
     assert baseline.speculative == {"disable_radix_cache": True, "mem_fraction_static": 0.5}
+
+
+def test_sglang_pair_builds_exact_baseline_and_drafted_specs() -> None:
+    settings = dspark_settings(0.5)
+    target = ModelSpec("owner/model", 10, "target", revision="r1", vision=True, batch_size=16)
+    baseline, drafted = sglang_pair(target, "owner/draft", "r2", 3, settings)
+    assert baseline == ModelSpec(
+        "owner/model",
+        10,
+        "SGLang, no draft: the like-for-like baseline for DSpark.",
+        run_id="owner/model@sglang",
+        revision="r1",
+        runtime="sglang",
+        vision=True,
+        batch_size=1,
+        speculative={"disable_radix_cache": True, "mem_fraction_static": 0.5},
+    )
+    assert drafted == ModelSpec(
+        "owner/model",
+        10,
+        "SGLang with the DSpark speculative draft; lossless under greedy decoding.",
+        run_id="owner/model+DSpark",
+        revision="r1",
+        runtime="sglang",
+        vision=True,
+        draft_model_id="owner/draft",
+        draft_revision="r2",
+        draft_parameters=3,
+        batch_size=1,
+        speculative=settings,
+    )
+
+
+def test_a_draft_on_the_sglang_runtime_is_accepted() -> None:
+    spec = ModelSpec("owner/model", 1, "", runtime="sglang", draft_model_id="owner/draft")
+    assert spec.draft_model_id == "owner/draft"
