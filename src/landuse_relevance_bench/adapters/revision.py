@@ -1,6 +1,7 @@
 """Resolving the exact weights commit a run used, so a result is reproducible."""
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -32,3 +33,8 @@ def resolve_revision(model_id: str, *candidates: str | None) -> str:
             model_id,
         )
     return revision
+
+
+def loaded_revision(model: Any) -> str:
+    """The commit hash recorded on a loaded model's config, or ``""`` if it has none."""
+    return str(getattr(model.config, "_commit_hash", "") or "")

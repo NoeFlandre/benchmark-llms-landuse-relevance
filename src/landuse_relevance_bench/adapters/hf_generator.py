@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from landuse_relevance_bench.adapters.pipeline import RunRequest
-from landuse_relevance_bench.adapters.revision import resolve_revision
+from landuse_relevance_bench.adapters.revision import loaded_revision, resolve_revision
 from landuse_relevance_bench.domain.engine import Generation
 from landuse_relevance_bench.domain.roster import quantization_of
 
@@ -136,7 +136,7 @@ class TransformersGenerator:
     @property
     def revision(self) -> str:
         """The resolved weights commit, so a result names the exact artefact used."""
-        return str(getattr(self._require_model().config, "_commit_hash", "") or "")
+        return loaded_revision(self._require_model())
 
     def generate(self, prompts: Sequence[str]) -> list[Generation]:
         if not prompts:

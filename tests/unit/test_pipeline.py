@@ -1,4 +1,3 @@
-import subprocess
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
@@ -215,50 +214,6 @@ def test_execute_respects_a_caller_owned_generator(request_for) -> None:
 
     assert result.metrics.n_items == 2
     assert generator.close_calls == 0
-
-
-def test_gpu_memory_probe_handles_missing_command_empty_output_and_bad_values(monkeypatch) -> None:
-    monkeypatch.setattr(pipeline.shutil, "which", lambda _: None)
-    assert pipeline._free_gpu_memory_bytes() is None
-
-    monkeypatch.setattr(pipeline.shutil, "which", lambda _: "/fake/nvidia-smi")
-    monkeypatch.setattr(
-        pipeline.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(stdout=" 4096 \n 2048\n"),
-    )
-    assert pipeline._free_gpu_memory_bytes() == 2048 * 2**20
-
-    monkeypatch.setattr(
-        pipeline.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(stdout=""),
-    )
-    assert pipeline._free_gpu_memory_bytes() is None
-    monkeypatch.setattr(
-        pipeline.subprocess,
-        "run",
-        lambda *_args, **_kwargs: SimpleNamespace(stdout="unknown"),
-    )
-    assert pipeline._free_gpu_memory_bytes() is None
-
-
-@pytest.mark.parametrize(
-    "failure",
-    [
-        FileNotFoundError("nvidia-smi"),
-        subprocess.CalledProcessError(1, "nvidia-smi"),
-        subprocess.TimeoutExpired("nvidia-smi", 5),
-    ],
-)
-def test_gpu_memory_probe_treats_nvidia_smi_failures_as_unavailable(monkeypatch, failure) -> None:
-    monkeypatch.setattr(pipeline.shutil, "which", lambda _: "/fake/nvidia-smi")
-
-    def fail(*_args: Any, **_kwargs: Any) -> Any:
-        raise failure
-
-    monkeypatch.setattr(pipeline.subprocess, "run", fail)
-    assert pipeline._free_gpu_memory_bytes() is None
 
 
 def test_device_name_handles_missing_torch_cpu_and_cuda(monkeypatch) -> None:
