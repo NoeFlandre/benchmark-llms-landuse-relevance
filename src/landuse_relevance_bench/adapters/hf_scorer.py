@@ -10,12 +10,12 @@ through the ``zero-shot-classification`` pipeline, GLiClass and GLiNER2.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from math import exp
 from pathlib import Path
 from typing import Any
 
 from landuse_relevance_bench.adapters.hf_scorer_prompt import reranker_input
 from landuse_relevance_bench.adapters.pipeline import SCORING_SEQUENCE_LENGTH, RunRequest
+from landuse_relevance_bench.adapters.revision import loaded_revision
 from landuse_relevance_bench.domain.engine import LabelScorer, LabelScores, ScoringInput
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.scorers import MXBAI_LOGIT_OFFSET
@@ -119,7 +119,7 @@ class _TransformersScorer(_CudaMeasurement):
 
     @property
     def revision(self) -> str:
-        return str(getattr(self._model.config, "_commit_hash", "") or "")
+        return loaded_revision(self._model)
 
     def _batch(self, *texts: Sequence[str], **options: Any) -> dict[str, Any]:
         batch = self._tokenizer(
@@ -435,7 +435,7 @@ class NliZeroShotScorer(_CudaMeasurement):
             tokenizer=tokenizer,
             device=_torch_device(),
         )
-        resolved = str(getattr(model.config, "_commit_hash", "") or "")
+        resolved = loaded_revision(model)
         return cls(pipeline, revision or resolved)
 
     @property
@@ -492,7 +492,7 @@ class GliClassScorer(_CudaMeasurement):
             max_length=ZEROSHOT_SEQUENCE_LENGTH,
             progress_bar=False,
         )
-        resolved = str(getattr(model.config, "_commit_hash", "") or "")
+        resolved = loaded_revision(model)
         return cls(pipeline, revision or resolved)
 
     @property
@@ -716,11 +716,6 @@ def _sequence_relevance_logits(logits: Any) -> Any:
     if logits.shape[-1] == _BINARY_LOGIT_COUNT:
         return logits[:, 1] - logits[:, 0]
     raise ValueError(f"expected one or two sequence-classification logits, got {logits.shape}")
-
-
-def mxbai_normalize(native_score: float) -> float:
-    """Match mxbai-rerank-v2's estimated-max sigmoid normalisation."""
-    return 1.0 / (1.0 + exp(-(native_score - MXBAI_LOGIT_OFFSET)))
 
 
 def scorer_class_for(model_id: str) -> type[Any]:

@@ -2,8 +2,6 @@
 
 import logging
 import math
-import shutil
-import subprocess
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -13,6 +11,7 @@ from typing import Any
 
 from landuse_relevance_bench import __version__
 from landuse_relevance_bench.adapters.benchmark_csv import load_benchmark
+from landuse_relevance_bench.adapters.gpu_memory import free_gpu_memory_bytes
 from landuse_relevance_bench.adapters.hashing import sha256_of_file, sha256_of_text
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
 from landuse_relevance_bench.adapters.results_store import write_run
@@ -133,31 +132,6 @@ def _first_set(*values: int | None) -> int:
     return next(value for value in values if value is not None)
 
 
-def _free_gpu_memory_bytes() -> int | None:
-    """Return the least free NVIDIA GPU memory without importing the inference stack."""
-    executable = shutil.which("nvidia-smi")
-    if executable is None:
-        return None
-    try:
-        completed = subprocess.run(  # noqa: S603 -- executable is resolved; args are constants.
-            [executable, "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-            capture_output=True,
-            check=True,
-            text=True,
-            timeout=5,
-        )
-    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return None
-    readings = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
-    if not readings:
-        return None
-    try:
-        return min(int(reading) for reading in readings) * 2**20
-    except ValueError:
-        logger.debug("Could not parse free NVIDIA GPU memory: %r", completed.stdout)
-        return None
-
-
 def _close_generator(generator: TextGenerator) -> None:
     close = getattr(generator, "close", None)
     if callable(close):
@@ -210,7 +184,7 @@ def execute(
     items = load_benchmark(request.benchmark_path, expected_language=request.language)
     template = load_prompt(request.prompt_path)
     logger.info("%s: loading model (%d prompts)", request.name, len(items))
-    free_before = _free_gpu_memory_bytes()
+    free_before = free_gpu_memory_bytes()
     _log_gpu_memory(request.name, "before model load", free_before)
     generator, revision = provide_generator(request)
     progress_generator = ProgressReporting(generator, request.name, len(items), request.batch_size)
@@ -226,7 +200,7 @@ def execute(
                 logger.exception(
                     "%s: generator cleanup failed after prediction error", request.name
                 )
-            _log_gpu_memory(request.name, "after failed run cleanup", _free_gpu_memory_bytes())
+            _log_gpu_memory(request.name, "after failed run cleanup", free_gpu_memory_bytes())
         raise
     else:
         if request.close_generator:
@@ -234,7 +208,7 @@ def execute(
                 _close_generator(generator)
             except Exception:
                 logger.exception("%s: generator cleanup failed after prediction", request.name)
-            _log_gpu_memory(request.name, "after run cleanup", _free_gpu_memory_bytes())
+            _log_gpu_memory(request.name, "after run cleanup", free_gpu_memory_bytes())
     metadata = _metadata(
         request,
         generator,
