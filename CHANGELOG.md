@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Documentation
+
+- Document the `--only`, `--runtime`, `--skip-existing`, `--keep-going`, `--throughput`
+  and `--json` flags in the README.
+
 ## [0.2.0] - 2026-09-26
 
 ### Scoring changes
