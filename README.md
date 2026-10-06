@@ -45,7 +45,7 @@ start.
 | --- | --- | --- |
 | `--only REGEX` | `run-all` | Run only the roster run names that match the regular expression. |
 | `--runtime NAME` | `run-all` | Restrict the roster to `transformers` or `sglang`. Repeat the flag to select both. |
-| `--skip-existing` | `run-all` | Skip a model-language pair that already has a stored result. This is the default. The help output lists no flag that turns it off. |
+| `--skip-existing` / `--no-skip-existing` | `run-all` | Skip a model-language pair that already has a stored result (default), or run it again. |
 | `--keep-going` | `run-all` | Continue after a failed run. The command prints each failure to standard error and exits with status 1 at the end. Without this flag, the first failure stops the command. |
 | `--throughput` | `run`, `run-all` | Use the SGLang multi-request throughput mode. |
 | `--json` | `models` | Print the roster as JSON. |

@@ -868,7 +868,6 @@ def test_publish_allowlist_includes_snapshot_and_excludes_local_cache(
 
     assert result.exit_code == 0, result.stdout
     patterns = captured["upload"].get("allow_patterns")
-    assert patterns is not None
     assert "SNAPSHOT_STATUS.md" in patterns
     assert "en/some__model.json" in patterns
     assert not any(pattern.startswith(".cache/") for pattern in patterns)

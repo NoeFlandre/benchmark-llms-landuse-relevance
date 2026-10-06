@@ -6,6 +6,7 @@ errors; the command definitions themselves stay in :mod:`landuse_relevance_bench
 
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
+from typing import Literal
 
 import typer
 
@@ -47,6 +48,22 @@ DEFAULT_RESULTS = _DEFAULTS.results
 _INPUT_ERRORS = (OSError, BenchmarkFileError, PromptFileError, TranslationDataError, ValueError)
 
 
+CheckpointState = Literal["complete", "pending", "invalid"]
+
+
+def _checkpoint_state(path: Path, model: str, language: str) -> CheckpointState:
+    """Classify a stored result: absent is pending; unreadable or mismatched is invalid."""
+    if not path.is_file():
+        return "pending"
+    try:
+        result = read_run(path)
+    except (OSError, ValueError):
+        return "invalid"
+    if result.metadata.name == model and result.metadata.language == language:
+        return "complete"
+    return "invalid"
+
+
 def run_pair(
     request: RunRequest,
     run: Callable[[], RunResult],
@@ -56,15 +73,15 @@ def run_pair(
 ) -> None:
     """Run one model-language pair unless it is checkpointed; input problems are usage errors."""
     result_path = request.output_dir / run_filename(request.name, request.language)
-    if skip_existing and result_path.is_file():
-        try:
-            existing = read_run(result_path)
-        except ValueError as exc:
-            raise typer.BadParameter(str(exc)) from exc
-        if existing.metadata.name != request.name or existing.metadata.language != request.language:
-            raise typer.BadParameter(f"{result_path} contains a different model-language run")
-        typer.echo(f"{request.name} [{request.language}] already complete; skipping")
-        return
+    if skip_existing:
+        state = _checkpoint_state(result_path, request.name, request.language)
+        if state == "invalid":
+            raise typer.BadParameter(
+                f"{result_path} is unreadable or contains a different model-language run"
+            )
+        if state == "complete":
+            typer.echo(f"{request.name} [{request.language}] already complete; skipping")
+            return
     try:
         result = run()
     except _INPUT_ERRORS as exc:
@@ -154,18 +171,14 @@ def planned_pairs(
 
 def completed_pairs(pairs: Sequence[tuple[str, str]], results_dir: Path) -> set[tuple[str, str]]:
     """The pairs whose stored result is readable and belongs to that model-language pair."""
-    completed = set()
-    for model_id, selected_language in pairs:
-        path = results_dir / run_filename(model_id, selected_language)
-        if not path.is_file():
-            continue
-        try:
-            result = read_run(path)
-        except ValueError:
-            continue
-        if result.metadata.name == model_id and result.metadata.language == selected_language:
-            completed.add((model_id, selected_language))
-    return completed
+    return {
+        (model_id, selected_language)
+        for model_id, selected_language in pairs
+        if _checkpoint_state(
+            results_dir / run_filename(model_id, selected_language), model_id, selected_language
+        )
+        == "complete"
+    }
 
 
 def print_run_plan(
@@ -176,21 +189,11 @@ def print_run_plan(
     results_dir: Path,
 ) -> None:
     """Show workload size and valid checkpoint state before loading a model."""
-    completed = pending = invalid = 0
-    for model_id, language in pairs:
-        path = results_dir / run_filename(model_id, language)
-        if not path.is_file():
-            pending += 1
-            continue
-        try:
-            result = read_run(path)
-        except (OSError, ValueError):
-            invalid += 1
-            continue
-        if result.metadata.name == model_id and result.metadata.language == language:
-            completed += 1
-        else:
-            invalid += 1
+    states = [
+        _checkpoint_state(results_dir / run_filename(model_id, language), model_id, language)
+        for model_id, language in pairs
+    ]
+    completed, pending, invalid = (states.count(k) for k in ("complete", "pending", "invalid"))
     prompt_count = sum(manifest.files[language].rows for language in selected) * len(models)
     assigned_prompts = sum(manifest.files[language].rows for _, language in pairs)
     typer.echo(
@@ -236,6 +239,18 @@ def report_lines(runs: Sequence[RunResult]) -> Iterator[str]:
         )
 
 
+DEFAULT_BENCHMARK_NAME = "v3-multilingual"
+VIEWER_FILE = "data/train.csv"
+RELEASE_FILES = (
+    "README.md",
+    "leaderboard.csv",
+    "aggregates.csv",
+    "threshold_sweep.csv",
+    "scoring_summary.csv",
+    VIEWER_FILE,
+)
+
+
 def publish_allow_patterns(
     results_dir: Path,
     runs: Sequence[RunResult],
@@ -244,12 +259,7 @@ def publish_allow_patterns(
 ) -> list[str]:
     """Limit uploads to selected runs and the generated release files."""
     patterns = {
-        "README.md",
-        "leaderboard.csv",
-        "aggregates.csv",
-        "threshold_sweep.csv",
-        "scoring_summary.csv",
-        "data/train.csv",
+        *RELEASE_FILES,
         *(str(run_filename(run.metadata.name, run.metadata.language)) for run in runs),
     }
     if include_snapshot_status and (results_dir / "SNAPSHOT_STATUS.md").is_file():

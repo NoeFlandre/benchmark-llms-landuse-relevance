@@ -52,7 +52,12 @@ def test_roster_has_no_duplicate_model_ids() -> None:
 
 
 def test_every_full_precision_model_is_small_enough_to_be_a_little_llm() -> None:
-    assert all(spec.total_parameters < 10_000_000_000 for spec in ROSTER if not spec.quantization)
+    too_large = [
+        spec.model_id
+        for spec in ROSTER
+        if not spec.quantization and spec.total_parameters >= 10_000_000_000
+    ]
+    assert too_large == []
 
 
 def test_every_quantized_model_names_its_quant_and_weights_file() -> None:
