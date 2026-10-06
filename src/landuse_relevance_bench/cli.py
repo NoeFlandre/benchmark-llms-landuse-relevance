@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypedDict
 
 import typer
 
@@ -17,6 +17,7 @@ from landuse_relevance_bench.adapters.providers import (
     cached_scorer_provider,
 )
 from landuse_relevance_bench.adapters.results_store import read_runs, write_reports
+from landuse_relevance_bench.adapters.translations import TranslationManifest
 from landuse_relevance_bench.application import (
     DEFAULT_DATA_ROOT,
     DEFAULT_PROMPT,
@@ -61,6 +62,51 @@ Language = Annotated[
     list[str] | None,
     typer.Option("--language", help="Language code(s), repeatable or comma-separated."),
 ]
+Revision = Annotated[str | None, typer.Option(help="Pin the model to a commit.")]
+BatchSize = Annotated[int | None, typer.Option(help="Prompts per forward pass.")]
+MaxNewTokens = Annotated[int, typer.Option()]
+Seed = Annotated[int, typer.Option()]
+Dtype = Annotated[str, typer.Option(help="Torch dtype name.")]
+ContinuousBatching = Annotated[
+    bool, typer.Option("--continuous-batching", help="Use Transformers continuous batching.")
+]
+Throughput = Annotated[
+    bool, typer.Option("--throughput", help="Use SGLang multi-request throughput mode.")
+]
+ShardIndex = Annotated[int, typer.Option("--shard-index")]
+ShardCount = Annotated[int, typer.Option("--shard-count")]
+
+
+def _plan(
+    models: tuple[str, ...] | list[str],
+    selected: tuple[str, ...],
+    manifest: TranslationManifest,
+    shard: tuple[int, int],
+    out: Path,
+) -> tuple[tuple[str, str], ...]:
+    """Pair models with languages for this shard and print the plan."""
+    pairs = planned_pairs(models, selected, *shard)
+    print_run_plan(models, selected, manifest, pairs, out)
+    return pairs
+
+
+class _Where(TypedDict):
+    language: str
+    benchmark_path: Path
+    prompt_path: Path
+    output_dir: Path
+
+
+def _request_fields(
+    manifest: TranslationManifest, data_root: Path, language: str, prompt: Path, out: Path
+) -> _Where:
+    """The request fields every command derives the same way from its options."""
+    return {
+        "language": language,
+        "benchmark_path": data_root / manifest.files[language].path,
+        "prompt_path": prompt,
+        "output_dir": out,
+    }
 
 
 @app.command()
@@ -108,17 +154,15 @@ def run(
     prompt: Prompt = DEFAULT_PROMPT,
     out: Results = DEFAULT_RESULTS,
     language: Language = None,
-    revision: Annotated[str | None, typer.Option(help="Pin the model to a commit.")] = None,
-    batch_size: Annotated[int | None, typer.Option(help="Prompts per forward pass.")] = None,
-    max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
-    seed: Annotated[int, typer.Option()] = 0,
-    dtype: Annotated[str, typer.Option(help="Torch dtype name.")] = DEFAULT_DTYPE,
-    continuous_batching: Annotated[bool, typer.Option("--continuous-batching")] = False,
-    throughput: Annotated[
-        bool, typer.Option(help="Use SGLang multi-request throughput mode.")
-    ] = False,
-    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
-    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+    revision: Revision = None,
+    batch_size: BatchSize = None,
+    max_new_tokens: MaxNewTokens = DEFAULT_MAX_NEW_TOKENS,
+    seed: Seed = 0,
+    dtype: Dtype = DEFAULT_DTYPE,
+    continuous_batching: ContinuousBatching = False,
+    throughput: Throughput = False,
+    shard_index: ShardIndex = 0,
+    shard_count: ShardCount = 1,
 ) -> None:
     """Benchmark one model on every selected language."""
     if model_id in scorer_ids():
@@ -126,18 +170,14 @@ def run(
             f"{model_id!r} is a scoring model; `lrb score` benchmarks scoring models"
         )
     manifest, selected = selected_languages(data_root, language)
-    pairs = planned_pairs((model_id,), selected, shard_index, shard_count)
-    print_run_plan((model_id,), selected, manifest, pairs, out)
+    pairs = _plan((model_id,), selected, manifest, (shard_index, shard_count), out)
     provider = cached_generator_provider()
     try:
         for _, selected_language in pairs:
             benchmark_one(
                 RunRequest.for_run(
                     model_id,
-                    language=selected_language,
-                    benchmark_path=data_root / manifest.files[selected_language].path,
-                    prompt_path=prompt,
-                    output_dir=out,
+                    **_request_fields(manifest, data_root, selected_language, prompt, out),
                     revision=revision,
                     batch_size=batch_size,
                     max_new_tokens=max_new_tokens,
@@ -163,12 +203,12 @@ def score(
     ] = None,
     out: Results = DEFAULT_RESULTS,
     language: Language = None,
-    revision: Annotated[str | None, typer.Option(help="Pin the model to a commit.")] = None,
+    revision: Revision = None,
     batch_size: Annotated[int, typer.Option(help="Prompts per forward pass.")] = DEFAULT_BATCH_SIZE,
-    seed: Annotated[int, typer.Option()] = 0,
-    dtype: Annotated[str, typer.Option(help="Torch dtype name.")] = DEFAULT_DTYPE,
-    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
-    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+    seed: Seed = 0,
+    dtype: Dtype = DEFAULT_DTYPE,
+    shard_index: ShardIndex = 0,
+    shard_count: ShardCount = 1,
 ) -> None:
     """Score one non-generative model on every selected language."""
     if model_id not in scorer_ids():
@@ -179,24 +219,23 @@ def score(
     prompt = prompt or Path(spec.prompt)
     manifest, selected = selected_languages(data_root, language)
     selected = languages_for_scorer(spec, selected, language)
-    pairs = planned_pairs((model_id,), selected, shard_index, shard_count)
-    print_run_plan((model_id,), selected, manifest, pairs, out)
+    pairs = _plan((model_id,), selected, manifest, (shard_index, shard_count), out)
     provider = cached_scorer_provider()
-    for _, selected_language in pairs:
-        score_one(
-            RunRequest(
-                model_id=model_id,
-                language=selected_language,
-                benchmark_path=data_root / manifest.files[selected_language].path,
-                prompt_path=prompt,
-                output_dir=out,
-                revision=revision,
-                batch_size=batch_size,
-                seed=seed,
-                dtype=dtype,
-            ),
-            provider,
-        )
+    try:
+        for _, selected_language in pairs:
+            score_one(
+                RunRequest(
+                    model_id=model_id,
+                    **_request_fields(manifest, data_root, selected_language, prompt, out),
+                    revision=revision,
+                    batch_size=batch_size,
+                    seed=seed,
+                    dtype=dtype,
+                ),
+                provider,
+            )
+    finally:
+        provider.close_cached()
 
 
 @app.command(name="run-all")
@@ -205,18 +244,14 @@ def run_all(
     prompt: Prompt = DEFAULT_PROMPT,
     out: Results = DEFAULT_RESULTS,
     language: Language = None,
-    batch_size: Annotated[int | None, typer.Option()] = None,
-    continuous_batching: Annotated[
-        bool, typer.Option("--continuous-batching", help="Use Transformers continuous batching.")
-    ] = False,
-    throughput: Annotated[
-        bool, typer.Option("--throughput", help="Use SGLang multi-request throughput mode.")
-    ] = False,
-    max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
-    seed: Annotated[int, typer.Option()] = 0,
-    dtype: Annotated[str, typer.Option()] = DEFAULT_DTYPE,
-    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
-    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+    batch_size: BatchSize = None,
+    continuous_batching: ContinuousBatching = False,
+    throughput: Throughput = False,
+    max_new_tokens: MaxNewTokens = DEFAULT_MAX_NEW_TOKENS,
+    seed: Seed = 0,
+    dtype: Dtype = DEFAULT_DTYPE,
+    shard_index: ShardIndex = 0,
+    shard_count: ShardCount = 1,
     only: Annotated[str | None, typer.Option("--only", help="Regex over roster run names.")] = None,
     runtime: Annotated[
         list[str] | None,
@@ -230,8 +265,7 @@ def run_all(
     models = selected_models(only, runtime)
     if not models:
         raise typer.BadParameter("no rostered runs match the selected filters")
-    pairs = planned_pairs(models, selected, shard_index, shard_count)
-    print_run_plan(models, selected, manifest, pairs, out)
+    pairs = _plan(models, selected, manifest, (shard_index, shard_count), out)
     pairs_by_model: dict[str, list[str]] = {}
     for model, selected_language in pairs:
         pairs_by_model.setdefault(model, []).append(selected_language)
@@ -250,10 +284,7 @@ def run_all(
                     benchmark_one(
                         RunRequest.for_run(
                             model,
-                            language=selected_language,
-                            benchmark_path=data_root / manifest.files[selected_language].path,
-                            prompt_path=prompt,
-                            output_dir=out,
+                            **_request_fields(manifest, data_root, selected_language, prompt, out),
                             batch_size=model_batch_size,
                             continuous_batching=use_continuous_batching,
                             throughput_mode=use_throughput,
@@ -281,8 +312,8 @@ def status(
     data_root: DataRoot = DEFAULT_DATA_ROOT,
     results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
     language: Language = None,
-    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
-    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+    shard_index: ShardIndex = 0,
+    shard_count: ShardCount = 1,
     include_scorers: Annotated[
         bool, typer.Option("--include-scorers", help="Also list scoring models.")
     ] = False,
