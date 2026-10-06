@@ -127,7 +127,6 @@ ban-relative-imports = "all"
 ]
 "src/landuse_relevance_bench/adapters/hf_publish.py" = ["PLC0415", "PLR0913"]
 "src/landuse_relevance_bench/adapters/sglang_generator.py" = ["PLC0415"]
-"src/landuse_relevance_bench/adapters/generators.py" = ["PLC0415"]
 "src/landuse_relevance_bench/adapters/revision.py" = ["PLC0415"]
 
 [tool.pytest.ini_options]
