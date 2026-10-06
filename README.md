@@ -36,6 +36,27 @@ uv run lrb publish NoeFlandre/benchmark-llms-landuse-relevance
 You do not need a GPU for `lrb report` and `lrb models`. The code imports `torch` only
 when it loads a model.
 
+### Command-line flags
+
+Run `lrb <command> --help` for the complete list. These flags are not in the quick
+start.
+
+| Flag | Commands | Effect |
+| --- | --- | --- |
+| `--only REGEX` | `run-all` | Run only the roster run names that match the regular expression. |
+| `--runtime NAME` | `run-all` | Restrict the roster to `transformers` or `sglang`. Repeat the flag to select both. |
+| `--skip-existing` | `run-all` | Skip a model-language pair that already has a stored result. This is the default. The help output lists no flag that turns it off. |
+| `--keep-going` | `run-all` | Continue after a failed run. The command prints each failure to standard error and exits with status 1 at the end. Without this flag, the first failure stops the command. |
+| `--throughput` | `run`, `run-all` | Use the SGLang multi-request throughput mode. |
+| `--json` | `models` | Print the roster as JSON. |
+
+```bash
+uv run lrb run-all --runtime transformers --only 'LFM2' --keep-going
+uv run lrb models --json
+```
+
+`run-all` fails with a usage error when `--only` and `--runtime` match no rostered run.
+
 ## What the benchmark measures
 
 The positive class is `yes`. A generative run reports accuracy, precision, recall, F1,
