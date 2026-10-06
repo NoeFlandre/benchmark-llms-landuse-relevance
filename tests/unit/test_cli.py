@@ -36,6 +36,50 @@ def test_models_json_lists_the_rostered_ids() -> None:
     assert {row["id"] for row in json.loads(result.stdout)} == set(model_ids())
 
 
+class _ClosableProvider:
+    def __init__(self) -> None:
+        self.closed = 0
+
+    def close_cached(self) -> None:
+        self.closed += 1
+
+
+def _score(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    provider: _ClosableProvider,
+    failure: Exception | None,
+) -> None:
+    manifest = SimpleNamespace(files={"en": SimpleNamespace(path=Path("en.csv"))})
+    monkeypatch.setattr(cli, "selected_languages", lambda *_: (manifest, ("en",)))
+    monkeypatch.setattr(cli, "print_run_plan", lambda *args: None)
+    monkeypatch.setattr(cli, "cached_scorer_provider", lambda: provider)
+
+    def score_one(request: RunRequest, used: object) -> None:
+        if failure is not None:
+            raise failure
+
+    monkeypatch.setattr(cli, "score_one", score_one)
+    cli.score("LiquidAI/LFM2.5-Encoder-350M", data_root=tmp_path)
+
+
+def test_score_command_releases_its_provider(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    provider = _ClosableProvider()
+    _score(monkeypatch, tmp_path, provider, None)
+    assert provider.closed == 1
+
+
+def test_score_command_releases_its_provider_when_scoring_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    provider = _ClosableProvider()
+    with pytest.raises(RuntimeError, match="scoring failed"):
+        _score(monkeypatch, tmp_path, provider, RuntimeError("scoring failed"))
+    assert provider.closed == 1
+
+
 def test_score_command_dispatches_each_selected_scoring_pair(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -44,7 +88,8 @@ def test_score_command_dispatches_each_selected_scoring_pair(
     requests = []
     monkeypatch.setattr(cli, "selected_languages", lambda *_: (manifest, ("en",)))
     monkeypatch.setattr(cli, "print_run_plan", lambda *args: None)
-    monkeypatch.setattr(cli, "cached_scorer_provider", lambda: "provider")
+    provider = _ClosableProvider()
+    monkeypatch.setattr(cli, "cached_scorer_provider", lambda: provider)
     monkeypatch.setattr(
         cli, "score_one", lambda request, provider: requests.append((request, provider))
     )
@@ -52,8 +97,8 @@ def test_score_command_dispatches_each_selected_scoring_pair(
     cli.score(model_id, data_root=tmp_path, out=tmp_path / "results")
 
     assert len(requests) == 1
-    request, provider = requests[0]
-    assert provider == "provider"
+    request, used = requests[0]
+    assert used is provider
     assert request.model_id == model_id
     assert request.language == "en"
     assert request.benchmark_path == tmp_path / "en.csv"
