@@ -4,6 +4,8 @@
 
 - CLI: add help text to the shard, seed, token, `--keep-going` and `--benchmark-name`
   options, and add `--no-skip-existing` to `lrb run-all`. Option names are unchanged.
+- Document the `--only`, `--runtime`, `--skip-existing`, `--no-skip-existing`,
+  `--keep-going`, `--throughput` and `--json` flags in the README.
 
 ## [0.2.0] - 2026-09-26
 
