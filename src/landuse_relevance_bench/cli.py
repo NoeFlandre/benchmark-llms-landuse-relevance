@@ -19,10 +19,12 @@ from landuse_relevance_bench.adapters.providers import (
 from landuse_relevance_bench.adapters.results_store import read_runs, write_reports
 from landuse_relevance_bench.adapters.translations import TranslationManifest
 from landuse_relevance_bench.application import (
+    DEFAULT_BENCHMARK_NAME,
     DEFAULT_DATA_ROOT,
     DEFAULT_PROMPT,
     DEFAULT_RESULTS,
     DEFAULT_SCORER_PROMPT,
+    VIEWER_FILE,
     benchmark_one,
     comparable_runs,
     completed_pairs,
@@ -44,7 +46,12 @@ from landuse_relevance_bench.domain.roster import ROSTER, model_ids
 from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, scorer_for, scorer_ids
 from landuse_relevance_bench.domain.sharding import pair_statuses
 
-app = typer.Typer(add_completion=False, help=__doc__, invoke_without_command=True)
+app = typer.Typer(
+    add_completion=False,
+    help=__doc__,
+    invoke_without_command=True,
+    no_args_is_help=True,
+)
 
 
 @app.callback()
@@ -375,7 +382,7 @@ def publish(
     ] = DEFAULT_SCORER_PROMPT,
     benchmark_name: Annotated[
         str, typer.Option("--benchmark-name", help="Benchmark name shown on the dataset card.")
-    ] = "v3-multilingual",
+    ] = DEFAULT_BENCHMARK_NAME,
     timing_dir: Annotated[
         Path | None,
         typer.Option(
@@ -415,7 +422,7 @@ def publish(
             scorer_prompt_text=scorer_prompt_text,
             extra_scorer_prompt_texts=extra_scorer_prompts(scorer_prompt),
             timing_results=read_runs(timing_dir) if timing_dir else (),
-            viewer_file="data/train.csv",
+            viewer_file=VIEWER_FILE,
         )
         typer.echo(f"dry-run: would publish {len(runs)} result(s) to {repo_id}")
         typer.echo(preview)

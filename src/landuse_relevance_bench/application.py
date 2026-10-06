@@ -239,6 +239,18 @@ def report_lines(runs: Sequence[RunResult]) -> Iterator[str]:
         )
 
 
+DEFAULT_BENCHMARK_NAME = "v3-multilingual"
+VIEWER_FILE = "data/train.csv"
+RELEASE_FILES = (
+    "README.md",
+    "leaderboard.csv",
+    "aggregates.csv",
+    "threshold_sweep.csv",
+    "scoring_summary.csv",
+    VIEWER_FILE,
+)
+
+
 def publish_allow_patterns(
     results_dir: Path,
     runs: Sequence[RunResult],
@@ -247,12 +259,7 @@ def publish_allow_patterns(
 ) -> list[str]:
     """Limit uploads to selected runs and the generated release files."""
     patterns = {
-        "README.md",
-        "leaderboard.csv",
-        "aggregates.csv",
-        "threshold_sweep.csv",
-        "scoring_summary.csv",
-        "data/train.csv",
+        *RELEASE_FILES,
         *(str(run_filename(run.metadata.name, run.metadata.language)) for run in runs),
     }
     if include_snapshot_status and (results_dir / "SNAPSHOT_STATUS.md").is_file():
