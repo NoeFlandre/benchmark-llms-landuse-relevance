@@ -63,9 +63,13 @@ Language = Annotated[
     typer.Option("--language", help="Language code(s), repeatable or comma-separated."),
 ]
 Revision = Annotated[str | None, typer.Option(help="Pin the model to a commit.")]
-BatchSize = Annotated[int | None, typer.Option(help="Prompts per forward pass.")]
-MaxNewTokens = Annotated[int, typer.Option()]
-Seed = Annotated[int, typer.Option()]
+BatchSizeOption = typer.Option(help="Prompts per forward pass.")
+BatchSize = Annotated[int | None, BatchSizeOption]
+ResultsDir = Annotated[
+    Path, typer.Option("--results-dir", help="Directory holding stored run results.")
+]
+MaxNewTokens = Annotated[int, typer.Option(help="Maximum tokens to generate per prompt.")]
+Seed = Annotated[int, typer.Option(help="Random seed for decoding.")]
 Dtype = Annotated[str, typer.Option(help="Torch dtype name.")]
 ContinuousBatching = Annotated[
     bool, typer.Option("--continuous-batching", help="Use Transformers continuous batching.")
@@ -73,8 +77,17 @@ ContinuousBatching = Annotated[
 Throughput = Annotated[
     bool, typer.Option("--throughput", help="Use SGLang multi-request throughput mode.")
 ]
-ShardIndex = Annotated[int, typer.Option("--shard-index")]
-ShardCount = Annotated[int, typer.Option("--shard-count")]
+ShardIndex = Annotated[int, typer.Option("--shard-index", help="Zero-based index of this shard.")]
+ShardCount = Annotated[
+    int, typer.Option("--shard-count", help="Total number of shards the work is split into.")
+]
+SkipExisting = Annotated[
+    bool,
+    typer.Option(
+        "--skip-existing/--no-skip-existing",
+        help="Skip model-language pairs that already have stored results.",
+    ),
+]
 
 
 def _plan(
@@ -204,7 +217,7 @@ def score(
     out: Results = DEFAULT_RESULTS,
     language: Language = None,
     revision: Revision = None,
-    batch_size: Annotated[int, typer.Option(help="Prompts per forward pass.")] = DEFAULT_BATCH_SIZE,
+    batch_size: Annotated[int, BatchSizeOption] = DEFAULT_BATCH_SIZE,
     seed: Seed = 0,
     dtype: Dtype = DEFAULT_DTYPE,
     shard_index: ShardIndex = 0,
@@ -257,8 +270,10 @@ def run_all(
         list[str] | None,
         typer.Option("--runtime", help="Restrict to transformers or sglang (repeatable)."),
     ] = None,
-    skip_existing: Annotated[bool, typer.Option("--skip-existing")] = True,
-    keep_going: Annotated[bool, typer.Option("--keep-going")] = False,
+    skip_existing: SkipExisting = True,
+    keep_going: Annotated[
+        bool, typer.Option("--keep-going", help="Continue after a failed run; exit 1 at the end.")
+    ] = False,
 ) -> None:
     """Benchmark every rostered model on every selected language."""
     manifest, selected = selected_languages(data_root, language)
@@ -310,7 +325,7 @@ def run_all(
 @app.command()
 def status(
     data_root: DataRoot = DEFAULT_DATA_ROOT,
-    results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
+    results_dir: ResultsDir = DEFAULT_RESULTS,
     language: Language = None,
     shard_index: ShardIndex = 0,
     shard_count: ShardCount = 1,
@@ -328,7 +343,7 @@ def status(
 
 @app.command()
 def report(
-    results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
+    results_dir: ResultsDir = DEFAULT_RESULTS,
     out: Annotated[Path | None, typer.Option("--out", help="Leaderboard CSV path.")] = None,
     language: Language = None,
 ) -> None:
@@ -353,12 +368,14 @@ def report(
 def publish(
     repo_id: Annotated[str, typer.Argument(help="Hugging Face dataset repository id.")],
     data_root: DataRoot = DEFAULT_DATA_ROOT,
-    results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
+    results_dir: ResultsDir = DEFAULT_RESULTS,
     prompt: Prompt = DEFAULT_PROMPT,
     scorer_prompt: Annotated[
         Path, typer.Option("--scorer-prompt", help="Prompt template used by scoring models.")
     ] = DEFAULT_SCORER_PROMPT,
-    benchmark_name: Annotated[str, typer.Option("--benchmark-name")] = "v3-multilingual",
+    benchmark_name: Annotated[
+        str, typer.Option("--benchmark-name", help="Benchmark name shown on the dataset card.")
+    ] = "v3-multilingual",
     timing_dir: Annotated[
         Path | None,
         typer.Option(
