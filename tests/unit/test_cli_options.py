@@ -42,8 +42,15 @@ RUN = [
     ),
     ("revision", ("--revision",), "Pin the model to a commit.", "None", False, "str"),
     ("batch_size", ("--batch-size",), "Prompts per forward pass.", "None", False, "int"),
-    ("max_new_tokens", ("--max-new-tokens",), None, "4096", False, "int"),
-    ("seed", ("--seed",), None, "0", False, "int"),
+    (
+        "max_new_tokens",
+        ("--max-new-tokens",),
+        "Maximum tokens to generate per prompt.",
+        "4096",
+        False,
+        "int",
+    ),
+    ("seed", ("--seed",), "Random seed for decoding.", "0", False, "int"),
     ("dtype", ("--dtype",), "Torch dtype name.", "bfloat16", False, "str"),
     (
         "continuous_batching",
@@ -61,8 +68,15 @@ RUN = [
         False,
         "boolean",
     ),
-    ("shard_index", ("--shard-index",), None, "0", False, "int"),
-    ("shard_count", ("--shard-count",), None, "1", False, "int"),
+    ("shard_index", ("--shard-index",), "Zero-based index of this shard.", "0", False, "int"),
+    (
+        "shard_count",
+        ("--shard-count",),
+        "Total number of shards the work is split into.",
+        "1",
+        False,
+        "int",
+    ),
 ]
 
 SCORE = [
@@ -94,10 +108,17 @@ SCORE = [
     ),
     ("revision", ("--revision",), "Pin the model to a commit.", "None", False, "str"),
     ("batch_size", ("--batch-size",), "Prompts per forward pass.", "16", False, "int"),
-    ("seed", ("--seed",), None, "0", False, "int"),
+    ("seed", ("--seed",), "Random seed for decoding.", "0", False, "int"),
     ("dtype", ("--dtype",), "Torch dtype name.", "bfloat16", False, "str"),
-    ("shard_index", ("--shard-index",), None, "0", False, "int"),
-    ("shard_count", ("--shard-count",), None, "1", False, "int"),
+    ("shard_index", ("--shard-index",), "Zero-based index of this shard.", "0", False, "int"),
+    (
+        "shard_count",
+        ("--shard-count",),
+        "Total number of shards the work is split into.",
+        "1",
+        False,
+        "int",
+    ),
 ]
 
 RUN_ALL = [
@@ -143,11 +164,25 @@ RUN_ALL = [
         False,
         "boolean",
     ),
-    ("max_new_tokens", ("--max-new-tokens",), None, "4096", False, "int"),
-    ("seed", ("--seed",), None, "0", False, "int"),
+    (
+        "max_new_tokens",
+        ("--max-new-tokens",),
+        "Maximum tokens to generate per prompt.",
+        "4096",
+        False,
+        "int",
+    ),
+    ("seed", ("--seed",), "Random seed for decoding.", "0", False, "int"),
     ("dtype", ("--dtype",), "Torch dtype name.", "bfloat16", False, "str"),
-    ("shard_index", ("--shard-index",), None, "0", False, "int"),
-    ("shard_count", ("--shard-count",), None, "1", False, "int"),
+    ("shard_index", ("--shard-index",), "Zero-based index of this shard.", "0", False, "int"),
+    (
+        "shard_count",
+        ("--shard-count",),
+        "Total number of shards the work is split into.",
+        "1",
+        False,
+        "int",
+    ),
     ("only", ("--only",), "Regex over roster run names.", "None", False, "str"),
     (
         "runtime",
@@ -157,8 +192,22 @@ RUN_ALL = [
         False,
         "str",
     ),
-    ("skip_existing", ("--skip-existing",), None, "True", False, "boolean"),
-    ("keep_going", ("--keep-going",), None, "False", False, "boolean"),
+    (
+        "skip_existing",
+        ("--skip-existing",),
+        "Skip model-language pairs that already have stored results.",
+        "True",
+        False,
+        "boolean",
+    ),
+    (
+        "keep_going",
+        ("--keep-going",),
+        "Continue after a failed run; exit 1 at the end.",
+        "False",
+        False,
+        "boolean",
+    ),
 ]
 
 

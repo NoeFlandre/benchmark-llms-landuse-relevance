@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- CLI: add help text to the shard, seed, token, `--keep-going` and `--benchmark-name`
+  options, and add `--no-skip-existing` to `lrb run-all`. Option names are unchanged.
+
 ## [0.2.0] - 2026-09-26
 
 ### Scoring changes
