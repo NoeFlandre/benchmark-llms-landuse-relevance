@@ -69,7 +69,8 @@ def test_a_gguf_roster_id_downloads_its_quant_and_offloads_every_layer(fake_hub)
 def test_the_generator_provider_dispatches_quants_to_llama_cpp(fake_hub) -> None:
     generator, _ = hf_generator.provide(_request(GGUF_ID))
 
-    assert isinstance(generator, llama_generator.LlamaCppGenerator)
+    assert type(generator) is llama_generator.LlamaCppGenerator
+    assert generator._llama.kwargs["model_path"] == "/cache/Qwen3.8-27B-UD-IQ2_XXS.gguf"
 
 
 def test_publish_collects_every_other_scorer_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
