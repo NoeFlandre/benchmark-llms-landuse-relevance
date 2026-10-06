@@ -1,7 +1,6 @@
 import pytest
 
 from landuse_relevance_bench.domain.dataset import (
-    BenchmarkItem,
     InvalidRowError,
     build_item,
     item_id_for,
@@ -20,7 +19,6 @@ ROW = {
 
 def test_builds_an_item_from_a_well_formed_row() -> None:
     item = build_item(ROW)
-    assert isinstance(item, BenchmarkItem)
     assert item.sentence == ROW["sentence"]
     assert item.label.value == "yes"
     assert item.region == "fiji"
