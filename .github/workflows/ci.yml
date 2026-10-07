@@ -44,6 +44,8 @@ jobs:
         run: make architecture
       - name: Grid5000 script tests
         run: make scripts
+      - name: Built wheel ships py.typed
+        run: make wheel
       - name: CRAP score
         run: make crap -o test
       - name: CLI smoke test
