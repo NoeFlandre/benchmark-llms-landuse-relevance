@@ -28,9 +28,6 @@ conflicts = [[
     { package = "landuse-relevance-bench", extra = "speculative" },
 ]]
 
-[options]
-prerelease-mode = "if-necessary"
-
 [[package]]
 name = "accelerate"
 version = "1.15.0"
@@ -673,13 +670,12 @@ wheels = [
 
 [[package]]
 name = "datasets"
-version = "5.0.1"
+version = "5.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dill" },
     { name = "filelock" },
-    { name = "fsspec", version = "2026.6.0", source = { registry = "https://pypi.org/simple" }, extra = ["http"], marker = "(extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra != 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra != 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
-    { name = "httpx" },
+    { name = "fsspec", extra = ["http"], marker = "(extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra != 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra != 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "huggingface-hub", version = "1.31.0", source = { registry = "https://pypi.org/simple" } },
     { name = "multiprocess" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" } },
@@ -687,13 +683,12 @@ dependencies = [
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "pyyaml" },
-    { name = "requests" },
     { name = "tqdm" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0a/5b/836516269d4f618efe621661cfb6f9acc57e6f95265db3efaee48a5ffe04/datasets-5.0.1.tar.gz", hash = "sha256:ce22bb851efd7494f08aad33b940803784434f6e77763d00679a0dc45fcf686a", size = 641498, upload-time = "2026-07-28T11:09:12.016Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/17/e6/b5d8c77f13cc6269660b0f2691e8875777b9d94972e281b7b2c25f25bd9d/datasets-5.1.0.tar.gz", hash = "sha256:1561347daa8841b51351ef2ad1647b4ee4af406852c0f7bd1df587ac1ca7888e", size = 687306, upload-time = "2026-10-05T15:32:32.053Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/0b/98fc6eb83333508ca5f44c52b3e287ea8137a0ad582714e2cbc67a02154b/datasets-5.0.1-py3-none-any.whl", hash = "sha256:9fbf73688f8c18f7529b4fe592abd04015f81d1e58001e4bac73ffb2b39d7cc4", size = 559079, upload-time = "2026-07-28T11:09:10.266Z" },
+    { url = "https://files.pythonhosted.org/packages/24/cc/7f624629846c709ef1c68aa61bfb8d0ae2638cbe265104a1c2f7a630949e/datasets-5.1.0-py3-none-any.whl", hash = "sha256:86fd08b280485aab82894d2c81842c4151d93b575efea0054315104cb7bc3cec", size = 604432, upload-time = "2026-10-05T15:32:29.892Z" },
 ]
 
 [[package]]
@@ -895,39 +890,16 @@ wheels = [
 
 [[package]]
 name = "fsspec"
-version = "2026.6.0"
+version = "2026.7.0"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.12' and sys_platform == 'darwin'",
-    "python_full_version >= '3.12' and sys_platform == 'win32'",
-    "python_full_version >= '3.12' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version < '3.12' and sys_platform == 'darwin'",
-    "python_full_version < '3.12' and sys_platform == 'win32'",
-    "python_full_version < '3.12' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-]
-sdist = { url = "https://files.pythonhosted.org/packages/10/a1/ae4e3e5003468d6391d2c77b6fa1cd73bd5d13511d81c642d7b28ac90ed4/fsspec-2026.6.0.tar.gz", hash = "sha256:f5bac145310fe30e16e1471bd6840b2d990d609e872251d7e674241822abf01a", size = 313646, upload-time = "2026-06-16T01:57:28.105Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/78/f34251dadb8f3921264a1d9b8946f5e542014ee2614b285261b4e40e6775/fsspec-2026.7.0.tar.gz", hash = "sha256:c803c40f4cf860b49dea58ee3e1c33cb9c790520e233537e1340049f89b82a88", size = 317040, upload-time = "2026-07-28T16:34:51.052Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/22/4222d7ddf3da30f363edaa98e329c2bce6c65497c9cb2810931c8b2c0fbc/fsspec-2026.6.0-py3-none-any.whl", hash = "sha256:02e0b71817df9b2169dc30a16832045764def1191b43dcff5bb85bdee212d2a1", size = 203949, upload-time = "2026-06-16T01:57:26.358Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/3c/6a2bf344106328fd04963664a60b9bb6496fc25df8e962fcdc1367285fb9/fsspec-2026.7.0-py3-none-any.whl", hash = "sha256:b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279", size = 206583, upload-time = "2026-07-28T16:34:49.538Z" },
 ]
 
 [package.optional-dependencies]
 http = [
     { name = "aiohttp" },
-]
-
-[[package]]
-name = "fsspec"
-version = "2026.7.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.12'",
-    "python_full_version < '3.12'",
-]
-sdist = { url = "https://files.pythonhosted.org/packages/00/78/f34251dadb8f3921264a1d9b8946f5e542014ee2614b285261b4e40e6775/fsspec-2026.7.0.tar.gz", hash = "sha256:c803c40f4cf860b49dea58ee3e1c33cb9c790520e233537e1340049f89b82a88", size = 317040, upload-time = "2026-07-28T16:34:51.052Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/3c/6a2bf344106328fd04963664a60b9bb6496fc25df8e962fcdc1367285fb9/fsspec-2026.7.0-py3-none-any.whl", hash = "sha256:b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279", size = 206583, upload-time = "2026-07-28T16:34:49.538Z" },
 ]
 
 [[package]]
@@ -1251,7 +1223,7 @@ resolution-markers = [
 ]
 dependencies = [
     { name = "filelock", marker = "extra == 'extra-23-landuse-relevance-bench-gliner2' or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
-    { name = "fsspec", version = "2026.7.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-23-landuse-relevance-bench-gliner2' or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
+    { name = "fsspec", marker = "extra == 'extra-23-landuse-relevance-bench-gliner2' or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "hf-xet", marker = "(platform_machine == 'aarch64' and extra == 'extra-23-landuse-relevance-bench-gliner2') or (platform_machine == 'amd64' and extra == 'extra-23-landuse-relevance-bench-gliner2') or (platform_machine == 'arm64' and extra == 'extra-23-landuse-relevance-bench-gliner2') or (platform_machine == 'x86_64' and extra == 'extra-23-landuse-relevance-bench-gliner2') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "packaging", marker = "extra == 'extra-23-landuse-relevance-bench-gliner2' or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "pyyaml", marker = "extra == 'extra-23-landuse-relevance-bench-gliner2' or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
@@ -1285,8 +1257,7 @@ resolution-markers = [
 dependencies = [
     { name = "click", marker = "extra == 'extra-23-landuse-relevance-bench-inference' or extra == 'extra-23-landuse-relevance-bench-speculative' or extra != 'extra-23-landuse-relevance-bench-gliner2'" },
     { name = "filelock", marker = "extra == 'extra-23-landuse-relevance-bench-inference' or extra == 'extra-23-landuse-relevance-bench-speculative' or extra != 'extra-23-landuse-relevance-bench-gliner2'" },
-    { name = "fsspec", version = "2026.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra != 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra != 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
-    { name = "fsspec", version = "2026.7.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-23-landuse-relevance-bench-inference' or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra != 'extra-23-landuse-relevance-bench-gliner2' and extra != 'extra-23-landuse-relevance-bench-speculative')" },
+    { name = "fsspec", marker = "extra == 'extra-23-landuse-relevance-bench-inference' or extra == 'extra-23-landuse-relevance-bench-speculative' or extra != 'extra-23-landuse-relevance-bench-gliner2'" },
     { name = "hf-xet", marker = "(platform_machine == 'AMD64' and extra != 'extra-23-landuse-relevance-bench-gliner2') or (platform_machine == 'aarch64' and extra != 'extra-23-landuse-relevance-bench-gliner2') or (platform_machine == 'amd64' and extra != 'extra-23-landuse-relevance-bench-gliner2') or (platform_machine == 'arm64' and extra != 'extra-23-landuse-relevance-bench-gliner2') or (platform_machine == 'x86_64' and extra != 'extra-23-landuse-relevance-bench-gliner2') or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "httpx", marker = "extra == 'extra-23-landuse-relevance-bench-inference' or extra == 'extra-23-landuse-relevance-bench-speculative' or extra != 'extra-23-landuse-relevance-bench-gliner2'" },
     { name = "packaging", marker = "extra == 'extra-23-landuse-relevance-bench-inference' or extra == 'extra-23-landuse-relevance-bench-speculative' or extra != 'extra-23-landuse-relevance-bench-gliner2'" },
@@ -1683,7 +1654,7 @@ requires-dist = [
     { name = "jinja2", marker = "extra == 'gguf'", specifier = ">=3.1" },
     { name = "jinja2", marker = "extra == 'inference'", specifier = ">=3.1" },
     { name = "laya", marker = "extra == 'inference'", specifier = ">=0.3.5" },
-    { name = "llama-cpp-python", marker = "extra == 'gguf'", specifier = "==0.3.35" },
+    { name = "llama-cpp-python", marker = "extra == 'gguf'", specifier = "==0.3.36" },
     { name = "protobuf", marker = "extra == 'gliner2'" },
     { name = "sentencepiece", marker = "extra == 'gliner2'" },
     { name = "sglang", marker = "extra == 'speculative'", specifier = ">=0.5.20" },
@@ -1771,7 +1742,7 @@ wheels = [
 
 [[package]]
 name = "llama-cpp-python"
-version = "0.3.35"
+version = "0.3.36"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "diskcache" },
@@ -1781,7 +1752,7 @@ dependencies = [
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and extra == 'extra-23-landuse-relevance-bench-gliner2') or (python_full_version >= '3.12' and extra == 'extra-23-landuse-relevance-bench-inference') or (python_full_version >= '3.12' and extra != 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1a/71/5ecdad726b87527b361d9d95313c6591f27bb3fad79c9ab524ad4250b4c9/llama_cpp_python-0.3.35.tar.gz", hash = "sha256:1139dbb54509074b70893fab8554e3b079aa9f4d312058ce4018ef0019e3de12", size = 74868054, upload-time = "2026-08-17T09:41:34.939Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ec/e9/e7de2b0463ea3ffbf0ede6cb21b58c1258a8f6521aae45ca773a59fe7cf3/llama_cpp_python-0.3.36.tar.gz", hash = "sha256:832db0699007f1be95a7e41ef12e88926b02ba836461e36a36372db2760c1a2e", size = 76589250, upload-time = "2026-10-01T05:48:01.345Z" }
 
 [[package]]
 name = "llguidance"
@@ -4555,7 +4526,7 @@ dependencies = [
     { name = "cuda-bindings", marker = "(sys_platform == 'linux' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "cuda-toolkit", extra = ["cublas", "cudart", "cufft", "cufile", "cupti", "curand", "cusolver", "cusparse", "nvjitlink", "nvrtc", "nvtx"], marker = "(sys_platform == 'linux' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "filelock", marker = "(extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra != 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra != 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
-    { name = "fsspec", version = "2026.6.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra != 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra != 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
+    { name = "fsspec", marker = "(extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra != 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra != 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "jinja2", marker = "(extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra != 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra != 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "networkx", marker = "(extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra != 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra != 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "nvidia-cudnn-cu13", version = "9.20.0.48", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'linux' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
@@ -4590,7 +4561,7 @@ dependencies = [
     { name = "cuda-bindings", marker = "(sys_platform == 'linux' and extra == 'extra-23-landuse-relevance-bench-gliner2') or (sys_platform == 'linux' and extra == 'extra-23-landuse-relevance-bench-inference') or (sys_platform == 'linux' and extra != 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "cuda-toolkit", extra = ["cublas", "cudart", "cufft", "cufile", "cupti", "curand", "cusolver", "cusparse", "nvjitlink", "nvrtc", "nvtx"], marker = "(sys_platform == 'linux' and extra == 'extra-23-landuse-relevance-bench-gliner2') or (sys_platform == 'linux' and extra == 'extra-23-landuse-relevance-bench-inference') or (sys_platform == 'linux' and extra != 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative')" },
     { name = "filelock", marker = "extra == 'extra-23-landuse-relevance-bench-gliner2' or extra == 'extra-23-landuse-relevance-bench-inference' or extra != 'extra-23-landuse-relevance-bench-speculative'" },
-    { name = "fsspec", version = "2026.7.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-23-landuse-relevance-bench-gliner2' or extra == 'extra-23-landuse-relevance-bench-inference' or extra != 'extra-23-landuse-relevance-bench-speculative'" },
+    { name = "fsspec", marker = "extra == 'extra-23-landuse-relevance-bench-gliner2' or extra == 'extra-23-landuse-relevance-bench-inference' or extra != 'extra-23-landuse-relevance-bench-speculative'" },
     { name = "jinja2", marker = "extra == 'extra-23-landuse-relevance-bench-gliner2' or extra == 'extra-23-landuse-relevance-bench-inference' or extra != 'extra-23-landuse-relevance-bench-speculative'" },
     { name = "networkx", marker = "extra == 'extra-23-landuse-relevance-bench-gliner2' or extra == 'extra-23-landuse-relevance-bench-inference' or extra != 'extra-23-landuse-relevance-bench-speculative'" },
     { name = "nvidia-cudnn-cu13", version = "9.24.0.43", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform == 'linux' and extra == 'extra-23-landuse-relevance-bench-gliner2') or (sys_platform == 'linux' and extra == 'extra-23-landuse-relevance-bench-inference') or (sys_platform == 'linux' and extra != 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-inference') or (extra == 'extra-23-landuse-relevance-bench-gliner2' and extra == 'extra-23-landuse-relevance-bench-speculative') or (extra == 'extra-23-landuse-relevance-bench-inference' and extra == 'extra-23-landuse-relevance-bench-speculative')" },

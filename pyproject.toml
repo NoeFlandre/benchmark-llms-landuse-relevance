@@ -43,7 +43,7 @@ gliner2 = [
 # llama.cpp must be compiled against the node's CUDA toolkit, so the node script
 # rebuilds this locked version from source (--no-binary) after `uv sync`.
 gguf = [
-    "llama-cpp-python==0.3.35",
+    "llama-cpp-python==0.3.36",
     "jinja2>=3.1",
 ]
 # SGLang pins its own torch and transformers, so it cannot share an environment with
