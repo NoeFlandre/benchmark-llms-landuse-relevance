@@ -4,11 +4,18 @@ version = "0.2.0"
 description = "End-to-end benchmark of small LLMs on land-use relevance sentence classification."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Noe Flandre", email = "noe.flandre@inria.fr" }]
 dependencies = [
     "typer>=0.15",
 ]
+
+[project.urls]
+Homepage = "https://github.com/NoeFlandre/benchmark-llms-landuse-relevance"
+Repository = "https://github.com/NoeFlandre/benchmark-llms-landuse-relevance"
+Issues = "https://github.com/NoeFlandre/benchmark-llms-landuse-relevance/issues"
+Changelog = "https://github.com/NoeFlandre/benchmark-llms-landuse-relevance/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 inference = [

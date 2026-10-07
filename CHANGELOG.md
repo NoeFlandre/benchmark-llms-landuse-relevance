@@ -4,6 +4,8 @@
 
 - CLI: add help text to the shard, seed, token, `--keep-going` and `--benchmark-name`
   options, and add `--no-skip-existing` to `lrb run-all`. Option names are unchanged.
+- Packaging: ship the `py.typed` marker, add project URLs, use an SPDX license
+  expression, and test that the pyproject, package and CITATION.cff versions agree.
 - Document the `--only`, `--runtime`, `--skip-existing`, `--no-skip-existing`,
   `--keep-going`, `--throughput` and `--json` flags in the README.
 
