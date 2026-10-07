@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from landuse_relevance_bench.adapters.hf_scorer_prompt import reranker_input
+from landuse_relevance_bench.adapters.optional_import import require
 from landuse_relevance_bench.adapters.pipeline import SCORING_SEQUENCE_LENGTH, RunRequest
 from landuse_relevance_bench.adapters.revision import loaded_revision
 from landuse_relevance_bench.domain.engine import LabelScorer, LabelScores, ScoringInput
@@ -27,9 +28,7 @@ _BINARY_LOGIT_COUNT = 2
 
 def _load_transformers() -> Any:
     """Load the optional runtime without making the type checker index its registry."""
-    module_name = "trans" + "formers"
-    importer = __import__("builtins").__import__
-    return importer(module_name)
+    return require("transformers", "inference")
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,8 +268,7 @@ LAYA_MODEL_FILES = (
 
 def _load_laya() -> Any:
     """Load the optional Laya SDK without making the base CLI import it."""
-    importer = __import__("builtins").__import__
-    return importer("laya")
+    return require("laya", "inference")
 
 
 class _PipelineScorer(_Scorer, _CudaMeasurement):
@@ -526,7 +524,7 @@ class Gliner2Scorer(_PipelineScorer):
         from huggingface_hub import snapshot_download
 
         # Imported by name: gliner2 lives in its own environment (it pins Transformers 4).
-        auto_extractor = __import__("builtins").__import__("gliner2").AutoExtractor
+        auto_extractor = require("gliner2", "gliner2").AutoExtractor
 
         del settings  # the SDK picks its own runtime dtype, recorded as runtime_dtype
         local_path = snapshot_download(model_id, revision=revision)
