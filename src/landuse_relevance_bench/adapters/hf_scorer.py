@@ -19,7 +19,7 @@ from landuse_relevance_bench.adapters.pipeline import SCORING_SEQUENCE_LENGTH, R
 from landuse_relevance_bench.adapters.revision import loaded_revision
 from landuse_relevance_bench.domain.engine import LabelScorer, LabelScores, ScoringInput
 from landuse_relevance_bench.domain.labels import Label
-from landuse_relevance_bench.domain.scorers import MXBAI_LOGIT_OFFSET
+from landuse_relevance_bench.domain.scorers import MXBAI_LOGIT_OFFSET, scorer_for
 from landuse_relevance_bench.domain.variants import repository_of
 
 _SINGLE_LOGIT_COUNT = 1
@@ -37,6 +37,20 @@ class ScorerSettings:
 
     dtype: str
     device_map: str = "auto"
+    trust_remote_code: bool = False
+
+
+def _trust_remote_code(settings: ScorerSettings, revision: str | None) -> bool:
+    """Whether the checkpoint's remote code may run: only when opted in and pinned.
+
+    A moving branch head must never execute code, so an opt-in without a revision fails
+    before anything is downloaded.
+    """
+    if not settings.trust_remote_code:
+        return False
+    if not revision:
+        raise ValueError("trust_remote_code needs a pinned revision; refusing to run remote code")
+    return True
 
 
 class _Scorer:
@@ -195,6 +209,7 @@ class GteScorer(_TransformersScorer):
     def load(
         cls, model_id: str, settings: ScorerSettings, revision: str | None = None
     ) -> "GteScorer":
+        trust = _trust_remote_code(settings, revision)
         tokenizer: Any = _load_transformers().AutoTokenizer.from_pretrained(
             model_id, revision=revision
         )
@@ -203,7 +218,7 @@ class GteScorer(_TransformersScorer):
             model_id,
             settings,
             revision,
-            trust_remote_code=True,
+            trust_remote_code=trust,
         )
         return cls(tokenizer, model)
 
@@ -619,15 +634,16 @@ class MaskedTokenScorer(_TransformersScorer):
 
     @classmethod
     def load(cls, model_id: str, settings: ScorerSettings, revision: str | None = None) -> Any:
+        trust = _trust_remote_code(settings, revision)
         tokenizer = _load_transformers().AutoTokenizer.from_pretrained(
-            model_id, revision=revision, trust_remote_code=True
+            model_id, revision=revision, trust_remote_code=trust
         )
         model = _pretrained(
             "AutoModelForMaskedLM",
             model_id,
             settings,
             revision,
-            trust_remote_code=True,
+            trust_remote_code=trust,
         )
         return cls(tokenizer, model)
 
@@ -719,8 +735,10 @@ def scorer_class_for(model_id: str) -> type[Any]:
 
 def provide_scorer(request: RunRequest) -> tuple[LabelScorer, str]:
     """The default scorer provider used by the CLI."""
-    settings = ScorerSettings(dtype=request.dtype)
-    scorer = scorer_class_for(request.model_id).load(
-        repository_of(request.model_id), settings, revision=request.revision
+    scorer_cls = scorer_class_for(request.model_id)
+    settings = ScorerSettings(
+        dtype=request.dtype,
+        trust_remote_code=scorer_for(request.model_id).trust_remote_code,
     )
+    scorer = scorer_cls.load(repository_of(request.model_id), settings, revision=request.revision)
     return scorer, request.revision or scorer.revision

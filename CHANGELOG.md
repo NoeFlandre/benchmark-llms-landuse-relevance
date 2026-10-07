@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Security: the scoring adapters no longer run a Hub checkpoint's remote code by default.
+  Remote code runs only for a scoring model whose roster entry opts in, and only with a
+  pinned revision; otherwise loading fails before any download.
 - CI: pin Docker base images by digest, define `UV_VERSION` once, and enable
   Dependabot updates for the Docker ecosystem.
 - Replace the obfuscated lazy imports of optional runtimes with one `require` helper that

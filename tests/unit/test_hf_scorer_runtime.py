@@ -449,6 +449,113 @@ def test_all_optional_scorer_loaders_are_mockable_without_network(monkeypatch) -
     laya = hf_scorer.LayaScorer.load("owner/laya", settings)
     assert laya.revision == "laya"
     assert laya.runtime_dtype == "float16"
-    assert any(
-        call[1].get("trust_remote_code") is True for call in auto_calls if call[0] == "model"
+    # Default settings never run a checkpoint's remote code, whichever loader asks.
+    assert not any(call[1].get("trust_remote_code") for call in auto_calls)
+
+
+def _remote_code_transformers(monkeypatch) -> list[tuple[str, str, dict[str, Any]]]:
+    """Fake Transformers that record every load, so tests can see what trust was passed."""
+    calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    class AutoTokenizer:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: Any) -> Tokenizer:
+            calls.append(("tokenizer", model_id, kwargs))
+            return Tokenizer()
+
+    class AutoModel:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: Any) -> Model:
+            calls.append(("model", model_id, kwargs))
+            return Model()
+
+    transformers = SimpleNamespace(
+        AutoTokenizer=AutoTokenizer,
+        AutoModelForSequenceClassification=AutoModel,
+        AutoModelForMaskedLM=AutoModel,
     )
+    monkeypatch.setattr(hf_scorer, "_load_transformers", lambda: transformers)
+    return calls
+
+
+def test_remote_code_is_off_for_every_loader_unless_the_roster_opts_in(monkeypatch) -> None:
+    _torch()
+    calls = _remote_code_transformers(monkeypatch)
+    settings = hf_scorer.ScorerSettings(dtype="float32")
+
+    hf_scorer.GteScorer.load("owner/gte", settings, revision="gte-rev")
+    hf_scorer.MaskedTokenScorer.load("owner/masked", settings, revision="mask-rev")
+
+    # Calls: GTE tokenizer, GTE model, masked-LM tokenizer, masked-LM model.
+    assert [kwargs.get("trust_remote_code") for _, _, kwargs in calls] == [
+        None,
+        False,
+        False,
+        False,
+    ]
+
+
+def test_remote_code_runs_only_when_opted_in_with_a_pinned_revision(monkeypatch) -> None:
+    _torch()
+    calls = _remote_code_transformers(monkeypatch)
+    settings = hf_scorer.ScorerSettings(dtype="float32", trust_remote_code=True)
+
+    hf_scorer.GteScorer.load("owner/gte", settings, revision="gte-rev")
+    hf_scorer.MaskedTokenScorer.load("owner/masked", settings, revision="mask-rev")
+
+    # The GTE tokenizer never takes the flag; the models and the masked-LM tokenizer do.
+    assert [kwargs.get("trust_remote_code") for _, _, kwargs in calls] == [None, True, True, True]
+    assert [kwargs["revision"] for _, _, kwargs in calls] == [
+        "gte-rev",
+        "gte-rev",
+        "mask-rev",
+        "mask-rev",
+    ]
+
+
+@pytest.mark.parametrize("revision", [None, ""])
+def test_remote_code_without_a_pinned_revision_is_refused_before_any_download(
+    monkeypatch, revision: str | None
+) -> None:
+    _torch()
+    calls = _remote_code_transformers(monkeypatch)
+    settings = hf_scorer.ScorerSettings(dtype="float32", trust_remote_code=True)
+
+    with pytest.raises(ValueError, match="pinned revision"):
+        hf_scorer.GteScorer.load("owner/gte", settings, revision=revision)
+    with pytest.raises(ValueError, match="pinned revision"):
+        hf_scorer.MaskedTokenScorer.load("owner/masked", settings, revision=revision)
+
+    assert calls == []
+
+
+def test_provider_passes_each_scorers_roster_opt_in_and_no_other(monkeypatch) -> None:
+    seen: list[hf_scorer.ScorerSettings] = []
+
+    class Loaded:
+        revision = "resolved"
+
+        @classmethod
+        def load(cls, _model_id: str, settings: Any, **_kwargs: Any):
+            seen.append(settings)
+            return cls()
+
+    monkeypatch.setattr(hf_scorer, "scorer_class_for", lambda _model_id: Loaded)
+    listed = RunRequest.for_run(
+        "Alibaba-NLP/gte-multilingual-reranker-base",
+        language="en",
+        benchmark_path=Path("unused"),
+        prompt_path=Path("unused"),
+        output_dir=Path("unused"),
+    )
+    hf_scorer.provide_scorer(listed)
+    assert seen[-1].trust_remote_code is False
+
+    # A roster entry that opts in threads the flag through to the loader.
+    monkeypatch.setattr(
+        hf_scorer,
+        "scorer_for",
+        lambda _model_id: SimpleNamespace(trust_remote_code=True),
+    )
+    hf_scorer.provide_scorer(listed)
+    assert seen[-1].trust_remote_code is True

@@ -67,6 +67,9 @@ class ScorerSpec:
     card: tuple[str, str, str] = DEFAULT_CARD
     #: A model's declared language coverage, or None for the full benchmark inventory.
     supported_languages: tuple[str, ...] | None = None
+    #: Whether the checkpoint's own Python code may run. Off unless the model needs it,
+    #: and then only with a pinned revision (enforced by the loader).
+    trust_remote_code: bool = False
 
     @property
     def repository(self) -> str:
