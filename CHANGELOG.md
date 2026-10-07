@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Replace the obfuscated lazy imports of optional runtimes with one `require` helper that
+  names the missing extra in its ImportError.
 - CLI: add help text to the shard, seed, token, `--keep-going` and `--benchmark-name`
   options, and add `--no-skip-existing` to `lrb run-all`. Option names are unchanged.
 - Packaging: ship the `py.typed` marker, add project URLs, use an SPDX license

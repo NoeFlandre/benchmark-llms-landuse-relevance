@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
+from landuse_relevance_bench.adapters.optional_import import require
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.domain.engine import Generation
 from landuse_relevance_bench.domain.roster import spec_for
@@ -72,7 +73,7 @@ class LlamaCppGenerator:
         from huggingface_hub import HfApi, hf_hub_download
 
         # Imported by name: llama.cpp is installed only in the GGUF job's environment.
-        llama_class = __import__("builtins").__import__("llama_cpp").Llama
+        llama_class = require("llama_cpp", "gguf").Llama
 
         resolved = revision or str(HfApi().model_info(repository).sha or "")
         path = hf_hub_download(repository, weights_file, revision=resolved or None)
