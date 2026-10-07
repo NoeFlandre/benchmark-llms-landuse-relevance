@@ -14,6 +14,9 @@
   `--keep-going`, `--throughput` and `--json` flags in the README.
 - Report a run file whose JSON top level is not an object (for example `[]`) as an
   invalid run result that names the file, instead of an `AttributeError` traceback.
+- CLI: `lrb run-all --keep-going` logs the traceback of each unexpected failure, reports
+  input problems as "rejected" rather than "failed", and ends with a summary of the pairs
+  that did not complete.
 
 ## [0.2.0] - 2026-09-26
 

@@ -1,6 +1,7 @@
 """Scriptable entry points for running, scoring and publishing the benchmark."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Annotated, TypedDict
 
@@ -45,6 +46,8 @@ from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
 from landuse_relevance_bench.domain.roster import ROSTER, model_ids
 from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, scorer_for, scorer_ids
 from landuse_relevance_bench.domain.sharding import pair_statuses
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     add_completion=False,
@@ -291,7 +294,7 @@ def run_all(
     pairs_by_model: dict[str, list[str]] = {}
     for model, selected_language in pairs:
         pairs_by_model.setdefault(model, []).append(selected_language)
-    failures = False
+    failed_pairs: list[str] = []
     for model, languages_for_model in pairs_by_model.items():
         provider = cached_generator_provider()
         model_batch_size, use_continuous_batching, use_throughput = mode_options(
@@ -302,6 +305,7 @@ def run_all(
         )
         try:
             for selected_language in languages_for_model:
+                pair = f"{model} [{selected_language}]"
                 try:
                     benchmark_one(
                         RunRequest.for_run(
@@ -318,14 +322,24 @@ def run_all(
                         provider,
                         skip_existing=skip_existing,
                     )
+                except typer.BadParameter as exc:
+                    # Input problems are user errors, not run failures: no traceback.
+                    if not keep_going:
+                        raise
+                    typer.echo(f"{pair} rejected: {exc.message}", err=True)
+                    failed_pairs.append(pair)
                 except Exception as exc:
                     if not keep_going:
                         raise
-                    typer.echo(f"{model} [{selected_language}] failed: {exc}", err=True)
-                    failures = True
+                    logger.exception("%s failed", pair)
+                    typer.echo(f"{pair} failed: {exc}", err=True)
+                    failed_pairs.append(pair)
         finally:
             provider.close_cached()
-    if failures:
+    if failed_pairs:
+        typer.echo(
+            f"{len(failed_pairs)} run(s) did not complete: {', '.join(failed_pairs)}", err=True
+        )
         raise typer.Exit(code=1)
 
 
