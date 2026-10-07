@@ -119,6 +119,8 @@ def read_run(path: Path, *, legacy_language: str | None = None) -> RunResult:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} does not contain a JSON object")
     try:
         metadata = payload.get("metadata", {})
         if legacy_language is not None and not metadata.get("language"):

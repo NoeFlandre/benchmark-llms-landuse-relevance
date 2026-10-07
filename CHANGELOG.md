@@ -12,6 +12,8 @@
   expression, and test that the pyproject, package and CITATION.cff versions agree.
 - Document the `--only`, `--runtime`, `--skip-existing`, `--no-skip-existing`,
   `--keep-going`, `--throughput` and `--json` flags in the README.
+- Report a run file whose JSON top level is not an object (for example `[]`) as an
+  invalid run result that names the file, instead of an `AttributeError` traceback.
 
 ## [0.2.0] - 2026-09-26
 
