@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- CI: pin Docker base images by digest, define `UV_VERSION` once, and enable
+  Dependabot updates for the Docker ecosystem.
 - CLI: add help text to the shard, seed, token, `--keep-going` and `--benchmark-name`
   options, and add `--no-skip-existing` to `lrb run-all`. Option names are unchanged.
 - Document the `--only`, `--runtime`, `--skip-existing`, `--no-skip-existing`,
