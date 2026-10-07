@@ -1,6 +1,14 @@
 # Build either `transformers` (the default) or `sglang`. The extras pin different
 # Torch/Transformers stacks, so each runtime gets its own image target.
-FROM python:3.12-slim AS base
+# Base images are pinned by digest (tag kept in the comment); Dependabot's docker
+# ecosystem proposes digest bumps. When bumping UV_VERSION, update the uv digest too.
+ARG UV_VERSION=0.11.16
+
+# ghcr.io/astral-sh/uv:0.11.16
+FROM ghcr.io/astral-sh/uv:${UV_VERSION}@sha256:440fd6477af86a2f1b38080c539f1672cd22acb1b1a47e321dba5158ab08864d AS uv
+
+# python:3.12-slim
+FROM python@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -10,7 +18,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HF_HUB_DISABLE_TELEMETRY=1 \
     PATH="/opt/venv/bin:${PATH}"
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 RUN groupadd --gid 1000 lrb \
     && useradd --uid 1000 --gid lrb --create-home --shell /usr/sbin/nologin lrb \
@@ -30,7 +38,8 @@ VOLUME ["/cache/huggingface", "/app/results"]
 
 # SGLang's CUDA kernels need a CUDA development toolchain at runtime for JIT builds.
 # Keep its CUDA/PyTorch stack isolated from the Transformers image above.
-FROM nvidia/cuda:13.0.3-cudnn-devel-ubuntu24.04 AS sglang-cuda-base
+# nvidia/cuda:13.0.3-cudnn-devel-ubuntu24.04
+FROM nvidia/cuda@sha256:0230b7f243483cb15969fa3cc724a9459599604427052fc2a0d4291c7c0647dd AS sglang-cuda-base
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -42,7 +51,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CUDA_HOME=/usr/local/cuda \
     PATH="/opt/venv/bin:/usr/local/cuda/bin:${PATH}"
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev \
