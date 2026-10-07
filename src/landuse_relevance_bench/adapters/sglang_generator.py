@@ -165,6 +165,7 @@ def provide(request: RunRequest) -> tuple[SGLangGenerator, str]:
         try:
             generator.close()
         except Exception:
+            # Logged, not raised: the revision lookup error is the one the caller needs.
             logger.exception("SGLang engine cleanup failed after revision lookup error")
         raise
     return generator, target_revision
