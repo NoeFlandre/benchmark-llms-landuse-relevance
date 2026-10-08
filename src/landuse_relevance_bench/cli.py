@@ -2,8 +2,10 @@
 
 import json
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, TypedDict
+from typing import Annotated, TypedDict, TypeVar
 
 import typer
 
@@ -14,6 +16,7 @@ from landuse_relevance_bench.adapters.pipeline import (
     RunRequest,
 )
 from landuse_relevance_bench.adapters.providers import (
+    CachedProvider,
     cached_generator_provider,
     cached_scorer_provider,
 )
@@ -98,6 +101,18 @@ SkipExisting = Annotated[
         help="Skip model-language pairs that already have stored results.",
     ),
 ]
+
+
+_T = TypeVar("_T")
+
+
+@contextmanager
+def _closing_provider(provider: CachedProvider[_T]) -> Iterator[CachedProvider[_T]]:
+    """Release the cached model when the block ends, even if the run raised."""
+    try:
+        yield provider
+    finally:
+        provider.close_cached()
 
 
 def _plan(
@@ -194,8 +209,7 @@ def run(
         )
     manifest, selected = selected_languages(data_root, language)
     pairs = _plan((model_id,), selected, manifest, (shard_index, shard_count), out)
-    provider = cached_generator_provider()
-    try:
+    with _closing_provider(cached_generator_provider()) as provider:
         for _, selected_language in pairs:
             benchmark_one(
                 RunRequest.for_run(
@@ -212,8 +226,6 @@ def run(
                 ),
                 provider,
             )
-    finally:
-        provider.close_cached()
 
 
 @app.command()
@@ -243,8 +255,7 @@ def score(
     manifest, selected = selected_languages(data_root, language)
     selected = languages_for_scorer(spec, selected, language)
     pairs = _plan((model_id,), selected, manifest, (shard_index, shard_count), out)
-    provider = cached_scorer_provider()
-    try:
+    with _closing_provider(cached_scorer_provider()) as provider:
         for _, selected_language in pairs:
             score_one(
                 RunRequest(
@@ -257,8 +268,6 @@ def score(
                 ),
                 provider,
             )
-    finally:
-        provider.close_cached()
 
 
 @app.command(name="run-all")
@@ -303,7 +312,7 @@ def run_all(
             continuous_batching=continuous_batching,
             throughput=throughput,
         )
-        try:
+        with _closing_provider(provider):
             for selected_language in languages_for_model:
                 pair = f"{model} [{selected_language}]"
                 try:
@@ -334,8 +343,6 @@ def run_all(
                     logger.exception("%s failed", pair)
                     typer.echo(f"{pair} failed: {exc}", err=True)
                     failed_pairs.append(pair)
-        finally:
-            provider.close_cached()
     if failed_pairs:
         typer.echo(
             f"{len(failed_pairs)} run(s) did not complete: {', '.join(failed_pairs)}", err=True
