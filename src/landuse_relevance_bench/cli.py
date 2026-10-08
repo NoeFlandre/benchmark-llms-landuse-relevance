@@ -28,18 +28,15 @@ from landuse_relevance_bench.application import (
     DEFAULT_PROMPT,
     DEFAULT_RESULTS,
     DEFAULT_SCORER_PROMPT,
-    VIEWER_FILE,
     benchmark_one,
     comparable_runs,
     completed_pairs,
-    extra_scorer_prompts,
     languages_for_scorer,
-    load_prompts,
     manifest_for,
     mode_options,
     planned_pairs,
     print_run_plan,
-    publish_allow_patterns,
+    publish_to_hub,
     report_lines,
     score_one,
     selected_languages,
@@ -415,54 +412,20 @@ def publish(
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Preview without Hub upload.")] = False,
 ) -> None:
     """Push the stored runs, leaderboard and a generated card to the Hub."""
-    from landuse_relevance_bench.adapters.hf_publish import publish_results, read_published_runs
-
-    if not results_dir.is_dir():
-        raise typer.BadParameter(f"no run results directory at {results_dir}")
-    try:
-        published = read_published_runs(results_dir)
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    language_filter: list[str] | None = None
-    if language is not None:
-        _, selected = selected_languages(data_root, language)
-        language_filter = list(selected)
-    runs = comparable_runs(published, language_filter, results_dir)
-    # A reranker's score is not calibrated to a 0.5 boundary, so the sweep is published
-    # alongside the headline rows.
-    if not dry_run:
-        write_reports(runs, results_dir / "leaderboard.csv")
-    prompt_text, scorer_prompt_text = load_prompts(prompt, scorer_prompt)
-    if dry_run:
-        from landuse_relevance_bench.adapters.hf_publish import dataset_card
-
-        preview = dataset_card(
-            runs,
-            benchmark_name=benchmark_name,
-            prompt_text=prompt_text,
-            scorer_prompt_text=scorer_prompt_text,
-            extra_scorer_prompt_texts=extra_scorer_prompts(scorer_prompt),
-            timing_results=read_runs(timing_dir) if timing_dir else (),
-            viewer_file=VIEWER_FILE,
-        )
-        typer.echo(f"dry-run: would publish {len(runs)} result(s) to {repo_id}")
-        typer.echo(preview)
-        return
-    url = publish_results(
+    result = publish_to_hub(
         repo_id,
-        results_dir,
-        runs,
-        private=private,
-        benchmark_name=benchmark_name,
-        prompt_text=prompt_text,
-        scorer_prompt_text=scorer_prompt_text,
-        extra_scorer_prompt_texts=extra_scorer_prompts(scorer_prompt),
-        timing_results=read_runs(timing_dir) if timing_dir else (),
         data_root=data_root,
-        allow_patterns=publish_allow_patterns(
-            results_dir,
-            runs,
-            include_snapshot_status=language_filter is None,
-        ),
+        results_dir=results_dir,
+        prompt=prompt,
+        scorer_prompt=scorer_prompt,
+        benchmark_name=benchmark_name,
+        timing_dir=timing_dir,
+        language=language,
+        private=private,
+        dry_run=dry_run,
     )
-    typer.echo(f"published {len(runs)} run(s) to {url}")
+    if dry_run:
+        typer.echo(f"dry-run: would publish {result.run_count} result(s) to {repo_id}")
+        typer.echo(result.output)
+        return
+    typer.echo(f"published {result.run_count} run(s) to {result.output}")
