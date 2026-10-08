@@ -26,7 +26,7 @@ Not in scope and not done: `card_validation`, `hub`, scoring, logprob and agreem
 |---|---|---|
 | handoff/issue-92-slice1-code-6df2e46 | 6df2e46f96f1e1c91f9376e2ba4af49026f8ada6 | Pushed. Code and tests only. Verified against GitHub (see section 6). |
 | handoff/issue-92-slice1-notes-6df2e46 | recorded in the archive's inventory/SHA256SUMS.txt and in the final report (a commit cannot contain its own SHA) | Pushed. This HANDOFF.md, sanitised evidence, checkout inventory and restoration results. Parent is 6df2e46. |
-| integration/92-with-81 | 00ab5a093f0cae061cf9dbb7295d81e4d9f2a032 | NOT pushed. Experimental scratch merge in the recovery archive only. Not a merge candidate. |
+| integration/92-with-81 | 00ab5a093f0cae061cf9dbb7295d81e4d9f2a032 | NOT published as a code branch. Not a merge candidate. Preserved as an archival bundle on the notes branch: `archive/integration-00ab5a0.experimental.incremental.bundle`, SHA-256 38b550b39e488f537a568bbb60bfe37a29cb6d7dbe344cc4321a7b47a8d8f029. Restoration steps in `archive/README.md`. |
 | main | 5e52649b1a583c6e96b77cb83e090d99feea6c6f | Unchanged. Not written to. |
 | fix/mutation-gate-entrypoint (PR #81 head) | 8f4fbd4a0030a445faae236d82c2f50ab6569d90 | Unchanged. Read only (fetched). |
 
@@ -100,7 +100,7 @@ Overlap with PR #81 (draft, owner NoeFlandre, base 72b05297, stale against main)
 - DELETES `results_store.rounded` (def plus 4 lines, hunk @@ -89,11 +89,6 @@). Exact hunks are in evidence/pr81-relevant-hunks.diff.
 - DELETES the `rounded` import and `test_rounding_is_idempotent` (and the `hypothesis.strategies` import it used) in `tests/property/test_leaderboard_properties.py`.
 - Adds `[options] prerelease-mode = "if-necessary"` to `uv.lock`. Keep this: it makes the pinned-uv lock check pass.
-- Its `mutation-allowlist.txt` write_run entries are stale against main. Regenerate with `make mutation` on a rebased #81 (heavy).
+- Its `mutation-allowlist.txt` write_run entries are stale against main. Reconcile each entry against current mutants with evidence and review; no blanket exceptions. `make mutation` on a rebased #81 is heavy and has not been run.
 - Also touches `results_store.py` (threshold sweep rewrite, removes write_threshold_sweep_csv and write_scoring_summary_csv), `scripts/check_mutants.py`, `domain/uncertainty.py`, several tests.
 - Proposed resolution (preferred, validated on the scratch): keep `rounded` and its property test. Revert those two #81 hunks. Keep all other #81 changes. Status: decided by Master 1. Not yet delivered.
 
@@ -121,7 +121,7 @@ Known nits (not blocking):
 - `docs/debt.md` line (above).
 
 Pending decisions:
-- Master 1: reconcile PR #81 (preferred: keep rounded and its property test; keep the uv.lock [options] hunk; regenerate the mutation allowlist on a rebased #81). Do this on a NEW branch. Do not force-push #81.
+- Master 1: reconcile PR #81 (preferred: keep rounded and its property test; keep the uv.lock [options] hunk; reconcile each entry in mutation-allowlist.txt against current mutants with evidence and review; no blanket exceptions). Do this on a NEW branch. Do not force-push #81.
 - Whether to run `make mutation` (heavy, CI budget 90 minutes).
 - Whether to apply the two nits above.
 
@@ -151,7 +151,7 @@ Incremental bundles do not embed their prerequisite commits. Doing so would embe
 1. Read section 3 first. Do not treat FAILED or UNRUN rows as passes.
 2. Fetch `handoff/issue-92-slice1-code-6df2e46` and confirm the head is 6df2e46f96f1e1c91f9376e2ba4af49026f8ada6. Do not push to main.
 3. Confirm the lock problem with the pinned uv before anything else: `uvx --from uv==0.11.16 uv lock --check` (read only). Expect exit 1 on main's lock.
-4. For #81: create a NEW branch from current main. Revert only the two `rounded` hunks (see evidence/pr81-relevant-hunks.diff). Keep the uv.lock [options] hunk. Do not force-push or edit `fix/mutation-gate-entrypoint`.
+4. For #81: create a NEW branch from current main. Revert only the two `rounded` hunks (see evidence/pr81-relevant-hunks.diff). Keep the uv.lock [options] hunk. Reconcile each mutation-allowlist entry against current mutants with evidence and review; no blanket exceptions. Do not force-push or edit `fix/mutation-gate-entrypoint`.
 5. Run gates one at a time (heavy): `UV_FROZEN=1 uv sync --frozen --python 3.12 --extra inference --extra scoring --extra publish`, then `make lint types test acceptance architecture crap smoke wheel`. Expect scripts failures unless ssh is installed. Run `make mutation` only when you accept the cost.
 6. Commit trailers: the slice commits use `Co-Authored-By: Claude <noreply@anthropic.com>` and the Claude-Session trailer. Keep them unchanged unless policy says otherwise.
 
@@ -159,3 +159,18 @@ Incremental bundles do not embed their prerequisite commits. Doing so would embe
 
 - Commit author and committer: Claude <noreply@anthropic.com>. No personal email was added. The archive and this file contain no credentials, tokens, machine paths or personal data (checked by pattern scan, see inventory).
 - Paths in this file are repo-relative. Machine-specific paths were replaced by placeholders in the evidence.
+
+## 9. Recoverability from GitHub (no attachments needed)
+
+Everything Master 1 needs is on GitHub:
+- Slice code and tests: branch `handoff/issue-92-slice1-code-6df2e46`, head 6df2e46f96f1e1c91f9376e2ba4af49026f8ada6 (five commits on main 5e52649).
+- This HANDOFF, gate and lock evidence, review verdicts, the PR #81 hunks, restoration results, and the checkout and refs inventory: branch `handoff/issue-92-slice1-notes-6df2e46`, under `handoff/issue-92-slice1/`. See `evidence/README.md` for the status of each file.
+- The experimental integration scratch (00ab5a0): the archival bundle `archive/integration-00ab5a0.experimental.incremental.bundle` on the same notes branch, with its SHA-256 and restoration steps in `archive/README.md`. Its prerequisites are public: 6df2e46 (code branch) and 8f4fbd4 (PR #81 head).
+
+Not on GitHub, and not needed:
+- The per-commit patch files and the slice-only bundle. Both can be regenerated from the code branch (`git format-patch 5e52649..6df2e46`).
+- The downloadable recovery tar.gz (attachment only). It duplicates the above.
+- Raw unsanitised logs, local virtualenv, caches and build outputs. These were excluded on purpose.
+
+Not verified at all (no evidence on any branch): make mutation, make security, the speculative lock dry-run, integration tests, the Python 3.11 leg, Docker build and GitHub Actions.
+
