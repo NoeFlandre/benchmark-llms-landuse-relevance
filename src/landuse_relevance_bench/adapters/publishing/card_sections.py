@@ -1,4 +1,4 @@
-"""Pure renderers for the runtime-performance section of the dataset card."""
+"""Pure renderers for the runtime-performance card section, and the table helper they share."""
 
 from collections.abc import Sequence
 from typing import Any
