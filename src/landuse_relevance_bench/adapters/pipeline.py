@@ -149,6 +149,24 @@ def _close_generator(generator: TextGenerator) -> None:
         generator.close()
 
 
+def _close_run_generator(request: RunRequest, generator: TextGenerator, *, failed: bool) -> None:
+    """Close a generator this run owns, then log GPU memory."""
+    if not request.close_generator:
+        return
+    phase = "after prediction error" if failed else "after prediction"
+    try:
+        _close_generator(generator)
+    except Exception:
+        # Logged, not raised: after a failed run this must not replace the original
+        # error, and after a successful run the predictions are already in hand.
+        logger.exception("%s: generator cleanup failed %s", request.name, phase)
+    _log_gpu_memory(
+        request.name,
+        "after failed run cleanup" if failed else "after run cleanup",
+        free_gpu_memory_bytes(),
+    )
+
+
 def _log_gpu_memory(name: str, stage: str, free_bytes: int | None) -> None:
     if free_bytes is not None:
         logger.info("%s: free GPU memory %s: %.1f MiB", name, stage, free_bytes / 2**20)
@@ -204,22 +222,10 @@ def execute(
             lambda: predict_all(items, template, progress_generator, batch_size=request.batch_size)
         )
     except BaseException:
-        if request.close_generator:
-            try:
-                _close_generator(generator)
-            except Exception:
-                logger.exception(
-                    "%s: generator cleanup failed after prediction error", request.name
-                )
-            _log_gpu_memory(request.name, "after failed run cleanup", free_gpu_memory_bytes())
+        _close_run_generator(request, generator, failed=True)
         raise
     else:
-        if request.close_generator:
-            try:
-                _close_generator(generator)
-            except Exception:
-                logger.exception("%s: generator cleanup failed after prediction", request.name)
-            _log_gpu_memory(request.name, "after run cleanup", free_gpu_memory_bytes())
+        _close_run_generator(request, generator, failed=False)
     metadata = _metadata(
         request,
         generator,
