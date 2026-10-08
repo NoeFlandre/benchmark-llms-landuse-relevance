@@ -10,6 +10,7 @@ from landuse_relevance_bench.adapters.results_store import (
     aggregate_rows,
     group_by_model,
     read_runs,
+    rounded,
     scoring_summary_rows,
 )
 from landuse_relevance_bench.domain.agreement import speculative_agreements
@@ -303,38 +304,14 @@ def _speed_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
                 "batch_size": _single_setting(runs, "batch_size"),
                 "language_count": len({run.metadata.language for run in runs}),
                 "cumulative_wall_seconds": round(speed.wall_seconds, 2),
-                "sentences_per_second": (
-                    None
-                    if speed.sentences_per_second is None
-                    else round(speed.sentences_per_second, 3)
-                ),
-                "latency_mean_seconds": (
-                    None
-                    if speed.latency_mean_seconds is None
-                    else round(speed.latency_mean_seconds, 4)
-                ),
-                "latency_p50_seconds": (
-                    None
-                    if speed.latency_p50_seconds is None
-                    else round(speed.latency_p50_seconds, 4)
-                ),
-                "latency_p95_seconds": (
-                    None
-                    if speed.latency_p95_seconds is None
-                    else round(speed.latency_p95_seconds, 4)
-                ),
+                "sentences_per_second": rounded(speed.sentences_per_second, 3),
+                "latency_mean_seconds": rounded(speed.latency_mean_seconds, 4),
+                "latency_p50_seconds": rounded(speed.latency_p50_seconds, 4),
+                "latency_p95_seconds": rounded(speed.latency_p95_seconds, 4),
                 "generated_tokens": speed.generated_tokens,
-                "output_tokens_per_second": (
-                    None
-                    if speed.output_tokens_per_second is None
-                    else round(speed.output_tokens_per_second, 2)
-                ),
-                "mean_accept_length": (
-                    None if speed.mean_accept_length is None else round(speed.mean_accept_length, 3)
-                ),
-                "draft_accept_rate": (
-                    None if speed.draft_accept_rate is None else round(speed.draft_accept_rate, 4)
-                ),
+                "output_tokens_per_second": rounded(speed.output_tokens_per_second, 2),
+                "mean_accept_length": rounded(speed.mean_accept_length, 3),
+                "draft_accept_rate": rounded(speed.draft_accept_rate, 4),
             }
         )
     return rows
