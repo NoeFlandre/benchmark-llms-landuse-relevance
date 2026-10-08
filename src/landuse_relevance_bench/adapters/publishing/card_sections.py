@@ -5,7 +5,7 @@ from typing import Any
 
 from landuse_relevance_bench.adapters.results_store import group_by_model, rounded
 from landuse_relevance_bench.domain.records import RunResult
-from landuse_relevance_bench.domain.speed import summarise_speed
+from landuse_relevance_bench.domain.speed import SpeedMetrics, summarise_speed
 
 SPEED_COLUMNS = (
     "model_id",
@@ -45,11 +45,16 @@ def _single_setting(results: Sequence[RunResult], field: str) -> Any:
     return values.pop() if len(values) == 1 else "varies"
 
 
+def _pooled_speed(runs: Sequence[RunResult]) -> SpeedMetrics:
+    """One speed summary over every language run of a model."""
+    predictions = [prediction for run in runs for prediction in run.predictions]
+    return summarise_speed(predictions, sum(run.metadata.duration_seconds for run in runs))
+
+
 def _speed_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
     rows = []
     for model_id, runs in sorted(group_by_model(results).items()):
-        predictions = [prediction for run in runs for prediction in run.predictions]
-        speed = summarise_speed(predictions, sum(run.metadata.duration_seconds for run in runs))
+        speed = _pooled_speed(runs)
         rows.append(
             {
                 "model_id": model_id,
