@@ -1,0 +1,116 @@
+{
+  "behaviour_lens": {
+    "verdict": "pass",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "tests/unit/test_card_speed.py",
+        "summary": "The byte-for-byte speed-section golden only pins the branch where _reproducibility_note returns an empty string. The branch where the note is inserted between the prose and the table is not pinned for ordering; the only test for that branch (tests/unit/test_hf_publish.py:173) checks substrings of the speed section.",
+        "evidence": "_golden_fixture() uses run_id \"\" so languages_by_run are empty and the note is withheld; test_reproducibility_note_needs_a_full_sweep... only calls _reproducibility_note directly; test_full_multilingual_card_discloses_gpu_sensitive_reproducibility asserts '474/4,500' in speed etc. but no order or whole-section comparison. The moved code is AST-identical to the original, so this is a coverage gap for the section-order requirement, not a regression."
+      },
+      {
+        "severity": "nit",
+        "file": "src/landuse_relevance_bench/adapters/publishing/card_sections.py",
+        "summary": "Note (not a finding in the diff): results_store.rounded has two importers at e004a97, so the PR #81 deletion risk is real for two modules, not one.",
+        "evidence": "card_sections.py:6 imports group_by_model and rounded from results_store; tests/property/test_leaderboard_properties.py:10 imports leaderboard_rows and rounded. The repo has no local ref for PR #81 (git for-each-ref shows only refactor/issue-92-publishing-render at e004a97), so I did not inspect PR #81's branch and cannot confirm what it deletes."
+      }
+    ],
+    "checks_run": [
+      "git log --format and git show --stat for c5aef69, 8dd9aee, e004a97 (per-commit file lists)",
+      "git diff --name-status 5e52649..e004a97 (5 files: hf_publish.py M; publishing/__init__.py, publishing/card_sections.py, tests/golden/speed_section_synthetic.md, tests/unit/test_card_speed.py A)",
+      "git diff c5aef69 8dd9aee (rounding commit: only the 4 optional ternaries replaced with rounded(), plus rounded import; no test changes)",
+      "git diff c5aef69 e004a97 -- tests/ (only change: _reproducibility_note moved from hf_publish import block to a card_sections import line)",
+      "git diff --quiet 5e52649 e004a97 for tests/golden/dataset_card_archive.md, tests/golden/dataset_card_mixed.md, tests/unit/test_hf_publish.py, tests/unit/test_card_golden.py (all unchanged)",
+      "git diff --quiet 5e52649 e004a97 for results_store.py, domain/scorers.py, pyproject.toml, uv.lock, .github, mutation-allowlist.txt (all unchanged)",
+      "python3 -I ast comparison of _markdown_table vs markdown_table, _single_setting, _reproducibility_note (AST identical ignoring name; text identical); _speed_section differs only by the markdown_table rename; _speed_rows differs only in the 7 optional ternaries replaced by rounded()",
+      "python3 -I ast comparison of all top-level definitions in hf_publish 5e52649 vs e004a97: removed EXPECTED_FULL_SWEEP_LANGUAGE_COUNT, SPEED_COLUMNS, _markdown_table, _reproducibility_note, _single_setting, _speed_rows, _speed_section; added none; changed only _agreement_section (rename call); 31 identical",
+      "Read results_store.rounded at e004a97: None -> None, else round(value, digits); identical to the original inline ternaries; results_store.py unchanged in range",
+      "Digit counts per optional field confirmed against the original: sentences_per_second 3, latency mean/p50/p95 4, output_tokens_per_second 2, mean_accept_length 3, draft_accept_rate 4; cumulative_wall_seconds still plain round(...,2)",
+      "Hand-derived test_optional_figures_are_rounded_to_their_recorded_digits from its inputs: wall 3.456, 7 items, sorted latencies (p50 index 3 = 0.41111, p95 = 0.6+0.3123*0.7 = 0.81861), latency sum 3.02341 (mean 0.4319157), tokens 32, verify 17, accepted 17 / proposed 30. All 9 asserted figures match (3.46, 2.025, 0.4319, 0.4111, 0.8186, 32, 9.26, 1.882, 0.5667)",
+      "Hand-derived test_figures_a_run_did_not_record_are_none_not_zero_or_blank (b/bare 2.0/2.0; c/partial 1.0, tokens 10, 5.0, 2.0, 0.6; d/zero None rate, latencies 0.5, 8 tokens, 2.0, 0.5) - all match",
+      "Hand-derived golden rows: g/full wall 3.0, 3/3.0=1.0, latency mean 0.2, p50 0.2, p95 0.2+0.1*0.9=0.29, tokens 12, 12/3.0=4.0, 12/7=1.714, 5/11=0.4545; g/bare wall 2.0, 2/2.0=1.0, empty optional cells - all match the golden file",
+      "Hand-derived speedup row numbers: baseline 4 tokens/2.0 s = 2.0, draft 6/2.0 = 3.0, 3.0/2.0 = 1.50x, empty speedup for 0 and None baseline (matches _agreement_section code path)",
+      "Checked make_metadata/RunMetadata defaults (batch_size 16, generation_mode static-batched, runtime TRANSFORMERS = 'transformers', run name = run_id or model_id) against the golden rows",
+      "Golden speed file structure: 15 cells per row, header equals SPEED_COLUMNS, no trailing newline (matches _speed_section join output), no CR or tab characters",
+      "git grep at e004a97 across src, tests, scripts for each moved name: no stale importers; _markdown_table has no remaining references; no monkeypatch targets the moved names (only _default_api, evaluate, publish_results on hf_publish)",
+      "git grep at e004a97 for hf_publish and moved-name references in non-Python files: none in mutation-allowlist.txt; only scripts/crap-allowlist.json references _agreement_section (unchanged function) and pyproject per-file-ignores reference hf_publish.py generally",
+      "Import-cycle check by reading imports: card_sections imports results_store, domain.records, domain.speed; results_store imports only domain modules; no reverse import",
+      "git grep for ssh in tests/scripts and scripts: no tests/scripts file references hf_publish, card_sections or speed; scripts/g5k_status_multisite.py uses shutil.which('ssh'), consistent with the environmental attribution (not run)",
+      "git for-each-ref / git branch for PR #81 refs: none present locally; PR #81 branch not inspected",
+      "git status --short in the worktree: clean. Note: I briefly created and then removed a stray scratch file at <home>/wt/scratch_orig_hf_publish.py (outside the worktree, my own file, now deleted). Scratch files are in the session scratchpad only.",
+      "Not run (per brief): pytest, make, uv sync, ruff, mypy, coverage, or any heavy command"
+    ]
+  },
+  "structure_lens": {
+    "verdict": "pass",
+    "findings": [
+      {
+        "severity": "minor",
+        "file": "<home>/wt/issue-92-publishing/src/landuse_relevance_bench/adapters/hf_publish.py",
+        "summary": "Four names importable from hf_publish at 5e52649 are not importable at e004a97: the private helpers _markdown_table, _single_setting, _reproducibility_note, and the incidental import summarise_speed. No in-repo consumer uses them.",
+        "evidence": "AST comparison of importable names: parent-only = _markdown_table, _reproducibility_note, _single_setting, summarise_speed; head-only = markdown_table. At e004a97 all 18 from-imports of hf_publish across 9 .py files (scripts/reparse_results.py, application.py, six tests) resolve, as do every hf_publish.<attr> and setattr string target. A non-md git grep at 5e52649 finds the three private helpers only inside hf_publish.py. The only consumer of _reproducibility_note was tests/unit/test_card_speed.py, created in c5aef69 and re-pointed to card_sections in e004a97. Values unchanged: SPEED_COLUMNS tuples are equal and EXPECTED_FULL_SWEEP_LANGUAGE_COUNT is 85 at both revisions."
+      },
+      {
+        "severity": "minor",
+        "file": "<home>/wt/issue-92-publishing/src/landuse_relevance_bench/adapters/publishing/card_sections.py",
+        "summary": "ANN401 coverage for the nested publishing package is not established by config, and _single_setting returns a bare Any.",
+        "evidence": "_single_setting is declared '-> Any'. pyproject.toml selects ANN and exempts ANN401 only via the per-file-ignores key \"src/**/adapters/*\". That key certainly covers adapters/hf_publish.py; whether it reaches adapters/publishing/card_sections.py depends on ruff's glob separator semantics, which I could not check read-only. Every other bare Any in src/ and scripts/ at e004a97 sits directly under adapters/. The new file has no PLC0415 trigger (no function-local imports) and no PLR0913 trigger (at most two parameters). The author reports lint passed on e004a97, which is consistent with coverage. A targeted ruff run, or a narrower return type, would settle it without touching pyproject.toml."
+      },
+      {
+        "severity": "nit",
+        "file": "<home>/wt/issue-92-publishing/src/landuse_relevance_bench/adapters/publishing/card_sections.py",
+        "summary": "Module docstring covers only the runtime-performance section, but the module also hosts markdown_table, which hf_publish uses for the non-speed DSpark table.",
+        "evidence": "Docstring: 'Pure renderers for the runtime-performance section of the dataset card.' hf_publish.py at e004a97 calls markdown_table(DSPARK_COLUMNS, rows). The e004a97 commit body says the module holds 'the shared markdown table', so docstring and commit disagree."
+      },
+      {
+        "severity": "nit",
+        "file": "<home>/wt/issue-92-publishing/src/landuse_relevance_bench/adapters/publishing/card_sections.py",
+        "summary": "The module is described as pure, but it imports group_by_model and rounded from results_store, which also holds file-I/O code.",
+        "evidence": "results_store.py at e004a97 imports csv, json and pathlib. rounded is 'None if value is None else round(value, digits)'. card_sections imports only results_store, domain.records and domain.speed. Both the layers contract (adapters over domain) and the 'Domain is pure' forbidden contract hold, and there is no cycle, so this is a documentation note, not a violation."
+      },
+      {
+        "severity": "nit",
+        "file": "<home>/wt/issue-92-publishing/src/landuse_relevance_bench/adapters/hf_publish.py",
+        "summary": "Underscore-prefixed names now cross a module boundary: hf_publish imports _speed_rows and _speed_section from card_sections, and the test imports _reproducibility_note from it.",
+        "evidence": "No lint impact found: pyproject.toml has no preview setting, so PLC2701 (import-private-name) is inactive. This is a style point about whether these names should be public or kept narrowly imported."
+      },
+      {
+        "severity": "nit",
+        "file": "<home>/wt/issue-92-publishing/docs/debt.md",
+        "summary": "docs/debt.md still says hf_publish.py is about 580 lines; that figure was already wrong before this change.",
+        "evidence": "wc -l gives 898 lines at 5e52649 and 775 at e004a97. The change neither introduces nor fixes the stale figure. Editing docs is outside this slice's boundary."
+      },
+      {
+        "severity": "nit",
+        "file": "<home>/wt/issue-92-publishing/src/landuse_relevance_bench/adapters/publishing/card_sections.py",
+        "summary": "All three commits end with 'Co-Authored-By: Claude <noreply@anthropic.com>', but the session's current attribution instruction names 'Claude Haiku 5.5'.",
+        "evidence": "git log -3 trailers show Co-Authored-By: Claude <noreply@anthropic.com> and Claude-Session on every commit. Messages match the diffs: c5aef69 touches only tests/golden and tests/unit/test_card_speed.py; 8dd9aee touches only hf_publish.py; e004a97 touches hf_publish.py, two publishing files and one import line in test_card_speed.py. The golden file is unchanged in both refactor commits."
+      },
+      {
+        "severity": "minor",
+        "file": "<home>/wt/issue-92-publishing/src/landuse_relevance_bench/adapters/publishing/card_sections.py",
+        "summary": "Risk note, not a defect in the diff: if PR #81 lands with its deletion of results_store.rounded, card_sections.py fails at import time.",
+        "evidence": "Not verifiable from this clone. Refs are main, origin/main (identical) and refactor/issue-92-publishing-render (3 ahead, 0 behind). There are no refs/pull/* entries and no other branches or stashes. card_sections.py imports rounded from results_store at module load, and hf_publish imports card_sections at load, so an ImportError would break dataset_card, publish_results and every test importing hf_publish. Latest main commits on the contested paths: results_store.py b748461 (#144), hf_publish.py 43c6210 (#97); test_card_speed.py is not on main."
+      }
+    ],
+    "checks_run": [
+      "git log -3 --format=full and --format=%(trailers) on e004a97; git show --stat for c5aef69, 8dd9aee, e004a97; git diff --stat 5e52649..e004a97 (5 files, all inside the boundary)",
+      "git show e004a97 -- tests/unit/test_card_speed.py (confirmed the only test edit is the one import line)",
+      "python3 -I AST (no project imports): top-level defs, assignments and imports of hf_publish.py at 5e52649 vs e004a97; literal comparison of SPEED_COLUMNS (equal) and EXPECTED_FULL_SWEEP_LANGUAGE_COUNT (85, equal)",
+      "python3 -I AST: resolution of all 18 from-imports of hf_publish in 9 .py files at e004a97, plus hf_publish.<attr> and setattr string targets (none missing)",
+      "python3 -I AST: unused-import check on card_sections.py (none) and hf_publish.py at e004a97 (only the two noqa-marked re-exports, SPEED_COLUMNS and EXPECTED_FULL_SWEEP_LANGUAGE_COUNT)",
+      "git grep (5e52649, non-md) for moved names; git grep (e004a97, all files) for hf_publish and for _markdown_table/_single_setting/_reproducibility_note/summarise_speed/card_sections/publishing in non-py files",
+      "Import graph: git show of results_store.py imports, adapters/__init__.py, publishing/__init__.py, card_sections.py imports; no cycle; nothing under publishing imports hf_publish",
+      "pyproject.toml read-only: ruff select and per-file-ignores, import-linter contracts (forbidden domain, layers), preview grep (none); ruff glob semantics NOT verified",
+      "git grep at e004a97 for bare Any annotations in src/ and scripts/ (ANN401 precedent): all under adapters/ at one directory level",
+      "Makefile type gate (git grep): 'ty check src'. Not run.",
+      "mutation-allowlist.txt (no hf_publish entries), scripts/crap-allowlist.json keys (only hf_publish.py:_agreement_section)",
+      "docs/debt.md lines 30-40 and wc -l of hf_publish.py at 5e52649 (898) and e004a97 (775); card_sections.py (113)",
+      "git show 8dd9aee -- hf_publish.py diff and results_store.py rounded definition at e004a97 (None-or-round, equivalent to the removed conditionals)",
+      "Overlap: git for-each-ref (only refs/heads and refs/remotes/origin; no refs/pull), git rev-list --count main...origin/main (0 0), main...refactor branch (0 3), git log --oneline origin/main per contested path, git diff --name-only main refactor branch (5 files), git worktree list, git stash list (0). No GitHub queries.",
+      "Worktree state: git status --short empty and git rev-parse HEAD = e004a97 (read-only; nothing staged, committed or stashed)",
+      "Not run (per brief): pytest, ruff, ty, lint-imports, make, uv. Not verified: ruff glob semantics, import-linter execution, PR #81 contents, the open-PR list.",
+      "Scratch hygiene: three review scratch artifacts were created outside the worktree (<tmp>, <home>/scratchpad_unused, <home>/wt/.reviewer_head_hf.py) and removed; the worktree was not modified."
+    ]
+  }
+}

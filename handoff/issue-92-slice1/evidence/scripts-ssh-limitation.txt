@@ -1,0 +1,11 @@
+# base 5e52649 (same environment)
+>           raise RuntimeError("ssh executable is unavailable")
+E           RuntimeError: ssh executable is unavailable
+>           raise RuntimeError("ssh executable is unavailable")
+E           RuntimeError: ssh executable is unavailable
+FAILED tests/scripts/test_g5k_status_multisite.py::test_multisite_status_reports_complete_running_queued_and_unclaimed_pairs
+FAILED tests/scripts/test_g5k_status_multisite.py::test_multisite_status_refuses_incomplete_remote_status_coverage
+# slice 6df2e46 (make scripts)
+FAILED tests/scripts/test_g5k_status_multisite.py::test_multisite_status_reports_complete_running_queued_and_unclaimed_pairs
+FAILED tests/scripts/test_g5k_status_multisite.py::test_multisite_status_refuses_incomplete_remote_status_coverage
+2 failed, 22 passed in 0.97s

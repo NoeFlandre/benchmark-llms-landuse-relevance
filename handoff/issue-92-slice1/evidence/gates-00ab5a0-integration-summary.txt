@@ -1,0 +1,12 @@
+All checks passed!
+LINT=0
+All checks passed!
+TYPES=0
+Required test coverage of 95.0% reached. Total coverage: 97.73%
+621 passed in 109.78s (0:01:49)
+TEST=0
+16 passed, 104 warnings in 5.64s
+ACC=0
+1 passed in 0.31s
+ARCH=0
+CRAP=0

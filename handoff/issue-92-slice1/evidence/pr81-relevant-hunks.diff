@@ -1,0 +1,105 @@
+# PR 81 hunks that touch rounded (fetched read-only from origin/fix/mutation-gate-entrypoint, base 72b05297)
+diff --git a/src/landuse_relevance_bench/adapters/results_store.py b/src/landuse_relevance_bench/adapters/results_store.py
+index 68455d9..a5441c8 100644
+--- a/src/landuse_relevance_bench/adapters/results_store.py
++++ b/src/landuse_relevance_bench/adapters/results_store.py
+@@ -89,11 +89,6 @@ ARCHIVE_COMPONENT = "archive"
+ _MIN_NESTED_RESULT_PARTS = 2
+ 
+ 
+-def rounded(value: float | None, digits: int) -> float | None:
+-    """Round a reported metric, preserving unavailable measurements as ``None``."""
+-    return None if value is None else round(value, digits)
+-
+-
+ def run_filename(model_id: str, language: str) -> Path:
+     """Return the active nested path for one model-language result."""
+     normalized_language = language.strip().lower()
+@@ -281,9 +276,7 @@ def threshold_sweep_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
+                 "n_items_total": sum(m.n_items for m in scored),
+                 "roc_auc_macro": auc,
+             }
+-            for metric_name in CLASSIFICATION_METRICS:
+-                if metric_name == "unparsed_rate":
+-                    continue
++            for metric_name in (m for m in CLASSIFICATION_METRICS if m != "unparsed_rate"):
+                 row[f"{metric_name}_macro"] = round(
+                     fmean(getattr(m, metric_name) for m in scored), 4
+                 )
+@@ -291,11 +284,6 @@ def threshold_sweep_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
+     return rows
+ 
+ 
+-def write_threshold_sweep_csv(results: Sequence[RunResult], path: Path) -> Path:
+-    """Write the sweep beside the leaderboard; empty of rows when nothing scores."""
+-    return _write_rows(threshold_sweep_rows(results), THRESHOLD_SWEEP_COLUMNS, path)
+-
+-
+ SCORING_SUMMARY_COLUMNS = (
+     "model_id",
+     "language_count",
+@@ -332,7 +320,7 @@ def scoring_summary_rows(
+ 
+     rows = []
+     for model_id, runs in sorted(scoring.items()):
+-        sweep_rows = sweep_by_model.get(model_id, [])
++        sweep_rows = sweep_by_model.get(model_id)
+         if not sweep_rows:
+             continue
+         row: dict[str, Any] = {
+@@ -405,11 +393,6 @@ def _write_rows(rows: Sequence[dict[str, Any]], columns: Sequence[str], path: Pa
+     return path
+ 
+ 
+-def write_scoring_summary_csv(results: Sequence[RunResult], path: Path) -> Path:
+-    """Write one best-threshold row per scoring model."""
+-    return _write_rows(scoring_summary_rows(results), SCORING_SUMMARY_COLUMNS, path)
+-
+-
+ def _throughput_macro(results: Sequence[RunResult]) -> float | None:
+     values = [
+         result.metadata.throughput_items_per_second
+diff --git a/tests/property/test_leaderboard_properties.py b/tests/property/test_leaderboard_properties.py
+index 6ba99db..c0197b9 100644
+--- a/tests/property/test_leaderboard_properties.py
++++ b/tests/property/test_leaderboard_properties.py
+@@ -3,11 +3,10 @@
+ from unittest.mock import patch
+ 
+ from hypothesis import given
+-from hypothesis import strategies as st
+ from strategies import comparable_leaderboards
+ 
+ from landuse_relevance_bench.adapters import results_store
+-from landuse_relevance_bench.adapters.results_store import leaderboard_rows, rounded
++from landuse_relevance_bench.adapters.results_store import leaderboard_rows
+ 
+ 
+ @given(results=comparable_leaderboards())
+@@ -22,12 +21,3 @@ def test_leaderboard_has_one_descending_f1_row_per_input_and_ignores_input_order
+         assert [row["model_id"] for row in rows] == [row["model_id"] for row in reversed_rows]
+         assert len(rows) == len(results)
+         assert [row["f1"] for row in rows] == sorted((row["f1"] for row in rows), reverse=True)
+-
+-
+-@given(
+-    value=st.one_of(st.floats(allow_nan=False, allow_infinity=False), st.none()),
+-    digits=st.integers(min_value=0, max_value=8),
+-)
+-def test_rounding_is_idempotent(value: float | None, digits: int) -> None:
+-    once = rounded(value, digits)
+-    assert rounded(once, digits) == once
+diff --git a/uv.lock b/uv.lock
+index 06858ec..6486ab7 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -26,6 +26,9 @@ conflicts = [[
+     { package = "landuse-relevance-bench", extra = "speculative" },
+ ]]
+ 
++[options]
++prerelease-mode = "if-necessary"
++
+ [[package]]
+ name = "accelerate"
+ version = "1.15.0"

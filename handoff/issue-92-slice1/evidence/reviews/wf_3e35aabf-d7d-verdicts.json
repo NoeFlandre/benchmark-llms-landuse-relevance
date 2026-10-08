@@ -1,0 +1,92 @@
+{
+  "reconciled_6df2e46": {
+    "verdict": "pass",
+    "findings": [
+      {
+        "severity": "nit",
+        "file": "<home>/wt/issue-92-publishing/src/landuse_relevance_bench/adapters/publishing/card_sections.py",
+        "summary": "The new _pooled_speed docstring says 'every language run of a model', and commit 6df2e46 says 'per-model'. The grouping key is a run name, not a model.",
+        "evidence": "group_by_model (results_store.py:371-376) keys on result.metadata.name, and RunMetadata.name returns run_id or model_id (records.py:115-117). A group is therefore one run identity, which may be narrower than a whole model. Behaviour is unchanged, so this is wording only. The fix is a docstring wording change, for example 'every language run sharing one run name'. Amending the commit message changes the SHA, so decide before the reconciled SHA is locked."
+      },
+      {
+        "severity": "nit",
+        "file": "<home>/wt/issue-92-publishing/src/landuse_relevance_bench/adapters/publishing/card_sections.py",
+        "summary": "Commit 6df2e46 has no model identifier, but its trailer does not match the attribution line this session specified.",
+        "evidence": "The trailer is 'Co-Authored-By: Claude <noreply@anthropic.com>'. The session attribution guidance asks for 'Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>' on commits made from here on. The check as worded (no model identifier in the message) passes, since grep for haiku, sonnet, opus, claude- and model finds nothing. Whether to match the session line is the author's decision, and any amend changes the SHA."
+      },
+      {
+        "severity": "nit",
+        "file": "<home>/wt/issue-92-publishing/tests/unit/test_card_speed.py",
+        "summary": "Out of my lens: commit e004a97 says characterization tests are unchanged, but it edits tests/unit/test_card_speed.py. The edit is an import-path move only.",
+        "evidence": "git show e004a97 -- tests/unit/test_card_speed.py removes _reproducibility_note from the hf_publish import and adds it to the card_sections import. No expectation changes, so the no-test-expectation-change constraint holds. For 6df2e46 itself the claim 'characterization tests and goldens pass unmodified' is accurate, since 0431a4a..6df2e46 touches only card_sections.py."
+      }
+    ],
+    "checks_run": [
+      "git show --stat --format='%H%n%P%n%s' 6df2e46 (stats 8 insertions, 3 deletions, one file)",
+      "git diff --name-only 0431a4a 6df2e46 (only src/landuse_relevance_bench/adapters/publishing/card_sections.py)",
+      "git log --oneline 5e52649..6df2e46",
+      "git show -s --format=%B 6df2e46 (message read; grep for haiku/sonnet/opus/claude-/model returns no match)",
+      "git show 6df2e46 -- src/landuse_relevance_bench/adapters/publishing/card_sections.py (one hunk: SpeedMetrics import, _pooled_speed helper, one-line call in _speed_rows; dict literal lines not in the hunk, so unchanged)",
+      "git show 6df2e46:src/.../card_sections.py | cat -n (lines 1-120) and git show 0431a4a:src/.../card_sections.py | cat -n (lines 40-80)",
+      "git grep -n -i -E 'crap|radon|mccabe|lizard|complexity' (locates Makefile crap target and scripts/crap.py)",
+      "git show 6df2e46:scripts/crap.py (head -150; wc -l; grep for radon_blocks, crap formula) - confirms complexity comes from radon cc",
+      "git show 6df2e46:scripts/crap-allowlist.json and sed -n 40,70p of docs/debt.md (adapter ceiling 15, no _speed_rows entry)",
+      "git grep -n '_speed_rows\\|_pooled_speed' 6df2e46 (call sites)",
+      "python3 -I -c find_spec('radon') on system python (not installed); find under / for visitors.py (found worktree .venv radon 6.0.1)",
+      "sed -n 150,170p and sed -n 222,262p of .venv/lib/python3.12/site-packages/radon/visitors.py (read-only; complexity increments: Try handlers, BoolOp, If/IfExp +1, For/While +1 (+orelse), comprehension +len(ifs)+1)",
+      "git show 6df2e46:tests/unit/test_card_speed.py (sed 90-115); grep summarise_speed signature in domain/speed.py (returns SpeedMetrics); sed group_by_model in results_store.py (371-376); RunMetadata.name in domain/records.py (70-118)",
+      "python3 -I AST replica of radon's rules, source piped from git show: 0431a4a _speed_rows cc=6; 6df2e46 _speed_rows cc=3 and _pooled_speed cc=4 (sum 7 across two functions, the split adds one base unit)",
+      "python3 -I line-length check on 6df2e46 card_sections.py: new helper return line is 91 chars; pyproject line-length=100 (within limit)",
+      "git show 6df2e46 helper-vs-old statements compared by eye: old 'speed = summarise_speed(predictions, sum(run.metadata.duration_seconds for run in runs))' and new 'return summarise_speed(...)' share the identical expression; predictions line identical",
+      "git diff --stat 5e52649 6df2e46 and per-commit git show --stat for c5aef69, 8dd9aee, e004a97, 0431a4a, 6df2e46; grep for golden/fixture/expected/snapshot files (only tests/golden/speed_section_synthetic.md, added in c5aef69, unchanged since)",
+      "git show e004a97 -- tests/unit/test_card_speed.py (import-only change, 2 lines)",
+      "Not run: pytest, make, uv, ruff, ty, the radon CLI, or any write, stage, stash, checkout or delete command"
+    ]
+  },
+  "integration_00ab5a0": {
+    "verdict": "fail",
+    "findings": [
+      {
+        "severity": "major",
+        "file": "<home>/wt/integration-81/mutation-allowlist.txt",
+        "summary": "The scratch 00ab5a0 was never run through the required mutation gate, and its write_run allowlist entries no longer describe the merged function, so check_mutants.py is expected to fail there.",
+        "evidence": "Makefile `mutation` target runs `mutmut run` then scripts/check_mutants.py; .github/workflows/ci.yml all-green `needs` includes `mutation`; pyproject [tool.mutmut] source_paths includes src/landuse_relevance_bench/adapters/results_store.py. check_mutants.validate_results reports 'stale allowlist entry' for any allowlisted id that is not a survivor and 'unreviewed survivor' for any survivor not allowlisted. mutation-allowlist.txt (identical to 8f4fbd4) line 11 reviews x_write_run__mutmut_20 as the ensure_ascii=None site, but in 00ab5a0 write_run (results_store.py lines 110-114) calls dumps_run_payload, and the json.dumps(..., ensure_ascii=False) call now sits at line 107 in dumps_run_payload, so that mutation site moved. The restored rounded helper (lines 92-95) and dumps_run_payload add mutant sites with no allowlist entries. The write_run drift already exists against main (5e52649 already has dumps_run_payload), so PR 81's head is stale against main too and the integration inherits it. The author's reported gates omit mutation. I did not run it (heavy, and forbidden for this review), so the expected failure is inferred from source, not observed."
+      },
+      {
+        "severity": "minor",
+        "file": "<home>/wt/integration-81/uv.lock",
+        "summary": "The lockfile gate (make lockfile) is not reported for 00ab5a0, and the scratch lock is main's lock plus PR 81's three-line [options] table, not PR 81's lock.",
+        "evidence": "git diff --stat 5e52649 00ab5a0 -- uv.lock is 3 insertions. The same three lines are PR 81's only uv.lock change against merge-base 72b0529. grep -c '^\\[options\\]' gives 0 on 5e52649 and 6df2e46 and 1 on 8f4fbd4 and 00ab5a0. The Makefile lockfile target runs `uv lock --check` and a sync dry-run. pyproject.toml line 88 sets prerelease = \"if-necessary\" on both main and the scratch, which makes the table plausible regeneration output, but uv was not run."
+      },
+      {
+        "severity": "nit",
+        "file": "<home>/wt/integration-81/src/landuse_relevance_bench/adapters/results_store.py",
+        "summary": "The premise that 00ab5a0 differs from PR 81 only by the rounded helper and property test is not literal at file level: 83 files differ because the scratch also carries 37 main commits since merge-base 72b0529 and the refactor.",
+        "evidence": "git merge-base 8f4fbd4 5e52649 = 72b0529; git log 8f4fbd4..5e52649 lists 37 main commits. Measured against the real merge parents, the deltas are exactly the intended ones (see checks_run)."
+      }
+    ],
+    "checks_run": [
+      "cd <home>/wt/integration-81 && git diff origin/fix/mutation-gate-entrypoint 00ab5a0 --stat (83 files; dominated by main and refactor content absent from PR 81 head)",
+      "git diff origin/fix/mutation-gate-entrypoint 00ab5a0 -- src/landuse_relevance_bench/adapters/results_store.py tests/property/test_leaderboard_properties.py (results_store: rounded restored, dumps_run_payload and read_run isinstance guard present from main; property file: st import, rounded import and test_rounding_is_idempotent restored)",
+      "git log --oneline -3 00ab5a0 / origin/fix/mutation-gate-entrypoint / 6df2e46 and git show -s --format='%H %P' 00ab5a0 (parents 6df2e46 and 8f4fbd4)",
+      "git merge-base 6df2e46 8f4fbd4 and git merge-base 5e52649 8f4fbd4 (both 72b0529); git log --oneline 8f4fbd4..5e52649 (37 main commits) and 5e52649..8f4fbd4 (7 PR 81 commits)",
+      "git diff --stat 6df2e46 00ab5a0 (12 files: mutation-allowlist.txt, scripts/check_mutants.py, results_store.py, domain/uncertainty.py, tests/unit/test_agreement.py, test_check_mutants.py, test_records.py, test_results_store_exact.py, test_roster.py, test_selection.py, test_uncertainty.py, uv.lock)",
+      "git diff --name-only 6df2e46 00ab5a0 piped to grep for adapters/publishing/, adapters/hf_publish.py, tests/unit/test_card_speed.py: no matches (item 4 holds)",
+      "git diff --name-only 72b0529 8f4fbd4 and 72b0529 6df2e46 with comm: files touched on both sides are results_store.py, tests/unit/test_roster.py, uv.lock",
+      "Per-file git diff --quiet loops: versus 8f4fbd4, files differing in 00ab5a0 are results_store.py, the property file, test_roster.py, uv.lock (every other PR 81 file is identical); versus 6df2e46, files differing are results_store.py, test_roster.py, uv.lock (the property file equals 6df2e46)",
+      "git diff 5e52649 00ab5a0 -- src/landuse_relevance_bench/adapters/results_store.py: the ONLY delta from main is four PR 81 hunks: (a) threshold_sweep_rows loop rewritten as a generator filter, (b) write_threshold_sweep_csv removed, (c) scoring_summary_rows uses sweep_by_model.get(model_id) without default, (d) write_scoring_summary_csv removed. rounded is restored with no other change",
+      "git diff 5e52649 00ab5a0 -- tests/property/test_leaderboard_properties.py: empty, so the property file is byte-identical to main",
+      "Item 2: diff of results_store.py lines 92-95 between 5e52649 and 00ab5a0 via git show: byte-identical; grep -c '^def rounded' = 1 on both",
+      "Item 3: git show 00ab5a0 card_sections.py header: imports group_by_model and rounded from results_store and SpeedMetrics and summarise_speed from domain.speed; git grep -n -w rounded across 00ab5a0, 8f4fbd4 and 6df2e46 (card_sections has 7 call sites at lines 67-74, and the property test is the only other caller; 8f4fbd4 has none, so PR 81 treated the helper as dead)",
+      "python3 -I AST pure-text check over 130 .py files under src, tests and scripts at 00ab5a0: no unresolved from-imports of results_store or domain.speed; results_store defines rounded and group_by_model; domain/speed.py defines SpeedMetrics and summarise_speed",
+      "Item 5: grep -c '^\\[options\\]' on 5e52649, 8f4fbd4, 6df2e46 and 00ab5a0 gives 0, 1, 0, 1; git show 00ab5a0:uv.lock grep -n -A3 shows [options] prerelease-mode = \"if-necessary\" at line 31; git diff 72b0529 8f4fbd4 -- uv.lock is the same 3 insertions; git diff 6df2e46 00ab5a0 -- uv.lock is those 3 insertions; git diff --stat 5e52649 6df2e46 -- uv.lock is empty; git diff --stat 5e52649 00ab5a0 -- uv.lock is 3 insertions. So the lock is main's lock plus PR 81's table, not PR 81's own lock. pyproject line 88 prerelease = \"if-necessary\" is on both main and the scratch",
+      "Item 6 hunks: git diff 72b0529 8f4fbd4 for results_store.py, the property file, test_roster.py, mutation-allowlist.txt, check_mutants.py and domain/uncertainty.py. PR 81 hunks KEPT in 00ab5a0: the four results_store hunks above; domain/uncertainty.py removal of the discordant==0 early return (equivalent: tail is 1 at discordant 0); test_roster.py regex anchor and two new tests (test_sglang_pair_builds_exact_baseline_and_drafted_specs, test_a_draft_on_the_sglang_runtime_is_accepted) merged with main's too_large refactor, no conflict markers; new tests test_results_store_exact.py, test_uncertainty.py, test_records.py, test_agreement.py, test_selection.py, test_check_mutants.py; scripts/check_mutants.py __main__ guard; mutation-allowlist.txt; uv.lock [options]. PR 81 hunks DROPPED by the resolution: only the rounded deletion (hunk @@ -89,11 +89,6 @@ removing the 4-line function and two blank lines) and its property-test reversal (the st import, the rounded import and test_rounding_is_idempotent). PR 81's only change to the property file is those lines (git diff 72b0529 8f4fbd4 -- property file), so nothing else is lost",
+      "Item 6 judgement: restoring the 4-line rounded function alone is the minimal code change that keeps card_sections importable, and card_sections has 7 genuine call sites, so the lens preference to keep a shared helper applies. Restoring the property file to main's version is the exact 1:1 reversal of PR 81's rounding-test removal and keeps main's only property check of rounded. No other PR 81 intent is removed",
+      "git grep -n for write_threshold_sweep_csv and write_scoring_summary_csv across 00ab5a0 src, tests and scripts: no remaining references",
+      "Makefile mutation and lockfile targets, pyproject.toml [tool.mutmut] (lines 203-215), .github/workflows/ci.yml all-green needs (line 119), and scripts/check_mutants.py at 00ab5a0 read via git show (mutation and lockfile not run; forbidden or heavy)",
+      "git show 00ab5a0 results_store.py grep -n for ensure_ascii, dumps_run_payload, def write_run, def read_run, isinstance(payload: ensure_ascii at line 107 only inside dumps_run_payload, write_run at lines 110-114 calls it; git show 00ab5a0:mutation-allowlist.txt grep for x_(write|read)_run__ shows six entries including x_write_run__mutmut_20 (ensure_ascii)",
+      "git grep -n conflict markers (^<<<<<<<, =======, >>>>>>>) across 00ab5a0 src, tests, scripts, uv.lock and mutation-allowlist.txt: none",
+      "git diff --quiet 5e52649 6df2e46 -- results_store.py: refactor side leaves results_store identical to main; git diff --quiet 8f4fbd4 00ab5a0 -- mutation-allowlist.txt: identical to PR 81 head"
+    ]
+  }
+}

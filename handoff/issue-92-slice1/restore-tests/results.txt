@@ -1,0 +1,40 @@
+expected tree 6df2e46: aa4e0dc9486452d0ea892e5e159fd3054baf5490
+expected tree 00ab5a0: c26dcaa14fda7c6a84345fa6e4892474538393d8
+== A: clean clone of GitHub handoff code branch
+A clone rc=0
+A HEAD: 6df2e46f96f1e1c91f9376e2ba4af49026f8ada6  tree: aa4e0dc9486452d0ea892e5e159fd3054baf5490
+A changed files vs main:
+ src/landuse_relevance_bench/adapters/hf_publish.py | 139 +-------
+ .../adapters/publishing/__init__.py                |   1 +
+ .../adapters/publishing/card_sections.py           | 118 +++++++
+ tests/golden/speed_section_synthetic.md            |  10 +
+ tests/unit/test_card_speed.py                      | 370 +++++++++++++++++++++
+ 5 files changed, 507 insertions(+), 131 deletions(-)
+  src/landuse_relevance_bench/adapters/hf_publish.py clone=758c85c8d1cc2b03 local=758c85c8d1cc2b03 MATCH
+  src/landuse_relevance_bench/adapters/publishing/card_sections.py clone=05afe41a6462cf6c local=05afe41a6462cf6c MATCH
+  src/landuse_relevance_bench/adapters/publishing/__init__.py clone=39b734f280f4efd8 local=39b734f280f4efd8 MATCH
+  tests/unit/test_card_speed.py clone=3af0707fe40029cf local=3af0707fe40029cf MATCH
+  tests/golden/speed_section_synthetic.md clone=e3296afe1bf9ef57 local=e3296afe1bf9ef57 MATCH
+== B: clean clone of main, then bundle/patch restore
+B main HEAD: 5e52649b1a583c6e96b77cb83e090d99feea6c6f
+<scratchpad>/scratchpad/recovery/bundles/slice-6df2e46.incremental.bundle is okay
+The bundle contains this ref:
+6df2e46f96f1e1c91f9376e2ba4af49026f8ada6 refs/heads/refactor/issue-92-publishing-render
+The bundle requires this ref:
+5e52649b1a583c6e96b77cb83e090d99feea6c6f 
+The bundle uses this hash algorithm: sha1
+B1 bundle verify rc=0
+B1 restored-slice: 6df2e46f96f1e1c91f9376e2ba4af49026f8ada6 tree: aa4e0dc9486452d0ea892e5e159fd3054baf5490
+B2 git am rc=0
+B2 restored-patches: 0f3f0179d1574c12aa7bd22a3df59b686cbb699a tree: aa4e0dc9486452d0ea892e5e159fd3054baf5490
+== C: experimental integration bundle (prereqs 6df2e46 + 8f4fbd4 fetched from GitHub)
+C prereq 8f4fbd4 present: commit
+<scratchpad>/scratchpad/recovery/bundles/integration-00ab5a0.experimental.incremental.bundle is okay
+The bundle contains this ref:
+00ab5a093f0cae061cf9dbb7295d81e4d9f2a032 refs/heads/integration/92-with-81
+The bundle requires these 2 refs:
+8f4fbd4a0030a445faae236d82c2f50ab6569d90 
+6df2e46f96f1e1c91f9376e2ba4af49026f8ada6 
+The bundle uses this hash algorithm: sha1
+C bundle verify rc=0
+C restored-integ: 00ab5a093f0cae061cf9dbb7295d81e4d9f2a032 tree: c26dcaa14fda7c6a84345fa6e4892474538393d8

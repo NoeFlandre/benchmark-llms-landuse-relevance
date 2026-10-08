@@ -1,0 +1,2 @@
+<slice-worktree>/src/landuse_relevance_bench/adapters/publishing/card_sections.py:_pooled_speed          4    100.0%    4.00     11.00
+<slice-worktree>/src/landuse_relevance_bench/adapters/publishing/card_sections.py:_speed_rows            3    100.0%    3.00     12.00

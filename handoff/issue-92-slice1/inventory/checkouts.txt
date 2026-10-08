@@ -1,0 +1,105 @@
+=== CHECKOUT <main-checkout>
+HEAD 5e52649b1a583c6e96b77cb83e090d99feea6c6f
+branch: main
+-- staged/unstaged/untracked (porcelain):
+  (count 0)
+-- ignored (build/cache artifacts, excluded from upload):
+-- local branches:
+  integration/92-with-81 00ab5a093f0cae061cf9dbb7295d81e4d9f2a032 upstream=
+  main 5e52649b1a583c6e96b77cb83e090d99feea6c6f upstream=origin/main
+  refactor/issue-92-publishing-render 6df2e46f96f1e1c91f9376e2ba4af49026f8ada6 upstream=
+-- commits not on origin/main (unique to this repo copy):
+
+=== CHECKOUT <base-worktree>
+HEAD 5e52649b1a583c6e96b77cb83e090d99feea6c6f
+branch: DETACHED
+-- staged/unstaged/untracked (porcelain):
+  (count 0)
+-- ignored (build/cache artifacts, excluded from upload):
+  !! scripts/__pycache__/
+  !! src/landuse_relevance_bench/__pycache__/
+  !! src/landuse_relevance_bench/adapters/__pycache__/
+  !! src/landuse_relevance_bench/domain/__pycache__/
+  !! tests/__pycache__/
+  !! tests/scripts/__pycache__/
+-- local branches:
+  integration/92-with-81 00ab5a093f0cae061cf9dbb7295d81e4d9f2a032 upstream=
+  main 5e52649b1a583c6e96b77cb83e090d99feea6c6f upstream=origin/main
+  refactor/issue-92-publishing-render 6df2e46f96f1e1c91f9376e2ba4af49026f8ada6 upstream=
+-- commits not on origin/main (unique to this repo copy):
+
+=== CHECKOUT <slice-worktree>
+HEAD 6df2e46f96f1e1c91f9376e2ba4af49026f8ada6
+branch: refactor/issue-92-publishing-render
+-- staged/unstaged/untracked (porcelain):
+  (count 0)
+-- ignored (build/cache artifacts, excluded from upload):
+  !! .coverage
+  !! .hypothesis/
+  !! .pytest_cache/
+  !! .ruff_cache/
+  !! .venv/
+  !! coverage.json
+  !! scripts/__pycache__/
+  !! site/
+  !! src/landuse_relevance_bench/__pycache__/
+  !! src/landuse_relevance_bench/adapters/__pycache__/
+  !! src/landuse_relevance_bench/adapters/publishing/__pycache__/
+  !! src/landuse_relevance_bench/domain/__pycache__/
+  !! tests/__pycache__/
+  !! tests/acceptance/__pycache__/
+  !! tests/architecture/__pycache__/
+  !! tests/property/__pycache__/
+  !! tests/scripts/__pycache__/
+  !! tests/unit/__pycache__/
+-- local branches:
+  integration/92-with-81 00ab5a093f0cae061cf9dbb7295d81e4d9f2a032 upstream=
+  main 5e52649b1a583c6e96b77cb83e090d99feea6c6f upstream=origin/main
+  refactor/issue-92-publishing-render 6df2e46f96f1e1c91f9376e2ba4af49026f8ada6 upstream=
+-- commits not on origin/main (unique to this repo copy):
+  6df2e46 refactor: pool a model's speed in its own helper (#92)
+  0431a4a docs(publishing): describe the shared table helper in card_sections (#92)
+  e004a97 refactor: move speed card renderers into adapters/publishing (#92)
+  8dd9aee refactor: round optional speed figures with results_store.rounded (#92)
+  c5aef69 test: pin runtime-performance card output before refactor (#92)
+
+=== CHECKOUT <integration-worktree>
+HEAD 00ab5a093f0cae061cf9dbb7295d81e4d9f2a032
+branch: integration/92-with-81
+-- staged/unstaged/untracked (porcelain):
+  (count 0)
+-- ignored (build/cache artifacts, excluded from upload):
+  !! .coverage
+  !! .hypothesis/
+  !! .pytest_cache/
+  !! .ruff_cache/
+  !! coverage.json
+  !! scripts/__pycache__/
+  !! src/landuse_relevance_bench/__pycache__/
+  !! src/landuse_relevance_bench/adapters/__pycache__/
+  !! src/landuse_relevance_bench/adapters/publishing/__pycache__/
+  !! src/landuse_relevance_bench/domain/__pycache__/
+  !! tests/__pycache__/
+  !! tests/acceptance/__pycache__/
+  !! tests/architecture/__pycache__/
+  !! tests/property/__pycache__/
+  !! tests/unit/__pycache__/
+-- local branches:
+  integration/92-with-81 00ab5a093f0cae061cf9dbb7295d81e4d9f2a032 upstream=
+  main 5e52649b1a583c6e96b77cb83e090d99feea6c6f upstream=origin/main
+  refactor/issue-92-publishing-render 6df2e46f96f1e1c91f9376e2ba4af49026f8ada6 upstream=
+-- commits not on origin/main (unique to this repo copy):
+  00ab5a0 Merge PR 81 head into the reconciled slice (local integration check only)
+  6df2e46 refactor: pool a model's speed in its own helper (#92)
+  0431a4a docs(publishing): describe the shared table helper in card_sections (#92)
+  e004a97 refactor: move speed card renderers into adapters/publishing (#92)
+  8dd9aee refactor: round optional speed figures with results_store.rounded (#92)
+  c5aef69 test: pin runtime-performance card output before refactor (#92)
+  8f4fbd4 Drop allowlist entries for Wilson and McNemar mutants that are now killed or removed
+  fc1ccaf Remove a duplicated allowlist entry
+  3df2aaa Kill remaining meaningful survivors and review the equivalent ones
+  07c663c Pin exact report values and drop dead results_store helpers
+  39d36d7 Pin agreement language and anchor the draft-runtime error message
+  2e830eb Test exact values in domain modules to kill surviving mutants
+  0638f4c Make the mutation gate run its main (missing __main__ guard)
+

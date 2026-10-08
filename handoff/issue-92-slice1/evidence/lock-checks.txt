@@ -1,0 +1,29 @@
+# exit codes recorded during the run (rc)
+uv lock --check, pinned uv 0.11.16, main-based lock @ slice 6df2e46: rc=1
+uv lock --check, local uv 0.11.32, main-based lock @ slice 6df2e46: rc=1
+uv lock --check, pinned uv 0.11.16, #81 lock on scratch 00ab5a0: rc=0
+(main 5e52649 lock is the same file as slice 6df2e46 lock; rc recorded for slice)
+
+## lockcheck2-issue-92-publishing.log
+Resolving despite existing lockfile due to change in pre-release mode: `if-necessary-or-explicit` vs. `if-necessary`
+Resolved 275 packages in 273ms
+The lockfile at `uv.lock` needs to be updated, but `--check` was provided. To update the lockfile, run `uv lock`.
+## lockcheck2-integration-81.log
+Using CPython 3.11.17 interpreter at: /usr/bin/python3.11
+Resolved 275 packages in 2ms
+## lockcheck2-local-0.11.32.log
+Resolving despite existing lockfile due to change in pre-release mode: `if-necessary-or-explicit` vs. `if-necessary`
+Resolved 275 packages in 216ms
+error: The lockfile at `uv.lock` needs to be updated, but `--check` was provided.
+
+hint: To update the lockfile, run `uv lock`.
+## lock-check-0.11.16.log
+Resolving despite existing lockfile due to change in pre-release mode: `if-necessary-or-explicit` vs. `if-necessary`
+Resolved 275 packages in 3.07s
+The lockfile at `uv.lock` needs to be updated, but `--check` was provided. To update the lockfile, run `uv lock`.
+## lock-check-0.11.32.log
+Resolving despite existing lockfile due to change in pre-release mode: `if-necessary-or-explicit` vs. `if-necessary`
+Resolved 275 packages in 1.22s
+error: The lockfile at `uv.lock` needs to be updated, but `--check` was provided.
+
+hint: To update the lockfile, run `uv lock`.
