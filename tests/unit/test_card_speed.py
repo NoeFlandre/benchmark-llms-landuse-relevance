@@ -11,10 +11,10 @@ from landuse_relevance_bench.adapters.hf_publish import (
     EXPECTED_FULL_SWEEP_LANGUAGE_COUNT,
     SPEED_COLUMNS,
     _agreement_section,
-    _reproducibility_note,
     _speed_rows,
     _speed_section,
 )
+from landuse_relevance_bench.adapters.publishing.card_sections import _reproducibility_note
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.records import Prediction, RunResult
 
