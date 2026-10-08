@@ -17,6 +17,9 @@
 - CLI: `lrb run-all --keep-going` logs the traceback of each unexpected failure, reports
   input problems as "rejected" rather than "failed", and ends with a summary of the pairs
   that did not complete.
+- Grid'5000 scripts: one site-config parser serves the collector and the multisite status
+  script. The status script now rejects a sites file with blank or duplicate site names,
+  as the collector already did.
 
 ## [0.2.0] - 2026-09-26
 
