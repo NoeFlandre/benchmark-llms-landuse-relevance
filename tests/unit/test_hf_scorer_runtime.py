@@ -133,7 +133,8 @@ def test_transformers_import_and_loader_helpers_are_lazy_and_revision_pinned(mon
     loaded = hf_scorer.RerankerScorer.load(
         "owner/model", hf_scorer.ScorerSettings(dtype="float32"), revision="rev"
     )
-    assert isinstance(loaded, hf_scorer.RerankerScorer)
+    assert type(loaded) is hf_scorer.RerankerScorer
+    assert loaded.revision == "loaded-revision"
 
 
 def test_transformers_scorer_adapters_score_and_handle_empty_batches() -> None:
@@ -313,7 +314,8 @@ def test_scorer_selection_and_provider_reject_unknown_models(monkeypatch) -> Non
         revision="requested-rev",
     )
     scorer, revision = module.provide_scorer(request)
-    assert isinstance(scorer, Loaded)
+    assert type(scorer) is Loaded
+    assert scorer.revision == "resolved-rev"
     assert revision == "requested-rev"
     monkeypatch.setattr(module, "scorer_class_for", original_selector)
     with pytest.raises(ValueError, match="no scoring adapter"):
@@ -433,9 +435,10 @@ def test_all_optional_scorer_loaders_are_mockable_without_network(monkeypatch) -
     gliner_module = ModuleType("gliner2")
     gliner_module.AutoExtractor = auto_extractor
     monkeypatch.setitem(sys.modules, "gliner2", gliner_module)
+    model.evaluated = False
     gliner = hf_scorer.Gliner2Scorer.load("owner/gliner", settings, revision="gli-rev")
     assert gliner.revision == "gli-rev"
-    assert model.evaluated
+    assert model.evaluated  # Fresh flag: the GLiNER loader must put the model in eval mode.
 
     laya_agent = SimpleNamespace(dtype="torch.float16")
     monkeypatch.setattr(

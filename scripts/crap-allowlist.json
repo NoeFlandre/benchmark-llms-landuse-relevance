@@ -1,8 +1,4 @@
 {
-  "src/landuse_relevance_bench/adapters/hf_publish.py:dataset_card": {
-    "reason": "The public card composer validates cross-run invariants and renders the release contract in one place; its complexity is covered by data, malformed-input, and card-output cases.",
-    "tests": "tests/unit/test_hf_publish.py; tests/unit/test_committed_results.py"
-  },
   "src/landuse_relevance_bench/adapters/hf_publish.py:_agreement_section": {
     "reason": "This reducer checks complete language coverage, equality, and speed comparison for each speculative pair; the output and loss cases are covered by synthetic agreement tests.",
     "tests": "tests/unit/test_hf_publish.py; tests/unit/test_agreement.py"

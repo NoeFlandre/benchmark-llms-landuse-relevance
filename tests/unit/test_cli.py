@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import json
+import logging
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -36,6 +37,50 @@ def test_models_json_lists_the_rostered_ids() -> None:
     assert {row["id"] for row in json.loads(result.stdout)} == set(model_ids())
 
 
+class _ClosableProvider:
+    def __init__(self) -> None:
+        self.closed = 0
+
+    def close_cached(self) -> None:
+        self.closed += 1
+
+
+def _score(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    provider: _ClosableProvider,
+    failure: Exception | None,
+) -> None:
+    manifest = SimpleNamespace(files={"en": SimpleNamespace(path=Path("en.csv"))})
+    monkeypatch.setattr(cli, "selected_languages", lambda *_: (manifest, ("en",)))
+    monkeypatch.setattr(cli, "print_run_plan", lambda *args: None)
+    monkeypatch.setattr(cli, "cached_scorer_provider", lambda: provider)
+
+    def score_one(request: RunRequest, used: object) -> None:
+        if failure is not None:
+            raise failure
+
+    monkeypatch.setattr(cli, "score_one", score_one)
+    cli.score("LiquidAI/LFM2.5-Encoder-350M", data_root=tmp_path)
+
+
+def test_score_command_releases_its_provider(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    provider = _ClosableProvider()
+    _score(monkeypatch, tmp_path, provider, None)
+    assert provider.closed == 1
+
+
+def test_score_command_releases_its_provider_when_scoring_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    provider = _ClosableProvider()
+    with pytest.raises(RuntimeError, match="scoring failed"):
+        _score(monkeypatch, tmp_path, provider, RuntimeError("scoring failed"))
+    assert provider.closed == 1
+
+
 def test_score_command_dispatches_each_selected_scoring_pair(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -44,7 +89,8 @@ def test_score_command_dispatches_each_selected_scoring_pair(
     requests = []
     monkeypatch.setattr(cli, "selected_languages", lambda *_: (manifest, ("en",)))
     monkeypatch.setattr(cli, "print_run_plan", lambda *args: None)
-    monkeypatch.setattr(cli, "cached_scorer_provider", lambda: "provider")
+    provider = _ClosableProvider()
+    monkeypatch.setattr(cli, "cached_scorer_provider", lambda: provider)
     monkeypatch.setattr(
         cli, "score_one", lambda request, provider: requests.append((request, provider))
     )
@@ -52,8 +98,8 @@ def test_score_command_dispatches_each_selected_scoring_pair(
     cli.score(model_id, data_root=tmp_path, out=tmp_path / "results")
 
     assert len(requests) == 1
-    request, provider = requests[0]
-    assert provider == "provider"
+    request, used = requests[0]
+    assert used is provider
     assert request.model_id == model_id
     assert request.language == "en"
     assert request.benchmark_path == tmp_path / "en.csv"
@@ -823,7 +869,6 @@ def test_publish_allowlist_includes_snapshot_and_excludes_local_cache(
 
     assert result.exit_code == 0, result.stdout
     patterns = captured["upload"].get("allow_patterns")
-    assert patterns is not None
     assert "SNAPSHOT_STATUS.md" in patterns
     assert "en/some__model.json" in patterns
     assert not any(pattern.startswith(".cache/") for pattern in patterns)
@@ -966,3 +1011,72 @@ def test_run_all_keep_going_reports_pair_errors_and_exits_nonzero(
     assert result.exit_code == 1
     assert "simulated model failure" in result.stderr
     assert "failed" in result.stderr
+
+
+def _keep_going_run_all(tmp_path: Path, benchmark_path: Path, prompt_path: Path, *extra: str):
+    data_root = _translation_root(tmp_path, benchmark_path)
+    return runner.invoke(
+        cli.app,
+        [
+            "run-all",
+            "--data-root",
+            str(data_root),
+            "--prompt",
+            str(prompt_path),
+            "--out",
+            str(tmp_path / "results"),
+            "--only",
+            "LiquidAI/LFM2.5-350M",
+            "--keep-going",
+            *extra,
+        ],
+    )
+
+
+def test_run_all_keep_going_logs_the_traceback_of_unexpected_errors(
+    monkeypatch, caplog, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    def fail(_request: RunRequest):
+        raise RuntimeError("simulated model failure")
+
+    monkeypatch.setattr(providers, "generator_provider", lambda: fail)
+    with caplog.at_level(logging.ERROR):
+        result = _keep_going_run_all(tmp_path, benchmark_path, prompt_path, "--language", "en")
+
+    assert result.exit_code == 1
+    errors = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert errors
+    assert errors[0].exc_info is not None
+    assert errors[0].exc_info[0] is RuntimeError
+
+
+def test_run_all_keep_going_reports_usage_errors_as_rejected_not_failed(
+    monkeypatch, caplog, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    def reject(_request: RunRequest):
+        raise typer.BadParameter("bad input")
+
+    monkeypatch.setattr(providers, "generator_provider", lambda: reject)
+    with caplog.at_level(logging.ERROR):
+        result = _keep_going_run_all(tmp_path, benchmark_path, prompt_path, "--language", "en")
+
+    assert result.exit_code == 1
+    assert "rejected: bad input" in result.stderr
+    assert "failed" not in result.stderr
+    assert not [record for record in caplog.records if record.exc_info]
+
+
+def test_run_all_keep_going_ends_with_a_summary_of_failed_pairs(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    def fail(_request: RunRequest):
+        raise RuntimeError("simulated model failure")
+
+    monkeypatch.setattr(providers, "generator_provider", lambda: fail)
+    result = _keep_going_run_all(tmp_path, benchmark_path, prompt_path)
+
+    assert result.exit_code == 1
+    summary = result.stderr.strip().splitlines()[-1]
+    assert "2 run(s) did not complete" in summary
+    assert "LiquidAI/LFM2.5-350M [en]" in summary
+    assert "LiquidAI/LFM2.5-350M [fr]" in summary

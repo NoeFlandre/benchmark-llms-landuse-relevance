@@ -11,22 +11,23 @@ theme:
 nav:
   - Home: index.md
   - Benchmark: benchmark.md
-  - Running on Grid'5000: grid5000.md
+  - Run on Grid'5000: grid5000.md
   - Results: results.md
   - Architecture: architecture.md
   - Decisions:
-      - ADR-0001 Greedy generation over logit scoring: adr/0001-greedy-generation.md
+      - ADR-0001 Greedy generation, not logit scoring: adr/0001-greedy-generation.md
       - ADR-0002 Unparsed outputs are errors: adr/0002-unparsed-as-error.md
-      - ADR-0003 Transformers rather than vLLM: adr/0003-transformers-runtime.md
+      - ADR-0003 Transformers, not vLLM: adr/0003-transformers-runtime.md
       - ADR-0004 Content-addressed item ids: adr/0004-content-addressed-ids.md
       - ADR-0005 The generation budget: adr/0005-generation-budget.md
       - ADR-0006 One English prompt: adr/0006-multilingual-prompt-language.md
       - ADR-0007 Additional runtimes: adr/0007-additional-runtimes.md
       - ADR-0008 Verdict parsing: adr/0008-verdict-parsing.md
-      - ADR-0009 Measuring speed: adr/0009-speed-measurement.md
+      - ADR-0009 Speed measurement: adr/0009-speed-measurement.md
       - ADR-0010 DSpark speculative decoding: adr/0010-dspark-speculative-decoding.md
       - ADR-0011 SGLang throughput mode: adr/0011-sglang-throughput-mode.md
   - Technical debt: debt.md
+  - Glossary: glossary.md
 markdown_extensions:
   - admonition
   - tables

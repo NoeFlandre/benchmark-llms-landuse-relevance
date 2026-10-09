@@ -5,7 +5,7 @@ RUN := $(UV) run --no-sync
 HYPOTHESIS_PROFILE ?= ci
 
 .PHONY: help install baseline lint format types test property acceptance architecture \
-	integration scripts crap mutation smoke security lockfile check docs docs-build docker
+	integration scripts wheel crap mutation smoke security lockfile check docs docs-build docker
 
 help:
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/'
@@ -42,6 +42,9 @@ architecture:  ## Dependency boundaries
 scripts:  ## Grid'5000 shell script tests
 	$(RUN) pytest tests/scripts
 
+wheel:  ## Build the wheel and check it ships the py.typed marker
+	$(RUN) python scripts/check_wheel.py
+
 integration:  ## Real model runtime, downloads a tiny model
 	$(RUN) pytest tests/integration -m integration
 
@@ -67,7 +70,7 @@ security:  ## Audit the locked dependencies
 	$(UV) export --frozen --no-hashes --no-emit-project --extra inference --extra publish | $(UV) tool run pip-audit --no-deps --disable-pip -r /dev/stdin
 	$(UV) export --frozen --no-hashes --no-emit-project --extra speculative | $(UV) tool run pip-audit --no-deps --disable-pip $(AUDIT_IGNORES) -r /dev/stdin
 
-check: lint types test acceptance architecture scripts crap mutation smoke docs-build lockfile security  ## The deterministic quality gauntlet
+check: lint types test acceptance architecture scripts wheel crap mutation smoke docs-build lockfile security  ## The deterministic quality gauntlet
 
 docs:  ## Serve the documentation locally
 	$(UV) run --only-group docs mkdocs serve

@@ -10,6 +10,7 @@ from landuse_relevance_bench.adapters.hf_publish import dataset_card
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
 from landuse_relevance_bench.adapters.results_store import (
     ARCHIVE_COMPONENT,
+    dumps_run_payload,
     read_run,
     read_runs,
     write_leaderboard_csv,
@@ -33,41 +34,57 @@ def reparse_directory(directory: Path) -> dict[str, tuple[int, int]]:
     run_paths = sorted(directory.rglob("*.json"))
     for path in run_paths:
         payload = _read_payload(path)
-        metadata = payload.setdefault("metadata", {})
-        if not metadata.get("package_version"):
-            metadata["package_version"] = _LEGACY_PACKAGE_VERSIONS.get(
-                metadata.get("source_commit", ""), ""
-            )
+        _backfill_package_version(payload.setdefault("metadata", {}))
         predictions = payload.get("predictions")
         if not isinstance(predictions, list):
             raise ValueError(f"{path} has no predictions list")
-        changed = 0
-        outcomes = []
-        modes: Counter[str] = Counter()
-        for prediction in predictions:
-            before = prediction.get("predicted")
-            parsed = parse_with_mode(prediction["raw_output"])
-            selected = None if prediction.get("truncated", False) else parsed.label
-            mode = None if prediction.get("truncated", False) else parsed.mode
-            after = None if selected is None else selected.value
-            changed += before != after
-            prediction["predicted"] = after
-            prediction["parse_mode"] = mode
-            modes[mode or ("truncated" if prediction.get("truncated", False) else "unparsed")] += 1
-            outcomes.append(
-                (Label(prediction["expected"]), None if after is None else Label(after))
-            )
-        payload["metrics"] = evaluate(outcomes).to_dict()
-        path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        changed, modes = _reparse_run(payload, predictions)
+        path.write_text(dumps_run_payload(payload), encoding="utf-8")
         changes[path.relative_to(directory).as_posix()] = (changed, len(predictions))
         print(
             f"{path.relative_to(directory)}: {changed}/{len(predictions)} verdicts changed; "
             + ", ".join(f"{mode}={count}" for mode, count in sorted(modes.items()))
         )
+    _rebuild_reports(directory, run_paths)
+    return changes
 
+
+def _backfill_package_version(metadata: dict[str, Any]) -> None:
+    """Fill in the package version of runs saved before it was recorded."""
+    if not metadata.get("package_version"):
+        metadata["package_version"] = _LEGACY_PACKAGE_VERSIONS.get(
+            metadata.get("source_commit", ""), ""
+        )
+
+
+def _reparse_run(
+    payload: dict[str, Any], predictions: list[dict[str, Any]]
+) -> tuple[int, Counter[str]]:
+    """Recompute each stored verdict and parse mode, then the run's metrics.
+
+    Returns how many verdicts changed and how many predictions fell under each parse mode.
+    """
+    changed = 0
+    outcomes = []
+    modes: Counter[str] = Counter()
+    for prediction in predictions:
+        truncated = prediction.get("truncated", False)
+        before = prediction.get("predicted")
+        parsed = parse_with_mode(prediction["raw_output"])
+        selected = None if truncated else parsed.label
+        mode = None if truncated else parsed.mode
+        after = None if selected is None else selected.value
+        changed += before != after
+        prediction["predicted"] = after
+        prediction["parse_mode"] = mode
+        modes[mode or ("truncated" if truncated else "unparsed")] += 1
+        outcomes.append((Label(prediction["expected"]), None if after is None else Label(after)))
+    payload["metrics"] = evaluate(outcomes).to_dict()
+    return changed, modes
+
+
+def _rebuild_reports(directory: Path, run_paths: list[Path]) -> None:
+    """Rewrite the per-folder leaderboards and the root leaderboard and README."""
     groups = [directory, *(path.parent for path in run_paths)]
     for folder in dict.fromkeys(groups):
         direct = [
@@ -94,7 +111,6 @@ def reparse_directory(directory: Path) -> dict[str, tuple[int, int]]:
             ),
             encoding="utf-8",
         )
-    return changes
 
 
 def _read_payload(path: Path) -> dict[str, Any]:

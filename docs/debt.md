@@ -1,45 +1,54 @@
 # Known weaknesses
 
-**Per-language samples are small.** Each language has 300 items, so a single-language
-accuracy near 0.8 still has wide uncertainty. Treat small gaps between models within
-one language as noise. The 85 aligned splits provide a better overall estimate through
-macro aggregation; the language-aware ids keep those joins explicit.
+**The samples for each language are small.** Each language has 300 items. An accuracy of
+near 0.8 for one language has a wide uncertainty. Treat small gaps between models in one
+language as noise. The 85 aligned splits give a better overall estimate through macro
+aggregation. The language-aware ids keep these joins explicit.
 
-**One prompt, no variants.** Scores conflate a model's judgement with its sensitivity
-to this specific wording. A prompt-variant sweep is the natural next step; the run
-already pins the prompt digest so such a sweep stays distinguishable.
+**There is one prompt and there are no variants.** A score mixes the judgement of the
+model with its sensitivity to this specific wording. The next step is a sweep of prompt
+variants. The run already pins the prompt digest. Therefore, such a sweep stays
+distinguishable.
 
-**Regions are unbalanced.** Antarctica contributes 14 items, most regions one. Per-region
-scoring would be unreliable today, which is why nothing slices by region yet even though
-the column is carried through.
+**The regions are not balanced.** Antarctica has 14 items. Most regions have one item.
+Scoring by region is not reliable today. For this reason, nothing slices by region yet.
+The benchmark still carries the column.
 
-**`model_revision` may be empty.** It is read from the loaded config's `_commit_hash`,
-a private Transformers attribute. If that disappears, runs record an empty revision
-rather than failing. Pass `--revision` to pin it explicitly and remove the ambiguity.
+**`model_revision` can be empty.** The code reads it from `_commit_hash` of the loaded
+config. This is a private Transformers attribute. If it goes away, runs record an empty
+revision. They do not fail. To remove the ambiguity, pass `--revision` to pin the
+revision.
 
 **Verdict extraction is a heuristic.** The verdict is the last standalone `yes`/`no` in
-an untruncated generation. A model that concludes and then adds a caveat naming the other
-verdict would be misread. Raw generations are stored so any such case is visible.
-Constrained decoding would
-remove the heuristic entirely, at the cost of no longer measuring instruction-following
-— see [ADR-0001](adr/0001-greedy-generation.md).
+an untruncated generation. The parser reads a wrong verdict if a model gives its
+conclusion and then adds a caveat that names the other verdict. The benchmark stores the
+raw generations. Therefore, you can see each such case.
 
-**Mutation testing covers the domain only.** Adapters are covered by tests but not
-mutated; mutating filesystem and model-runtime code mostly produces equivalent mutants.
-The adapters are no longer thin: `hf_scorer.py` (~690 lines, eight scorer families) and
-`hf_publish.py` (~580 lines) are now the largest modules. Their branching is covered by
-unit tests with fake runtimes, not by mutation.
+Constrained decoding removes the heuristic fully. But then the benchmark does not measure
+instruction-following. Refer to [ADR-0001](adr/0001-greedy-generation.md).
 
-**No mutant survives, and none is allowed to.** Until the 2026-09 uplift the gate was
-silently broken: mutmut's copied workspace lacked the documentation one unit test reads,
-so its stats run failed, no mutant was tested, and the survivor count read zero. The
-workspace now copies what the tests read, `check_mutants.py` refuses a run that killed
-nothing, and the domain avoids constructs whose mutants are equivalent (guarded
-`zip(strict=True)` calls, redundant defaults). CI allows zero survivors
-(`scripts/check_mutants.py --max-survivors 0`).
+**Mutation testing covers only the domain.** Tests cover the adapters, but the mutation
+step does not mutate them. Mutants of filesystem code and model-runtime code are mostly
+equivalent mutants.
+
+The adapters are not thin now. `hf_scorer.py` (~690 lines, eight scorer families) and
+`hf_publish.py` (~580 lines) are the largest modules. Unit tests with fake runtimes
+cover their branches. Mutation does not cover them.
+
+**No mutant survives, and no mutant is permitted to survive.** Until the 2026-09 uplift,
+the gate was broken and did not show it. The copied workspace of mutmut did not have the
+documentation that one unit test reads. Therefore, its stats run failed and no mutant was
+tested. The survivor count was zero.
+
+The workspace now copies the files that the tests read. `check_mutants.py` refuses a run
+that killed nothing. The domain does not use constructs that make equivalent mutants. Two
+examples are guarded `zip(strict=True)` calls and redundant defaults. CI permits zero
+survivors (`scripts/check_mutants.py --max-survivors 0`).
 
 **CRAP ceilings and reviewed exceptions (#73).** CI requires 100% domain line and branch
-coverage and keeps its CRAP ceiling at 8; adapters and the CLI are gated at 15. An
-above-ceiling adapter/CLI function must have an explicit reason and test reference in
-`scripts/crap-allowlist.json`. The checker reports
-each exception and fails if an entry becomes stale, so exceptions cannot silently grow.
+coverage. The CRAP ceiling is 8. Adapters and the CLI have a ceiling of 15.
+
+A function in an adapter or in the CLI that is above the ceiling must have an explicit
+reason and a test reference in `scripts/crap-allowlist.json`. The checker reports each
+exception. It fails if an entry becomes stale. Therefore, the exceptions cannot grow
+without notice.

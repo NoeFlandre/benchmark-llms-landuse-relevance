@@ -10,12 +10,13 @@ through the ``zero-shot-classification`` pipeline, GLiClass and GLiNER2.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from math import exp
 from pathlib import Path
 from typing import Any
 
 from landuse_relevance_bench.adapters.hf_scorer_prompt import reranker_input
+from landuse_relevance_bench.adapters.optional_import import require
 from landuse_relevance_bench.adapters.pipeline import SCORING_SEQUENCE_LENGTH, RunRequest
+from landuse_relevance_bench.adapters.revision import loaded_revision
 from landuse_relevance_bench.domain.engine import LabelScorer, LabelScores, ScoringInput
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.scorers import MXBAI_LOGIT_OFFSET
@@ -27,9 +28,7 @@ _BINARY_LOGIT_COUNT = 2
 
 def _load_transformers() -> Any:
     """Load the optional runtime without making the type checker index its registry."""
-    module_name = "trans" + "formers"
-    importer = __import__("builtins").__import__
-    return importer(module_name)
+    return require("transformers", "inference")
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +37,18 @@ class ScorerSettings:
 
     dtype: str
     device_map: str = "auto"
+
+
+class _Scorer:
+    """The empty-batch guard shared by every scorer; subclasses score a non-empty batch."""
+
+    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        if not inputs:
+            return []
+        return self._score_nonempty(inputs)
+
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        raise NotImplementedError
 
 
 class _CudaMeasurement:
@@ -110,7 +121,7 @@ def _pretrained(
     return model
 
 
-class _TransformersScorer(_CudaMeasurement):
+class _TransformersScorer(_Scorer, _CudaMeasurement):
     """A tokenizer and a Transformers model, with the checkpoint's resolved revision."""
 
     def __init__(self, tokenizer: Any, model: Any) -> None:
@@ -119,7 +130,7 @@ class _TransformersScorer(_CudaMeasurement):
 
     @property
     def revision(self) -> str:
-        return str(getattr(self._model.config, "_commit_hash", "") or "")
+        return loaded_revision(self._model)
 
     def _batch(self, *texts: Sequence[str], **options: Any) -> dict[str, Any]:
         batch = self._tokenizer(
@@ -162,11 +173,9 @@ class RerankerScorer(_CausalScorer):
             _single_token_id(tokenizer, "no"),
         )
 
-    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         import torch
 
-        if not inputs:
-            return []
         logits = self._last_token_logits([reranker_input(item.prompt) for item in inputs])
         pair = torch.stack([logits[:, self._no_id], logits[:, self._yes_id]], dim=-1)
         probabilities = torch.softmax(pair.float(), dim=-1)
@@ -198,21 +207,16 @@ class GteScorer(_TransformersScorer):
         )
         return cls(tokenizer, model)
 
-    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         import torch
 
-        if not inputs:
-            return []
         batch = self._batch([item.prompt for item in inputs], [item.sentence for item in inputs])
         with torch.inference_mode():
             logits = self._model(**batch).logits
         native = _sequence_relevance_logits(logits)
         probabilities = torch.sigmoid(native.float())
         return [
-            LabelScores(
-                {Label.NO: float(1.0 - probability), Label.YES: float(probability)},
-                native_score=float(raw),
-            )
+            _probability_scores(float(probability), native=float(raw))
             for raw, probability in zip(native, probabilities, strict=True)
         ]
 
@@ -227,19 +231,14 @@ class MxbaiRerankerScorer(_CausalScorer):
             _single_token_id(tokenizer, "0"),
         )
 
-    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         import torch
 
-        if not inputs:
-            return []
         logits = self._last_token_logits([self._as_chat(item) for item in inputs])
         native = logits[:, self._yes_id].float() - logits[:, self._no_id].float()
         probabilities = torch.sigmoid(native - MXBAI_LOGIT_OFFSET)
         return [
-            LabelScores(
-                {Label.NO: float(1.0 - probability), Label.YES: float(probability)},
-                native_score=float(raw),
-            )
+            _probability_scores(float(probability), native=float(raw))
             for raw, probability in zip(native, probabilities, strict=True)
         ]
 
@@ -269,11 +268,20 @@ LAYA_MODEL_FILES = (
 
 def _load_laya() -> Any:
     """Load the optional Laya SDK without making the base CLI import it."""
-    importer = __import__("builtins").__import__
-    return importer("laya")
+    return require("laya", "inference")
 
 
-class LayaScorer(_CudaMeasurement):
+class _PipelineScorer(_Scorer, _CudaMeasurement):
+    """A scorer wrapping an SDK object, with the revision it was loaded at."""
+
+    _revision: str
+
+    @property
+    def revision(self) -> str:
+        return self._revision
+
+
+class LayaScorer(_PipelineScorer):
     """Score one sentence per typed Laya ``noul`` question.
 
     Laya's public API batches questions sharing one state. A small state group is
@@ -309,10 +317,6 @@ class LayaScorer(_CudaMeasurement):
         return cls(agent, resolved_revision)
 
     @property
-    def revision(self) -> str:
-        return self._revision
-
-    @property
     def runtime_dtype(self) -> str:
         """Expose the dtype selected by Laya's device-aware runtime."""
         value = getattr(self._agent, "dtype", None)
@@ -320,9 +324,7 @@ class LayaScorer(_CudaMeasurement):
             return "sdk-default"
         return str(value).removeprefix("torch.")
 
-    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
-        if not inputs:
-            return []
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         scores: list[LabelScores] = []
         for start in range(0, len(inputs), LAYA_GROUP_SIZE):
             group = inputs[start : start + LAYA_GROUP_SIZE]
@@ -338,12 +340,7 @@ class LayaScorer(_CudaMeasurement):
             answers = response["answers"]
             for index in range(len(group)):
                 probability = _laya_probability(answers[f"relevance_{index}"])
-                scores.append(
-                    LabelScores(
-                        {Label.NO: 1.0 - probability, Label.YES: probability},
-                        native_score=probability,
-                    )
-                )
+                scores.append(_probability_scores(probability))
         return scores
 
 
@@ -401,7 +398,7 @@ def _torch_device() -> str:
     return "cuda:0" if torch.cuda.is_available() else "cpu"
 
 
-class NliZeroShotScorer(_CudaMeasurement):
+class NliZeroShotScorer(_PipelineScorer):
     """Entailment probability of the land-use hypothesis, via the zero-shot pipeline.
 
     This is the checkpoints' documented interface: ``pipeline("zero-shot-classification")``
@@ -435,16 +432,10 @@ class NliZeroShotScorer(_CudaMeasurement):
             tokenizer=tokenizer,
             device=_torch_device(),
         )
-        resolved = str(getattr(model.config, "_commit_hash", "") or "")
+        resolved = loaded_revision(model)
         return cls(pipeline, revision or resolved)
 
-    @property
-    def revision(self) -> str:
-        return self._revision
-
-    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
-        if not inputs:
-            return []
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         hypothesis = batch_hypothesis(inputs)
         results = self._pipeline(
             [item.sentence for item in inputs],
@@ -459,7 +450,7 @@ class NliZeroShotScorer(_CudaMeasurement):
         return [_probability_scores(result["scores"][0]) for result in results]
 
 
-class GliClassScorer(_CudaMeasurement):
+class GliClassScorer(_PipelineScorer):
     """GLiClass's sigmoid score for the single land-use label."""
 
     sequence_length = ZEROSHOT_SEQUENCE_LENGTH
@@ -492,16 +483,10 @@ class GliClassScorer(_CudaMeasurement):
             max_length=ZEROSHOT_SEQUENCE_LENGTH,
             progress_bar=False,
         )
-        resolved = str(getattr(model.config, "_commit_hash", "") or "")
+        resolved = loaded_revision(model)
         return cls(pipeline, revision or resolved)
 
-    @property
-    def revision(self) -> str:
-        return self._revision
-
-    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
-        if not inputs:
-            return []
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         hypothesis = batch_hypothesis(inputs)
         results = self._pipeline(
             [item.sentence for item in inputs],
@@ -519,7 +504,7 @@ def _label_probability(result: Any, label: str) -> LabelScores:
     raise ValueError(f"GLiClass returned no score for the label {label!r}")
 
 
-class Gliner2Scorer(_CudaMeasurement):
+class Gliner2Scorer(_PipelineScorer):
     """GLiNER2.5's classification probability for the single land-use label."""
 
     TASK = "landuse"
@@ -539,7 +524,7 @@ class Gliner2Scorer(_CudaMeasurement):
         from huggingface_hub import snapshot_download
 
         # Imported by name: gliner2 lives in its own environment (it pins Transformers 4).
-        auto_extractor = __import__("builtins").__import__("gliner2").AutoExtractor
+        auto_extractor = require("gliner2", "gliner2").AutoExtractor
 
         del settings  # the SDK picks its own runtime dtype, recorded as runtime_dtype
         local_path = snapshot_download(model_id, revision=revision)
@@ -550,17 +535,11 @@ class Gliner2Scorer(_CudaMeasurement):
         return cls(model, revision or Path(local_path).name)
 
     @property
-    def revision(self) -> str:
-        return self._revision
-
-    @property
     def runtime_dtype(self) -> str:
         dtype = getattr(next(self._model.parameters()), "dtype", None)
         return "sdk-default" if dtype is None else str(dtype).removeprefix("torch.")
 
-    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
-        if not inputs:
-            return []
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         hypothesis = batch_hypothesis(inputs)
         tasks = {self.TASK: {"labels": [hypothesis], "multi_label": True, "cls_threshold": 0.0}}
         scores = []
@@ -606,11 +585,9 @@ class CausalLogprobScorer(_CausalScorer):
             text = text.rstrip() + self.THINK_CLOSE
         return text
 
-    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         import torch
 
-        if not inputs:
-            return []
         logits = self._last_token_logits([self.as_chat(item.prompt) for item in inputs]).float()
         log_probs = torch.log_softmax(logits, dim=-1)
         log_yes = torch.logsumexp(log_probs[:, self._yes_ids], dim=-1)
@@ -654,11 +631,9 @@ class MaskedTokenScorer(_TransformersScorer):
         )
         return cls(tokenizer, model)
 
-    def score(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         import torch
 
-        if not inputs:
-            return []
         texts: list[str] = []
         for item in inputs:
             if item.prompt.count(self.MASK_SENTINEL) != 1:
@@ -718,29 +693,26 @@ def _sequence_relevance_logits(logits: Any) -> Any:
     raise ValueError(f"expected one or two sequence-classification logits, got {logits.shape}")
 
 
-def mxbai_normalize(native_score: float) -> float:
-    """Match mxbai-rerank-v2's estimated-max sigmoid normalisation."""
-    return 1.0 / (1.0 + exp(-(native_score - MXBAI_LOGIT_OFFSET)))
+_ADAPTERS: dict[str, type[Any]] = {
+    "Alibaba-NLP/gte-multilingual-reranker-base": GteScorer,
+    "mixedbread-ai/mxbai-rerank-base-v2": MxbaiRerankerScorer,
+    "convaiinnovations/laya-multilingual": LayaScorer,
+    "Qwen/Qwen3-Reranker-0.6B": RerankerScorer,
+    "Qwen/Qwen3-Reranker-4B": RerankerScorer,
+    "LiquidAI/LFM2.5-2.6B@logprob": CausalLogprobScorer,
+    "LiquidAI/LFM2.5-Encoder-350M": MaskedTokenScorer,
+    "knowledgator/gliclass-multilang-mini": GliClassScorer,
+    "MoritzLaurer/bge-m3-zeroshot-v2.0": NliZeroShotScorer,
+    "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7": NliZeroShotScorer,
+    "BalaRajesh1/mmbert-small-nli": NliZeroShotScorer,
+    "fastino/gliner2.5-multi-v1": Gliner2Scorer,
+}
 
 
 def scorer_class_for(model_id: str) -> type[Any]:
     """Select the adapter matching a rostered scoring checkpoint."""
-    adapters: dict[str, type[Any]] = {
-        "Alibaba-NLP/gte-multilingual-reranker-base": GteScorer,
-        "mixedbread-ai/mxbai-rerank-base-v2": MxbaiRerankerScorer,
-        "convaiinnovations/laya-multilingual": LayaScorer,
-        "Qwen/Qwen3-Reranker-0.6B": RerankerScorer,
-        "Qwen/Qwen3-Reranker-4B": RerankerScorer,
-        "LiquidAI/LFM2.5-2.6B@logprob": CausalLogprobScorer,
-        "LiquidAI/LFM2.5-Encoder-350M": MaskedTokenScorer,
-        "knowledgator/gliclass-multilang-mini": GliClassScorer,
-        "MoritzLaurer/bge-m3-zeroshot-v2.0": NliZeroShotScorer,
-        "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7": NliZeroShotScorer,
-        "BalaRajesh1/mmbert-small-nli": NliZeroShotScorer,
-        "fastino/gliner2.5-multi-v1": Gliner2Scorer,
-    }
     try:
-        return adapters[model_id]
+        return _ADAPTERS[model_id]
     except KeyError as exc:
         raise ValueError(f"no scoring adapter is registered for {model_id!r}") from exc
 

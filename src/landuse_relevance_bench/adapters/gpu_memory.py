@@ -26,3 +26,13 @@ def gpu_memory_line(event: str, run: str) -> str | None:
         return None
     free, total = memory
     return f"gpu_mem event={event} run={run} free_mib={free // MIB} total_mib={total // MIB}"
+
+
+def free_gpu_memory_bytes() -> int | None:
+    """Free CUDA memory in bytes, or ``None`` without torch or a GPU."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    memory = _cuda_memory(torch)
+    return None if memory is None else memory[0]
