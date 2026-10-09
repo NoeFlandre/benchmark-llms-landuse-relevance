@@ -13,6 +13,7 @@ from landuse_relevance_bench.adapters import hf_scorer
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.domain.engine import ScoringInput
 from landuse_relevance_bench.domain.labels import Label
+from landuse_relevance_bench.domain.scorers import SCORER_ROSTER
 
 
 def _torch() -> Any:
@@ -478,7 +479,7 @@ def _remote_code_transformers(monkeypatch) -> list[tuple[str, str, dict[str, Any
     return calls
 
 
-def test_remote_code_is_off_for_every_loader_unless_the_roster_opts_in(monkeypatch) -> None:
+def test_remote_code_is_off_by_default_and_no_roster_entry_opts_in(monkeypatch) -> None:
     _torch()
     calls = _remote_code_transformers(monkeypatch)
     settings = hf_scorer.ScorerSettings(dtype="float32")
@@ -493,6 +494,8 @@ def test_remote_code_is_off_for_every_loader_unless_the_roster_opts_in(monkeypat
         False,
         False,
     ]
+    # The real roster: no entry opts in until its auto_map targets are pinned (issue #120).
+    assert not any(spec.trust_remote_code for spec in SCORER_ROSTER)
 
 
 GTE_SHA = "a" * 40

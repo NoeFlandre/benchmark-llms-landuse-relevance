@@ -49,6 +49,10 @@ def _trust_remote_code(settings: ScorerSettings, revision: str | None) -> bool:
     A branch, a tag or a short hash can move or be re-pointed, so remote code runs only
     for a full 40-character lowercase commit SHA. Any other opt-in fails before anything
     is downloaded.
+
+    The SHA pins the model repository only. Code that an ``auto_map`` entry names in another
+    Hub repository is fetched at that repository's default branch, so a model whose
+    ``auto_map`` names another repo is not safe to opt in until that repo is pinned too.
     """
     if not settings.trust_remote_code:
         return False
