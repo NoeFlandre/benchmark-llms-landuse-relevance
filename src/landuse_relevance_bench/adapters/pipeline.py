@@ -15,7 +15,19 @@ from landuse_relevance_bench.adapters.gpu_memory import free_gpu_memory_bytes
 from landuse_relevance_bench.adapters.hashing import sha256_of_file, sha256_of_text
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
 from landuse_relevance_bench.adapters.results_store import write_run
-from landuse_relevance_bench.domain.engine import Generation, LabelScorer, TextGenerator
+from landuse_relevance_bench.domain.engine import (
+    BatchSizeReporting,
+    Closable,
+    DraftRevisionReporting,
+    Generation,
+    LabelScorer,
+    MeasurementEnd,
+    MeasurementStart,
+    PeakVRAMReporting,
+    RuntimeDtypeReporting,
+    SequenceLengthReporting,
+    TextGenerator,
+)
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.orchestration import (
     DEFAULT_BATCH_SIZE,
@@ -133,9 +145,26 @@ def _first_set(*values: int | None) -> int:
 
 
 def _close_generator(generator: TextGenerator) -> None:
-    close = getattr(generator, "close", None)
-    if callable(close):
-        close()
+    if isinstance(generator, Closable):
+        generator.close()
+
+
+def _close_run_generator(request: RunRequest, generator: TextGenerator, *, failed: bool) -> None:
+    """Close a generator this run owns, then log GPU memory."""
+    if not request.close_generator:
+        return
+    phase = "after prediction error" if failed else "after prediction"
+    try:
+        _close_generator(generator)
+    except Exception:
+        # Logged, not raised: after a failed run this must not replace the original
+        # error, and after a successful run the predictions are already in hand.
+        logger.exception("%s: generator cleanup failed %s", request.name, phase)
+    _log_gpu_memory(
+        request.name,
+        "after failed run cleanup" if failed else "after run cleanup",
+        free_gpu_memory_bytes(),
+    )
 
 
 def _log_gpu_memory(name: str, stage: str, free_bytes: int | None) -> None:
@@ -193,22 +222,10 @@ def execute(
             lambda: predict_all(items, template, progress_generator, batch_size=request.batch_size)
         )
     except BaseException:
-        if request.close_generator:
-            try:
-                _close_generator(generator)
-            except Exception:
-                logger.exception(
-                    "%s: generator cleanup failed after prediction error", request.name
-                )
-            _log_gpu_memory(request.name, "after failed run cleanup", free_gpu_memory_bytes())
+        _close_run_generator(request, generator, failed=True)
         raise
     else:
-        if request.close_generator:
-            try:
-                _close_generator(generator)
-            except Exception:
-                logger.exception("%s: generator cleanup failed after prediction", request.name)
-            _log_gpu_memory(request.name, "after run cleanup", free_gpu_memory_bytes())
+        _close_run_generator(request, generator, failed=False)
     metadata = _metadata(
         request,
         generator,
@@ -301,13 +318,13 @@ def _metadata(  # noqa: PLR0913 - the provenance fields are distinct inputs
         benchmark_sha256=sha256_of_file(request.benchmark_path),
         batch_size=_effective_batch_size(model, request),
         seed=request.seed,
-        dtype=str(getattr(model, "runtime_dtype", request.dtype)),
+        dtype=_runtime_dtype(model, request),
         started_at=run.started_at,
         duration_seconds=round(duration, 3),
         source_commit=source_commit,
         runtime=request.runtime,
         draft_model_id=request.draft_model_id,
-        draft_model_revision=(getattr(model, "draft_revision", "") or request.draft_revision or ""),
+        draft_model_revision=_draft_revision(model, request),
         speculative=dict(request.speculative),
         package_version=__version__,
         generation_mode=(
@@ -336,19 +353,19 @@ def _store(
 
 
 def _begin_measurement(scorer: LabelScorer) -> None:
-    hook = getattr(scorer, "begin_measurement", None)
-    if callable(hook):
-        hook()
+    if isinstance(scorer, MeasurementStart):
+        scorer.begin_measurement()
 
 
 def _end_measurement(scorer: LabelScorer) -> None:
-    hook = getattr(scorer, "end_measurement", None)
-    if callable(hook):
-        hook()
+    if isinstance(scorer, MeasurementEnd):
+        scorer.end_measurement()
 
 
 def _peak_vram_bytes(scorer: LabelScorer) -> int | None:
-    value = getattr(scorer, "peak_vram_bytes", None)
+    if not isinstance(scorer, PeakVRAMReporting):
+        return None
+    value = scorer.peak_vram_bytes
     return int(value) if value is not None else None
 
 
@@ -363,10 +380,28 @@ def _device_name() -> str:
 
 def _sequence_length(scorer: LabelScorer) -> int | None:
     """The input cap a scorer truncates at; ``None`` when its SDK decides internally."""
-    value = getattr(scorer, "sequence_length", SCORING_SEQUENCE_LENGTH)
+    if not isinstance(scorer, SequenceLengthReporting):
+        return SCORING_SEQUENCE_LENGTH
+    value = scorer.sequence_length
     return None if value is None else int(value)
 
 
 def _effective_batch_size(model: object, request: RunRequest) -> int:
     """The batch actually run: an adapter that works item by item says so."""
-    return int(getattr(model, "effective_batch_size", request.batch_size))
+    if isinstance(model, BatchSizeReporting):
+        return int(model.effective_batch_size)
+    return int(request.batch_size)
+
+
+def _runtime_dtype(model: object, request: RunRequest) -> str:
+    """The dtype the runtime selected, else the one requested."""
+    if isinstance(model, RuntimeDtypeReporting):
+        return str(model.runtime_dtype)
+    return str(request.dtype)
+
+
+def _draft_revision(model: object, request: RunRequest) -> str:
+    """The draft revision the generator ran with, else the one requested."""
+    if isinstance(model, DraftRevisionReporting) and model.draft_revision:
+        return model.draft_revision
+    return request.draft_revision or ""
