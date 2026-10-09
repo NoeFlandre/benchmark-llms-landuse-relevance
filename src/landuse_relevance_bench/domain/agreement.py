@@ -108,3 +108,22 @@ def speculative_agreements(results: Sequence[RunResult]) -> list[Agreement]:
         for candidate in results
         if _is_baseline_for(candidate, speculative)
     ]
+
+
+def is_lossless_pair(
+    draft_runs: Sequence[RunResult],
+    baseline_runs: Sequence[RunResult],
+    agreements: Sequence[Agreement],
+) -> bool:
+    """Whether a speculative run pair reproduces its baseline in every language it ran.
+
+    Both sides must cover the same languages, every language must have an agreement,
+    and every agreement must be lossless.
+    """
+    draft_languages = {run.metadata.language for run in draft_runs}
+    baseline_languages = {run.metadata.language for run in baseline_runs}
+    return (
+        draft_languages == baseline_languages
+        and {agreement.language for agreement in agreements} == draft_languages
+        and all(agreement.lossless for agreement in agreements)
+    )
