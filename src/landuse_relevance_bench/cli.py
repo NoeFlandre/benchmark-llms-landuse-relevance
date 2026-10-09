@@ -2,10 +2,11 @@
 
 import json
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
-from typing import Annotated, TypedDict, TypeVar
+from typing import Annotated, Any, TypedDict, TypeVar
 
 import typer
 
@@ -144,6 +145,52 @@ def _request_fields(
     }
 
 
+def _run_pairs(
+    provider: CachedProvider[Any],
+    pairs: Iterable[tuple[str, str]],
+    build: Callable[..., RunRequest],
+    perform: Callable[..., None],
+    *,
+    manifest: TranslationManifest,
+    data_root: Path,
+    prompt: Path,
+    out: Path,
+    keep_going: bool = False,
+    **options: object,
+) -> list[str]:
+    """Build and perform one request per model-language pair through one provider.
+
+    The loop body shared by ``run``, ``score`` and ``run-all``. Usage errors and run
+    failures propagate unless ``keep_going``, which records the pair and continues; the
+    labels of failed pairs are returned. The provider is released however the loop ends.
+    """
+    failed: list[str] = []
+    with _closing_provider(provider) as cached:
+        for model_id, language in pairs:
+            pair = f"{model_id} [{language}]"
+            try:
+                request = build(
+                    model_id,
+                    **_request_fields(manifest, data_root, language, prompt, out),
+                    close_generator=False,
+                    **options,
+                )
+                perform(request, cached)
+            except typer.BadParameter as exc:
+                # Input problems are user errors, not run failures: no traceback.
+                if not keep_going:
+                    raise
+                typer.echo(f"{pair} rejected: {exc.message}", err=True)
+                failed.append(pair)
+            except Exception as exc:
+                if not keep_going:
+                    raise
+                logger.exception("%s failed", pair)
+                typer.echo(f"{pair} failed: {exc}", err=True)
+                failed.append(pair)
+    return failed
+
+
 @app.command()
 def models(as_json: Annotated[bool, typer.Option("--json", help="Emit JSON.")] = False) -> None:
     """List the models in the benchmark roster."""
@@ -206,23 +253,23 @@ def run(
         )
     manifest, selected = selected_languages(data_root, language)
     pairs = _plan((model_id,), selected, manifest, (shard_index, shard_count), out)
-    with _closing_provider(cached_generator_provider()) as provider:
-        for _, selected_language in pairs:
-            benchmark_one(
-                RunRequest.for_run(
-                    model_id,
-                    **_request_fields(manifest, data_root, selected_language, prompt, out),
-                    revision=revision,
-                    batch_size=batch_size,
-                    max_new_tokens=max_new_tokens,
-                    seed=seed,
-                    dtype=dtype,
-                    continuous_batching=continuous_batching,
-                    throughput_mode=throughput,
-                    close_generator=False,
-                ),
-                provider,
-            )
+    _run_pairs(
+        cached_generator_provider(),
+        pairs,
+        RunRequest.for_run,
+        benchmark_one,
+        manifest=manifest,
+        data_root=data_root,
+        prompt=prompt,
+        out=out,
+        revision=revision,
+        batch_size=batch_size,
+        max_new_tokens=max_new_tokens,
+        seed=seed,
+        dtype=dtype,
+        continuous_batching=continuous_batching,
+        throughput_mode=throughput,
+    )
 
 
 @app.command()
@@ -252,19 +299,20 @@ def score(
     manifest, selected = selected_languages(data_root, language)
     selected = languages_for_scorer(spec, selected, language)
     pairs = _plan((model_id,), selected, manifest, (shard_index, shard_count), out)
-    with _closing_provider(cached_scorer_provider()) as provider:
-        for _, selected_language in pairs:
-            score_one(
-                RunRequest(
-                    model_id=model_id,
-                    **_request_fields(manifest, data_root, selected_language, prompt, out),
-                    revision=revision,
-                    batch_size=batch_size,
-                    seed=seed,
-                    dtype=dtype,
-                ),
-                provider,
-            )
+    _run_pairs(
+        cached_scorer_provider(),
+        pairs,
+        RunRequest,
+        score_one,
+        manifest=manifest,
+        data_root=data_root,
+        prompt=prompt,
+        out=out,
+        revision=revision,
+        batch_size=batch_size,
+        seed=seed,
+        dtype=dtype,
+    )
 
 
 @app.command(name="run-all")
@@ -301,45 +349,31 @@ def run_all(
     for model, selected_language in pairs:
         pairs_by_model.setdefault(model, []).append(selected_language)
     failed_pairs: list[str] = []
+    perform = partial(benchmark_one, skip_existing=skip_existing)
     for model, languages_for_model in pairs_by_model.items():
-        provider = cached_generator_provider()
         model_batch_size, use_continuous_batching, use_throughput = mode_options(
             model,
             batch_size,
             continuous_batching=continuous_batching,
             throughput=throughput,
         )
-        with _closing_provider(provider):
-            for selected_language in languages_for_model:
-                pair = f"{model} [{selected_language}]"
-                try:
-                    benchmark_one(
-                        RunRequest.for_run(
-                            model,
-                            **_request_fields(manifest, data_root, selected_language, prompt, out),
-                            batch_size=model_batch_size,
-                            continuous_batching=use_continuous_batching,
-                            throughput_mode=use_throughput,
-                            max_new_tokens=max_new_tokens,
-                            seed=seed,
-                            dtype=dtype,
-                            close_generator=False,
-                        ),
-                        provider,
-                        skip_existing=skip_existing,
-                    )
-                except typer.BadParameter as exc:
-                    # Input problems are user errors, not run failures: no traceback.
-                    if not keep_going:
-                        raise
-                    typer.echo(f"{pair} rejected: {exc.message}", err=True)
-                    failed_pairs.append(pair)
-                except Exception as exc:
-                    if not keep_going:
-                        raise
-                    logger.exception("%s failed", pair)
-                    typer.echo(f"{pair} failed: {exc}", err=True)
-                    failed_pairs.append(pair)
+        failed_pairs += _run_pairs(
+            cached_generator_provider(),
+            [(model, selected_language) for selected_language in languages_for_model],
+            RunRequest.for_run,
+            perform,
+            manifest=manifest,
+            data_root=data_root,
+            prompt=prompt,
+            out=out,
+            keep_going=keep_going,
+            batch_size=model_batch_size,
+            continuous_batching=use_continuous_batching,
+            throughput_mode=use_throughput,
+            max_new_tokens=max_new_tokens,
+            seed=seed,
+            dtype=dtype,
+        )
     if failed_pairs:
         typer.echo(
             f"{len(failed_pairs)} run(s) did not complete: {', '.join(failed_pairs)}", err=True
