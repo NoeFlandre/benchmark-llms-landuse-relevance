@@ -81,6 +81,77 @@ def test_score_command_releases_its_provider_when_scoring_fails(
     assert provider.closed == 1
 
 
+def _generative_stubs(
+    monkeypatch: pytest.MonkeyPatch,
+    providers_made: list[_ClosableProvider],
+    failure: Exception | None,
+) -> None:
+    """One language, a fake plan, and a generator provider that is recorded and may fail."""
+    manifest = SimpleNamespace(files={"en": SimpleNamespace(path=Path("en.csv"))})
+    monkeypatch.setattr(cli, "selected_languages", lambda *_: (manifest, ("en",)))
+    monkeypatch.setattr(cli, "print_run_plan", lambda *args: None)
+
+    def make_provider() -> _ClosableProvider:
+        provider = _ClosableProvider()
+        providers_made.append(provider)
+        return provider
+
+    def benchmark_one(request: RunRequest, provider: object = None, **_kwargs: object) -> None:
+        if failure is not None:
+            raise failure
+
+    monkeypatch.setattr(cli, "cached_generator_provider", make_provider)
+    monkeypatch.setattr(cli, "benchmark_one", benchmark_one)
+
+
+def test_run_command_releases_its_provider(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    providers_made: list[_ClosableProvider] = []
+    _generative_stubs(monkeypatch, providers_made, None)
+
+    cli.run("some/model", data_root=tmp_path)
+
+    assert [provider.closed for provider in providers_made] == [1]
+
+
+def test_run_command_releases_its_provider_when_running_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    providers_made: list[_ClosableProvider] = []
+    _generative_stubs(monkeypatch, providers_made, RuntimeError("run failed"))
+
+    with pytest.raises(RuntimeError, match="run failed"):
+        cli.run("some/model", data_root=tmp_path)
+
+    assert [provider.closed for provider in providers_made] == [1]
+
+
+def test_run_all_releases_each_models_provider_when_a_run_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    providers_made: list[_ClosableProvider] = []
+    _generative_stubs(monkeypatch, providers_made, RuntimeError("run failed"))
+    monkeypatch.setattr(cli, "selected_models", lambda *_: ("a/one", "b/two"))
+
+    with pytest.raises(RuntimeError, match="run failed"):
+        cli.run_all(data_root=tmp_path)
+
+    assert [provider.closed for provider in providers_made] == [1]
+
+
+def test_run_all_keep_going_releases_each_models_provider_and_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    providers_made: list[_ClosableProvider] = []
+    _generative_stubs(monkeypatch, providers_made, RuntimeError("run failed"))
+    monkeypatch.setattr(cli, "selected_models", lambda *_: ("a/one", "b/two"))
+
+    with pytest.raises(typer.Exit) as exit_info:
+        cli.run_all(data_root=tmp_path, keep_going=True)
+
+    assert exit_info.value.exit_code == 1
+    assert [provider.closed for provider in providers_made] == [1, 1]
+
+
 def test_score_command_dispatches_each_selected_scoring_pair(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

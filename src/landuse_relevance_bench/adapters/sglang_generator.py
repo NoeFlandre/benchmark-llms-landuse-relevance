@@ -10,7 +10,8 @@ import logging
 import multiprocessing
 import os
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import replace
 from typing import Any, Protocol
 
@@ -88,12 +89,16 @@ class SGLangGenerator:
     def load(cls, request: RunRequest) -> "SGLangGenerator":
         import sglang  # ty: ignore[unresolved-import]  # the `speculative` extra
 
-        # SGLang spawns its scheduler; the shim must load there as well as here.
-        os.environ.update(with_site_dir(dict(os.environ)))
         patch_lfm2_vl()
         encode = _chat_encoder(request)
-        engine = sglang.Engine(**engine_arguments(request))
-        return cls(engine, encode, request.max_new_tokens)
+        with _shim_on_pythonpath():
+            engine = sglang.Engine(**engine_arguments(request))
+        return cls(
+            engine,
+            encode,
+            request.max_new_tokens,
+            draft_revision=request.draft_revision or "",
+        )
 
     def generate(self, prompts: Sequence[str]) -> list[Generation]:
         if not prompts:
@@ -113,6 +118,26 @@ class SGLangGenerator:
 
 
 CHILD_EXIT_TIMEOUT = 120.0
+
+
+@contextmanager
+def _shim_on_pythonpath() -> Iterator[None]:
+    """Put the shim directory first on ``PYTHONPATH`` only while the engine is constructed.
+
+    SGLang's scheduler processes inherit the environment when they are spawned, so the
+    shim has to be visible for the constructor's duration. The previous value, or its
+    absence, is restored afterwards so later runs in this process see an unchanged
+    environment.
+    """
+    previous = os.environ.get("PYTHONPATH")
+    os.environ["PYTHONPATH"] = with_site_dir(dict(os.environ))["PYTHONPATH"]
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("PYTHONPATH", None)
+        else:
+            os.environ["PYTHONPATH"] = previous
 
 
 def wait_for_children(children: Sequence[Any], *, timeout_seconds: float) -> list[Any]:
@@ -152,20 +177,15 @@ def _chat_encoder(request: RunRequest) -> Callable[[str], list[int]]:
 
 
 def provide(request: RunRequest) -> tuple[SGLangGenerator, str]:
-    """Load target and draft weights at pinned revisions where available."""
+    """Load target and draft weights at the commits they resolve to, before the engine starts.
+
+    The engine is given the resolved commits, so the revision recorded for the run is the
+    one that was loaded even when the request left it unpinned.
+    """
     resolved_request = request
     if request.draft_model_id:
         draft_revision = resolve_revision(request.draft_model_id, request.draft_revision)
-        resolved_request = replace(request, draft_revision=draft_revision or None)
-    generator = SGLangGenerator.load(resolved_request)
-    generator.draft_revision = resolved_request.draft_revision or ""
-    try:
-        target_revision = resolve_revision(request.model_id, request.revision)
-    except BaseException:
-        try:
-            generator.close()
-        except Exception:
-            # Logged, not raised: the revision lookup error is the one the caller needs.
-            logger.exception("SGLang engine cleanup failed after revision lookup error")
-        raise
-    return generator, target_revision
+        resolved_request = replace(resolved_request, draft_revision=draft_revision or None)
+    target_revision = resolve_revision(request.model_id, request.revision)
+    resolved_request = replace(resolved_request, revision=target_revision or None)
+    return SGLangGenerator.load(resolved_request), target_revision

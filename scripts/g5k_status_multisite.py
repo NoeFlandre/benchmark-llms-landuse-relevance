@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,54 +53,70 @@ def _ssh(frontend: str, remote_command: str) -> str:
     return result.stdout
 
 
-def _jobs_for_shards(  # noqa: C901, PLR0912
+_JOB_CLASSIFICATIONS: dict[str, str] = {
+    **dict.fromkeys(
+        ("Running", "Launching", "toLaunch", "Suspended", "Resuming", "Finishing"), "running"
+    ),
+    **dict.fromkeys(("Waiting", "Hold", "toAckReservation"), "queued"),
+    **dict.fromkeys(("Error", "toError"), "failed"),
+}
+_JOB_PRIORITY = {"queued": 1, "failed": 2, "running": 3}
+
+
+def _jobs_for_shards(
     payload: object,
     *,
     remote_results: str,
     shard_indices: set[int],
     shard_count: int,
 ) -> dict[int, tuple[str, str]]:
-    if isinstance(payload, dict):
-        jobs = payload.values()
-    elif isinstance(payload, list):
-        jobs = payload
-    else:
-        return {}
+    """Classify the most urgent scheduler job for each shard index this site owns."""
     active: dict[int, tuple[str, str]] = {}
-    for job in jobs:
+    for job in _job_entries(payload):
         if not isinstance(job, dict):
             continue
-        command = str(job.get("command") or "")
-        if not command:
+        shard_index = _shard_index_of(job, remote_results=remote_results, shard_count=shard_count)
+        if shard_index is None or shard_index not in shard_indices:
             continue
-        environment: dict[str, str] = {}
-        for token in shlex.split(command):
-            key, separator, value = token.partition("=")
-            if separator:
-                environment[key] = value
-        if environment.get("LRB_RESULTS") != remote_results:
-            continue
-        try:
-            shard_index = int(environment["LRB_SHARD_INDEX"])
-            requested_shards = int(environment["LRB_SHARD_COUNT"])
-        except (KeyError, ValueError):
-            continue
-        if shard_index not in shard_indices or requested_shards != shard_count:
-            continue
-        state = str(job.get("state", ""))
-        if state in {"Running", "Launching", "toLaunch", "Suspended", "Resuming", "Finishing"}:
-            classification = "running"
-        elif state in {"Waiting", "Hold", "toAckReservation"}:
-            classification = "queued"
-        elif state in {"Error", "toError"}:
-            classification = "failed"
-        else:
+        classification = _JOB_CLASSIFICATIONS.get(str(job.get("state", "")))
+        if classification is None:
             continue
         previous = active.get(shard_index)
-        priority = {"queued": 1, "failed": 2, "running": 3}
-        if previous is None or priority[classification] > priority[previous[0]]:
+        if previous is None or _JOB_PRIORITY[classification] > _JOB_PRIORITY[previous[0]]:
             active[shard_index] = (classification, str(job.get("id", "-")))
     return active
+
+
+def _job_entries(payload: object) -> Iterable[object]:
+    """The job records of an `oarstat -J` payload, keyed by job id or given as a list."""
+    if isinstance(payload, dict):
+        return payload.values()
+    if isinstance(payload, list):
+        return payload
+    return ()
+
+
+def _shard_index_of(job: dict[str, object], *, remote_results: str, shard_count: int) -> int | None:
+    """The shard a job runs for this results tree and shard count, read from its command."""
+    environment = _command_environment(str(job.get("command") or ""))
+    try:
+        shard_index = int(environment["LRB_SHARD_INDEX"])
+        requested_shards = int(environment["LRB_SHARD_COUNT"])
+    except (KeyError, ValueError):
+        return None
+    if environment.get("LRB_RESULTS") != remote_results or requested_shards != shard_count:
+        return None
+    return shard_index
+
+
+def _command_environment(command: str) -> dict[str, str]:
+    """The KEY=VALUE tokens that a shell command sets before its program name."""
+    environment: dict[str, str] = {}
+    for token in shlex.split(command):
+        key, separator, value = token.partition("=")
+        if separator:
+            environment[key] = value
+    return environment
 
 
 def _status_command(plan: StatusPlan, shard_index: int) -> str:

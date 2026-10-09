@@ -31,6 +31,9 @@
 - Grid'5000 scripts: one site-config parser serves the collector and the multisite status
   script. The status script now rejects a sites file with blank or duplicate site names,
   as the collector already did.
+- SGLang runs resolve an unpinned target revision before the engine starts and load that
+  commit, so the recorded revision is the one that ran. The shim directory is no longer
+  left on `PYTHONPATH` for the rest of the process.
 
 ## [0.2.0] - 2026-09-26
 
