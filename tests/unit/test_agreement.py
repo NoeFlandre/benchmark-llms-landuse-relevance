@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 
 from factories import make_metadata
-from landuse_relevance_bench.domain.agreement import speculative_agreements
+from landuse_relevance_bench.domain.agreement import is_lossless_pair, speculative_agreements
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction, RunResult
@@ -113,3 +113,18 @@ def test_partial_or_disjoint_coverage_cannot_be_lossless() -> None:
 )
 def test_baseline_requires_matching_benchmark_dtype_and_target_revision(metadata) -> None:
     assert speculative_agreements([PLAIN, _drafted(["yes", "no"], **metadata)]) == []
+
+
+def test_a_pair_is_lossless_only_when_both_runs_cover_the_same_languages_losslessly() -> None:
+    (agreement,) = speculative_agreements([PLAIN, _drafted(["yes", "no"])])
+    (lossy,) = speculative_agreements([PLAIN, _drafted(["so yes", "yes"])])
+    french_draft = _drafted(["yes", "no"], language="fr")
+
+    assert is_lossless_pair([_drafted(["yes", "no"])], [PLAIN], [agreement])
+    assert not is_lossless_pair(
+        [_drafted(["yes", "no"]), french_draft],
+        [PLAIN],
+        [agreement, replace(agreement, language="fr")],
+    )
+    assert not is_lossless_pair([_drafted(["yes", "no"])], [PLAIN], [])
+    assert not is_lossless_pair([_drafted(["so yes", "yes"])], [PLAIN], [lossy])

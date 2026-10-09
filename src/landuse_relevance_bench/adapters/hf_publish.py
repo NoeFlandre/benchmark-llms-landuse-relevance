@@ -10,9 +10,14 @@ from landuse_relevance_bench.adapters.results_store import (
     aggregate_rows,
     group_by_model,
     read_runs,
+    rounded,
     scoring_summary_rows,
 )
-from landuse_relevance_bench.domain.agreement import speculative_agreements
+from landuse_relevance_bench.domain.agreement import (
+    Agreement,
+    is_lossless_pair,
+    speculative_agreements,
+)
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
@@ -303,38 +308,14 @@ def _speed_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
                 "batch_size": _single_setting(runs, "batch_size"),
                 "language_count": len({run.metadata.language for run in runs}),
                 "cumulative_wall_seconds": round(speed.wall_seconds, 2),
-                "sentences_per_second": (
-                    None
-                    if speed.sentences_per_second is None
-                    else round(speed.sentences_per_second, 3)
-                ),
-                "latency_mean_seconds": (
-                    None
-                    if speed.latency_mean_seconds is None
-                    else round(speed.latency_mean_seconds, 4)
-                ),
-                "latency_p50_seconds": (
-                    None
-                    if speed.latency_p50_seconds is None
-                    else round(speed.latency_p50_seconds, 4)
-                ),
-                "latency_p95_seconds": (
-                    None
-                    if speed.latency_p95_seconds is None
-                    else round(speed.latency_p95_seconds, 4)
-                ),
+                "sentences_per_second": rounded(speed.sentences_per_second, 3),
+                "latency_mean_seconds": rounded(speed.latency_mean_seconds, 4),
+                "latency_p50_seconds": rounded(speed.latency_p50_seconds, 4),
+                "latency_p95_seconds": rounded(speed.latency_p95_seconds, 4),
                 "generated_tokens": speed.generated_tokens,
-                "output_tokens_per_second": (
-                    None
-                    if speed.output_tokens_per_second is None
-                    else round(speed.output_tokens_per_second, 2)
-                ),
-                "mean_accept_length": (
-                    None if speed.mean_accept_length is None else round(speed.mean_accept_length, 3)
-                ),
-                "draft_accept_rate": (
-                    None if speed.draft_accept_rate is None else round(speed.draft_accept_rate, 4)
-                ),
+                "output_tokens_per_second": rounded(speed.output_tokens_per_second, 2),
+                "mean_accept_length": rounded(speed.mean_accept_length, 3),
+                "draft_accept_rate": rounded(speed.draft_accept_rate, 4),
             }
         )
     return rows
@@ -383,7 +364,7 @@ def _reproducibility_note(results: Sequence[RunResult]) -> str:
 
 def _agreement_section(results: Sequence[RunResult]) -> str:
     by_name = group_by_model(results)
-    agreements: dict[tuple[str, str], list[Any]] = {}
+    agreements: dict[tuple[str, str], list[Agreement]] = {}
     for agreement in speculative_agreements(results):
         if agreement.same_runtime:
             agreements.setdefault((agreement.speculative_run, agreement.baseline_run), []).append(
@@ -395,14 +376,6 @@ def _agreement_section(results: Sequence[RunResult]) -> str:
     for (draft_name, baseline_name), values in sorted(agreements.items()):
         draft_runs = by_name[draft_name]
         baseline_runs = by_name[baseline_name]
-        draft_languages = {run.metadata.language for run in draft_runs}
-        baseline_languages = {run.metadata.language for run in baseline_runs}
-        by_language = {agreement.language: agreement for agreement in values}
-        complete = (
-            draft_languages == baseline_languages
-            and set(by_language) == draft_languages
-            and all(agreement.lossless for agreement in values)
-        )
         baseline_tps = speed_rows[baseline_name]["output_tokens_per_second"]
         draft_tps = speed_rows[draft_name]["output_tokens_per_second"]
         rows.append(
@@ -417,8 +390,10 @@ def _agreement_section(results: Sequence[RunResult]) -> str:
                     if not baseline_tps or draft_tps is None
                     else f"{draft_tps / baseline_tps:.2f}x"
                 ),
-                "identical_predictions": "yes" if complete else "no",
-                "languages_compared": len(by_language),
+                "identical_predictions": (
+                    "yes" if is_lossless_pair(draft_runs, baseline_runs, values) else "no"
+                ),
+                "languages_compared": len({agreement.language for agreement in values}),
                 "items_compared": sum(value.n_compared for value in values),
                 "verdict_differences": sum(value.verdicts_differ for value in values),
                 "text_differences": sum(value.texts_differ for value in values),

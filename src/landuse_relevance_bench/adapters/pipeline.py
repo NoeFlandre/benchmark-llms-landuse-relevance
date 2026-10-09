@@ -217,15 +217,14 @@ def execute(
     _log_gpu_memory(request.name, "before model load", free_before)
     generator, revision = provide_generator(request)
     progress_generator = ProgressReporting(generator, request.name, len(items), request.batch_size)
+    completed = False
     try:
         run = _timed(
             lambda: predict_all(items, template, progress_generator, batch_size=request.batch_size)
         )
-    except BaseException:
-        _close_run_generator(request, generator, failed=True)
-        raise
-    else:
-        _close_run_generator(request, generator, failed=False)
+        completed = True
+    finally:
+        _close_run_generator(request, generator, failed=not completed)
     metadata = _metadata(
         request,
         generator,

@@ -31,8 +31,8 @@ instruction-following. Refer to [ADR-0001](adr/0001-greedy-generation.md).
 adapters, but the mutation step does not mutate them. Mutants of filesystem code and
 model-runtime code are mostly equivalent mutants.
 
-The adapters are not thin now. `hf_scorer.py` (~690 lines, eight scorer families) and
-`hf_publish.py` (~580 lines) are the largest modules. Unit tests with fake runtimes
+The adapters are not thin now. `hf_scorer.py` (~730 lines, eight scorer families) and
+`hf_publish.py` (~870 lines) are the largest modules. Unit tests with fake runtimes
 cover their branches. Mutation does not cover them.
 
 **Survivors are allowed only when reviewed.** Until the 2026-09 uplift, the gate was broken

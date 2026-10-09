@@ -57,12 +57,37 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The PR checkout is a merge commit, so HEAD^1 is the base for the diff below.
+          fetch-depth: 2
+      - name: Detect changes that can affect mutation results
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Inputs: the paths listed below (mutmut copies them), plus check_mutants.py and
+          # the Makefile. Anything else, such as docs/ and other *.md files, skips the run.
+          changed="$(git diff --no-renames --name-only HEAD^1 HEAD)"
+          if grep -Eq '^(src|tests|scripts|data|results)/|^(README\.md|pyproject\.toml|uv\.lock|Makefile|mutation-allowlist\.txt|\.github/workflows/ci\.yml)$' <<< "$changed"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No code changes in this PR; skipping mutation testing."
+          fi
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
           python-version: "3.12"
-      - run: uv sync --extra inference --extra scoring --extra publish
+      - name: Install dependencies
+        if: steps.scope.outputs.run == 'true'
+        run: uv sync --extra inference --extra scoring --extra publish
       - name: Mutation testing
+        if: steps.scope.outputs.run == 'true'
         run: make mutation
 
   lockfile:
