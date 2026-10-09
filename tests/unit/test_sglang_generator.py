@@ -1,5 +1,6 @@
 """SGLangGenerator's translation to and from the engine, with a fake engine."""
 
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 
 from landuse_relevance_bench.adapters import sglang_generator
 from landuse_relevance_bench.adapters.pipeline import RunRequest
+from landuse_relevance_bench.adapters.sglang_compat import SITE_DIR
 from landuse_relevance_bench.adapters.sglang_generator import (
     SGLangGenerator,
     as_generation,
@@ -150,24 +152,111 @@ def test_closing_the_generator_shuts_the_engine_down() -> None:
     assert engine.stopped
 
 
-def test_unpinned_draft_revision_is_resolved_and_carried_into_the_generator(monkeypatch) -> None:
-    calls: list[tuple[str, tuple[str | None, ...]]] = []
+def test_unpinned_revisions_are_resolved_before_the_engine_starts_and_passed_to_it(
+    monkeypatch,
+) -> None:
+    events: list[str] = []
+    engine_kwargs: list[dict[str, Any]] = []
 
     def resolve(model_id: str, *candidates: str | None) -> str:
-        calls.append((model_id, candidates))
+        events.append(f"resolve {model_id}")
         return candidates[0] or f"resolved-{model_id}"
 
-    class Loaded:
-        draft_revision = ""
+    def start_engine(**kwargs: Any) -> FakeEngine:
+        events.append("engine")
+        engine_kwargs.append(kwargs)
+        return FakeEngine()
 
     monkeypatch.setattr(sglang_generator, "resolve_revision", resolve)
-    monkeypatch.setattr(sglang_generator.SGLangGenerator, "load", lambda _request: Loaded())
-    generator, target_revision = sglang_generator.provide(_request("LiquidAI/LFM2.5-2.6B+DSpark"))
+    _install_engine(monkeypatch, start_engine)
+    request = replace(_request("LiquidAI/LFM2.5-2.6B+DSpark"), revision=None, draft_revision=None)
 
-    assert calls[0][0] == "LiquidAI/LFM2.5-2.6B-DSpark"
-    assert calls[1][0] == "LiquidAI/LFM2.5-2.6B"
-    assert generator.draft_revision == calls[0][1][0]
-    assert target_revision == calls[1][1][0]
+    generator, target_revision = sglang_generator.provide(request)
+
+    assert events == [
+        "resolve LiquidAI/LFM2.5-2.6B-DSpark",
+        "resolve LiquidAI/LFM2.5-2.6B",
+        "engine",
+    ]
+    assert target_revision == "resolved-LiquidAI/LFM2.5-2.6B"
+    assert engine_kwargs[0]["revision"] == target_revision
+    assert (
+        engine_kwargs[0]["speculative_draft_model_revision"]
+        == "resolved-LiquidAI/LFM2.5-2.6B-DSpark"
+    )
+    assert generator.draft_revision == "resolved-LiquidAI/LFM2.5-2.6B-DSpark"
+
+
+def test_load_hands_the_draft_revision_to_the_constructor(monkeypatch) -> None:
+    _install_engine(monkeypatch, lambda **_: FakeEngine())
+    request = replace(
+        _request("custom/model"), draft_model_id="custom/draft", draft_revision="draft-sha"
+    )
+
+    assert SGLangGenerator.load(request).draft_revision == "draft-sha"
+
+
+def test_load_without_a_draft_records_no_draft_revision(monkeypatch) -> None:
+    _install_engine(monkeypatch, lambda **_: FakeEngine())
+
+    assert SGLangGenerator.load(_request("custom/model")).draft_revision == ""
+
+
+def test_the_engine_sees_the_shim_on_pythonpath_while_it_starts(monkeypatch) -> None:
+    monkeypatch.setenv("PYTHONPATH", "/existing/path")
+    seen: list[str | None] = []
+    _install_engine(monkeypatch, _recording_engine(seen))
+
+    SGLangGenerator.load(_request("custom/model"))
+
+    assert seen[0] is not None
+    assert seen[0].split(os.pathsep) == [str(SITE_DIR), "/existing/path"]
+
+
+def test_load_restores_the_previous_pythonpath(monkeypatch) -> None:
+    monkeypatch.setenv("PYTHONPATH", "/existing/path")
+    _install_engine(monkeypatch, _recording_engine([]))
+
+    SGLangGenerator.load(_request("custom/model"))
+
+    assert os.environ["PYTHONPATH"] == "/existing/path"
+
+
+def test_load_unsets_pythonpath_again_when_the_process_had_none(monkeypatch) -> None:
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    _install_engine(monkeypatch, _recording_engine([]))
+
+    SGLangGenerator.load(_request("custom/model"))
+
+    assert "PYTHONPATH" not in os.environ
+
+
+def test_load_restores_pythonpath_when_the_engine_fails_to_start(monkeypatch) -> None:
+    monkeypatch.setenv("PYTHONPATH", "/existing/path")
+    _install_engine(monkeypatch, _recording_engine([], fail=True))
+
+    with pytest.raises(RuntimeError, match="engine failed to start"):
+        SGLangGenerator.load(_request("custom/model"))
+
+    assert os.environ["PYTHONPATH"] == "/existing/path"
+
+
+def _install_engine(monkeypatch, start: Any) -> None:
+    """Stand in for ``sglang.Engine`` and the tokenizer so ``load`` runs without SGLang."""
+    monkeypatch.setitem(sys.modules, "sglang", SimpleNamespace(Engine=start))
+    monkeypatch.setattr(sglang_generator, "_chat_encoder", lambda _request: lambda _: [1])
+
+
+def _recording_engine(seen: list[str | None], *, fail: bool = False) -> Any:
+    """An engine constructor that records ``PYTHONPATH`` as the constructor sees it."""
+
+    def start(**_kwargs: Any) -> FakeEngine:
+        seen.append(os.environ.get("PYTHONPATH"))
+        if fail:
+            raise RuntimeError("engine failed to start")
+        return FakeEngine()
+
+    return start
 
 
 def test_plain_sglang_run_does_not_resolve_a_draft_revision(monkeypatch) -> None:
@@ -187,47 +276,23 @@ def test_plain_sglang_run_does_not_resolve_a_draft_revision(monkeypatch) -> None
     assert calls == ["LiquidAI/LFM2.5-2.6B"]
 
 
-def test_target_revision_lookup_failure_shuts_down_loaded_engine(monkeypatch) -> None:
-    class Loaded:
-        draft_revision = ""
-        stopped = False
-
-        def close(self) -> None:
-            self.stopped = True
-
-    generator = Loaded()
+def test_a_failed_target_revision_lookup_never_starts_the_engine(monkeypatch) -> None:
+    started: list[FakeEngine] = []
 
     def fail_revision_lookup(_model_id: str, *_revisions: str | None) -> str:
         raise RuntimeError("Hub unavailable")
 
+    def start_engine(**_kwargs: Any) -> FakeEngine:
+        started.append(FakeEngine())
+        return started[-1]
+
     monkeypatch.setattr(sglang_generator, "resolve_revision", fail_revision_lookup)
-    monkeypatch.setattr(sglang_generator.SGLangGenerator, "load", lambda _request: generator)
+    _install_engine(monkeypatch, start_engine)
 
     with pytest.raises(RuntimeError, match="Hub unavailable"):
         sglang_generator.provide(_request("LiquidAI/LFM2.5-2.6B@sglang"))
 
-    assert generator.stopped
-
-
-def test_target_revision_failure_preserves_the_error_if_engine_cleanup_fails(
-    monkeypatch, caplog
-) -> None:
-    class Loaded:
-        draft_revision = ""
-
-        def close(self) -> None:
-            raise RuntimeError("shutdown failed")
-
-    def fail_revision_lookup(_model_id: str, *_revisions: str | None) -> str:
-        raise ValueError("Hub unavailable")
-
-    monkeypatch.setattr(sglang_generator, "resolve_revision", fail_revision_lookup)
-    monkeypatch.setattr(sglang_generator.SGLangGenerator, "load", lambda _request: Loaded())
-
-    with caplog.at_level("ERROR"), pytest.raises(ValueError, match="Hub unavailable"):
-        sglang_generator.provide(_request("LiquidAI/LFM2.5-2.6B@sglang"))
-
-    assert "SGLang engine cleanup failed after revision lookup error" in caplog.text
+    assert started == []
 
 
 def test_chat_encoder_uses_the_auto_tokenizer_and_chat_template_without_loading_weights(
