@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,7 +48,7 @@ def expected_pairs_for_models(models: Sequence[str], languages: Sequence[str]) -
     return tuple(model_language_pairs(tuple(models), tuple(languages)))
 
 
-def collect_results(  # noqa: C901, PLR0912
+def collect_results(
     site_roots: Mapping[str, Path],
     *,
     expected_pairs: Sequence[Pair],
@@ -58,50 +58,94 @@ def collect_results(  # noqa: C901, PLR0912
 ) -> CollectionReport:
     """Validate every site result and atomically merge a complete pair union."""
     expected = _canonical_pairs(expected_pairs)
-    expected_set = set(expected)
+    found, seen_commit = _read_site_results(
+        site_roots, expected=set(expected), expected_source_commit=expected_source_commit
+    )
+    source_commit = _complete_source_commit(expected, found, seen_commit)
+    _install_results(output, found, force=force)
+    return CollectionReport(pairs=expected, source_commit=source_commit)
+
+
+def _read_site_results(
+    site_roots: Mapping[str, Path],
+    *,
+    expected: set[Pair],
+    expected_source_commit: str | None,
+) -> tuple[dict[Pair, RunResult], str | None]:
+    """Read and validate each site's results, returning them with the one commit seen."""
     found: dict[Pair, RunResult] = {}
     source_commit: str | None = None
     for site_name in sorted(site_roots):
-        root = site_roots[site_name]
-        if not root.is_dir():
-            raise CollectionError(f"site {site_name!r} result root does not exist: {root}")
-        for path in sorted(root.rglob("*.json")):
-            if "archive" in path.relative_to(root).parts:
-                raise CollectionError(f"site {site_name!r} contains an archive result: {path}")
-            try:
-                result = read_run(path)
-            except ValueError as exc:
-                raise CollectionError(
-                    f"invalid result at site {site_name!r}: {path}: {exc}"
-                ) from exc
+        for path in _site_result_paths(site_name, site_roots[site_name]):
+            result = _read_site_result(site_name, path)
             pair = (result.metadata.model_id, result.metadata.language)
-            if pair not in expected_set:
-                raise CollectionError(f"unexpected pair {pair!r} at site {site_name!r}")
-            if pair in found:
-                raise CollectionError(f"duplicate pair {pair!r} across site result trees")
-            commit = result.metadata.source_commit
-            if not commit:
-                raise CollectionError(f"pair {pair!r} has no source commit")
-            if expected_source_commit is not None and commit != expected_source_commit:
-                raise CollectionError(
-                    f"pair {pair!r} has source commit {commit!r}; "
-                    f"expected {expected_source_commit!r}"
-                )
-            if source_commit is None:
-                source_commit = commit
-            elif commit != source_commit:
-                raise CollectionError(
-                    f"mixed source commit values: {source_commit!r} and {commit!r}"
-                )
+            _check_pair(site_name, pair, expected=expected, found=found)
+            source_commit = _checked_source_commit(
+                pair,
+                result.metadata.source_commit,
+                expected_source_commit=expected_source_commit,
+                seen_commit=source_commit,
+            )
             found[pair] = result
-    missing = sorted(expected_set - set(found))
+    return found, source_commit
+
+
+def _site_result_paths(site_name: str, root: Path) -> Iterator[Path]:
+    """Yield the result files of one site, refusing archives and missing roots lazily."""
+    if not root.is_dir():
+        raise CollectionError(f"site {site_name!r} result root does not exist: {root}")
+    for path in sorted(root.rglob("*.json")):
+        if "archive" in path.relative_to(root).parts:
+            raise CollectionError(f"site {site_name!r} contains an archive result: {path}")
+        yield path
+
+
+def _read_site_result(site_name: str, path: Path) -> RunResult:
+    try:
+        return read_run(path)
+    except ValueError as exc:
+        raise CollectionError(f"invalid result at site {site_name!r}: {path}: {exc}") from exc
+
+
+def _check_pair(
+    site_name: str, pair: Pair, *, expected: set[Pair], found: Mapping[Pair, RunResult]
+) -> None:
+    if pair not in expected:
+        raise CollectionError(f"unexpected pair {pair!r} at site {site_name!r}")
+    if pair in found:
+        raise CollectionError(f"duplicate pair {pair!r} across site result trees")
+
+
+def _checked_source_commit(
+    pair: Pair,
+    commit: str,
+    *,
+    expected_source_commit: str | None,
+    seen_commit: str | None,
+) -> str:
+    """Return the commit every result must share, or raise if this pair breaks that."""
+    if not commit:
+        raise CollectionError(f"pair {pair!r} has no source commit")
+    if expected_source_commit is not None and commit != expected_source_commit:
+        raise CollectionError(
+            f"pair {pair!r} has source commit {commit!r}; expected {expected_source_commit!r}"
+        )
+    if seen_commit is not None and commit != seen_commit:
+        raise CollectionError(f"mixed source commit values: {seen_commit!r} and {commit!r}")
+    return commit
+
+
+def _complete_source_commit(
+    expected: Sequence[Pair], found: Mapping[Pair, RunResult], seen_commit: str | None
+) -> str:
+    """Require every expected pair to be present, and return the shared source commit."""
+    missing = sorted(set(expected) - set(found))
     if missing:
         formatted = ", ".join(f"{model_id}[{language}]" for model_id, language in missing)
         raise CollectionError(f"missing pairs: {formatted}")
-    if source_commit is None:
+    if seen_commit is None:
         raise CollectionError("no result pairs were found")
-    _install_results(output, found, force=force)
-    return CollectionReport(pairs=expected, source_commit=source_commit)
+    return seen_commit
 
 
 def _install_results(output: Path, results: Mapping[Pair, RunResult], *, force: bool) -> None:
