@@ -6,7 +6,7 @@ errors; the command definitions themselves stay in :mod:`landuse_relevance_bench
 
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NamedTuple, TypedDict
 
 import typer
 
@@ -22,7 +22,13 @@ from landuse_relevance_bench.adapters.pipeline import (
 from landuse_relevance_bench.adapters.prompt_file import PromptFileError, load_prompt
 from landuse_relevance_bench.adapters.provenance import source_commit
 from landuse_relevance_bench.adapters.providers import generator_provider, scorer_provider
-from landuse_relevance_bench.adapters.results_store import leaderboard_rows, read_run, run_filename
+from landuse_relevance_bench.adapters.results_store import (
+    leaderboard_rows,
+    read_run,
+    read_runs,
+    run_filename,
+    write_reports,
+)
 from landuse_relevance_bench.adapters.translations import (
     TranslationDataError,
     TranslationManifest,
@@ -348,3 +354,78 @@ def filter_languages(results: Sequence[RunResult], selectors: list[str] | None) 
     if not selected:
         return list(results)
     return [result for result in results if result.metadata.language in selected]
+
+
+class _CardInputs(TypedDict):
+    """Card and timing inputs shared by the dry-run preview and the Hub upload."""
+
+    benchmark_name: str
+    prompt_text: str
+    scorer_prompt_text: str
+    extra_scorer_prompt_texts: tuple[str, ...]
+    timing_results: Sequence[RunResult]
+
+
+class PublishOutput(NamedTuple):
+    run_count: int
+    output: str  # the Hub URL, or the generated card on a dry run
+
+
+def publish_to_hub(  # noqa: PLR0913 - one parameter per publish option, mirroring the CLI
+    repo_id: str,
+    *,
+    data_root: Path,
+    results_dir: Path,
+    prompt: Path,
+    scorer_prompt: Path,
+    benchmark_name: str,
+    timing_dir: Path | None,
+    language: list[str] | None,
+    private: bool,
+    dry_run: bool,
+) -> PublishOutput:
+    """Push the stored runs, leaderboard and a generated card, or preview the card on a dry run."""
+    # Only the publish path needs the Hub adapter, so the import stays inside the function.
+    from landuse_relevance_bench.adapters.hf_publish import (  # noqa: PLC0415
+        dataset_card,
+        publish_results,
+        read_published_runs,
+    )
+
+    if not results_dir.is_dir():
+        raise typer.BadParameter(f"no run results directory at {results_dir}")
+    try:
+        published = read_published_runs(results_dir)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    language_filter: list[str] | None = None
+    if language is not None:
+        _, selected = selected_languages(data_root, language)
+        language_filter = list(selected)
+    runs = comparable_runs(published, language_filter, results_dir)
+    if not dry_run:
+        # A reranker's score is not calibrated to a 0.5 boundary, so the threshold sweep
+        # is written beside the leaderboard and linked from the card.
+        write_reports(runs, results_dir / "leaderboard.csv")
+    prompt_text, scorer_prompt_text = load_prompts(prompt, scorer_prompt)
+    card: _CardInputs = {
+        "benchmark_name": benchmark_name,
+        "prompt_text": prompt_text,
+        "scorer_prompt_text": scorer_prompt_text,
+        "extra_scorer_prompt_texts": extra_scorer_prompts(scorer_prompt),
+        "timing_results": read_runs(timing_dir) if timing_dir else (),
+    }
+    if dry_run:
+        return PublishOutput(len(runs), dataset_card(runs, viewer_file=VIEWER_FILE, **card))
+    url = publish_results(
+        repo_id,
+        results_dir,
+        runs,
+        private=private,
+        data_root=data_root,
+        allow_patterns=publish_allow_patterns(
+            results_dir, runs, include_snapshot_status=language_filter is None
+        ),
+        **card,
+    )
+    return PublishOutput(len(runs), url)

@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import json
+import logging
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -1010,3 +1011,72 @@ def test_run_all_keep_going_reports_pair_errors_and_exits_nonzero(
     assert result.exit_code == 1
     assert "simulated model failure" in result.stderr
     assert "failed" in result.stderr
+
+
+def _keep_going_run_all(tmp_path: Path, benchmark_path: Path, prompt_path: Path, *extra: str):
+    data_root = _translation_root(tmp_path, benchmark_path)
+    return runner.invoke(
+        cli.app,
+        [
+            "run-all",
+            "--data-root",
+            str(data_root),
+            "--prompt",
+            str(prompt_path),
+            "--out",
+            str(tmp_path / "results"),
+            "--only",
+            "LiquidAI/LFM2.5-350M",
+            "--keep-going",
+            *extra,
+        ],
+    )
+
+
+def test_run_all_keep_going_logs_the_traceback_of_unexpected_errors(
+    monkeypatch, caplog, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    def fail(_request: RunRequest):
+        raise RuntimeError("simulated model failure")
+
+    monkeypatch.setattr(providers, "generator_provider", lambda: fail)
+    with caplog.at_level(logging.ERROR):
+        result = _keep_going_run_all(tmp_path, benchmark_path, prompt_path, "--language", "en")
+
+    assert result.exit_code == 1
+    errors = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert errors
+    assert errors[0].exc_info is not None
+    assert errors[0].exc_info[0] is RuntimeError
+
+
+def test_run_all_keep_going_reports_usage_errors_as_rejected_not_failed(
+    monkeypatch, caplog, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    def reject(_request: RunRequest):
+        raise typer.BadParameter("bad input")
+
+    monkeypatch.setattr(providers, "generator_provider", lambda: reject)
+    with caplog.at_level(logging.ERROR):
+        result = _keep_going_run_all(tmp_path, benchmark_path, prompt_path, "--language", "en")
+
+    assert result.exit_code == 1
+    assert "rejected: bad input" in result.stderr
+    assert "failed" not in result.stderr
+    assert not [record for record in caplog.records if record.exc_info]
+
+
+def test_run_all_keep_going_ends_with_a_summary_of_failed_pairs(
+    monkeypatch, tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    def fail(_request: RunRequest):
+        raise RuntimeError("simulated model failure")
+
+    monkeypatch.setattr(providers, "generator_provider", lambda: fail)
+    result = _keep_going_run_all(tmp_path, benchmark_path, prompt_path)
+
+    assert result.exit_code == 1
+    summary = result.stderr.strip().splitlines()[-1]
+    assert "2 run(s) did not complete" in summary
+    assert "LiquidAI/LFM2.5-350M [en]" in summary
+    assert "LiquidAI/LFM2.5-350M [fr]" in summary

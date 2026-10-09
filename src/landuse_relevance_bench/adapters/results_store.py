@@ -102,14 +102,16 @@ def run_filename(model_id: str, language: str) -> Path:
     return Path(normalized_language) / f"{model_id.replace('/', '__')}.json"
 
 
+def dumps_run_payload(payload: dict[str, Any]) -> str:
+    """Canonical JSON text of a saved run; every writer uses it so committed diffs stay clean."""
+    return json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+
+
 def write_run(result: RunResult, directory: Path) -> Path:
     """Write ``result`` under ``directory``; the same result always writes the same bytes."""
     path = directory / run_filename(result.metadata.name, result.metadata.language)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(result.to_dict(), indent=2, ensure_ascii=False, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    path.write_text(dumps_run_payload(result.to_dict()), encoding="utf-8")
     return path
 
 
@@ -119,6 +121,8 @@ def read_run(path: Path, *, legacy_language: str | None = None) -> RunResult:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} does not contain a JSON object")
     try:
         metadata = payload.get("metadata", {})
         if legacy_language is not None and not metadata.get("language"):

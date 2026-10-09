@@ -227,3 +227,108 @@ def test_device_name_handles_missing_torch_cpu_and_cuda(monkeypatch) -> None:
 
     torch.cuda = SimpleNamespace(is_available=lambda: True, get_device_name=lambda _: "A100")
     assert pipeline._device_name() == "A100"
+
+
+class BareScorer:
+    """Declares only the required method, so every optional capability takes its default."""
+
+    def score(self, inputs):
+        return [LabelScores({Label.YES: 0.9, Label.NO: 0.1}) for _ in inputs]
+
+
+class PropertyScorer(BareScorer):
+    """Declares its optional capabilities as read-only properties, not plain attributes."""
+
+    @property
+    def peak_vram_bytes(self) -> int:
+        return 777
+
+    @property
+    def runtime_dtype(self) -> str:
+        return "bfloat16"
+
+    @property
+    def sequence_length(self) -> None:
+        return None
+
+
+class StartOnlyScorer(BareScorer):
+    started = False
+
+    def begin_measurement(self) -> None:
+        self.started = True
+
+
+def test_scoring_defaults_apply_when_the_scorer_declares_no_optional_capability(
+    request_for,
+) -> None:
+    from landuse_relevance_bench.adapters.pipeline import execute_scoring
+
+    request = request_for(model_id="convaiinnovations/laya-multilingual")
+    result = execute_scoring(request, lambda _: (BareScorer(), "bare-rev"))
+
+    assert result.metadata.sequence_length == pipeline.SCORING_SEQUENCE_LENGTH
+    assert result.metadata.peak_vram_bytes is None
+    assert result.metadata.dtype == request.dtype
+
+
+def test_scoring_reads_optional_capabilities_declared_as_properties(request_for) -> None:
+    from landuse_relevance_bench.adapters.pipeline import execute_scoring
+
+    request = request_for(model_id="convaiinnovations/laya-multilingual")
+    result = execute_scoring(request, lambda _: (PropertyScorer(), "prop-rev"))
+
+    assert result.metadata.peak_vram_bytes == 777
+    assert result.metadata.dtype == "bfloat16"
+    assert result.metadata.sequence_length is None
+
+
+def test_scoring_calls_a_begin_hook_without_requiring_an_end_hook(request_for) -> None:
+    from landuse_relevance_bench.adapters.pipeline import execute_scoring
+
+    scorer = StartOnlyScorer()
+    execute_scoring(
+        request_for(model_id="convaiinnovations/laya-multilingual"),
+        lambda _: (scorer, "start-rev"),
+    )
+
+    assert scorer.started
+
+
+def test_generation_records_the_generator_declared_batch_size_dtype_and_draft(request_for) -> None:
+    class ReportingGenerator(StubGenerator):
+        effective_batch_size = 2
+        runtime_dtype = "float16"
+        draft_revision = "draft-rev"
+
+    result = execute(
+        request_for(batch_size=1, draft_revision="requested-draft"),
+        lambda _: (ReportingGenerator(["yes", "no"]), "rev0"),
+    )
+
+    assert result.metadata.batch_size == 2
+    assert result.metadata.dtype == "float16"
+    assert result.metadata.draft_model_revision == "draft-rev"
+
+
+def test_generation_falls_back_to_the_request_when_the_generator_declares_nothing(
+    request_for,
+) -> None:
+    request = request_for(batch_size=1, draft_revision="requested-draft")
+    result = execute(request, _provider(["yes", "no"]))
+
+    assert result.metadata.batch_size == 1
+    assert result.metadata.dtype == request.dtype
+    assert result.metadata.draft_model_revision == "requested-draft"
+
+
+def test_an_empty_generator_draft_revision_defers_to_the_request(request_for) -> None:
+    class EmptyDraftGenerator(StubGenerator):
+        draft_revision = ""
+
+    result = execute(
+        request_for(draft_revision="requested-draft"),
+        lambda _: (EmptyDraftGenerator(["yes", "no"]), "rev0"),
+    )
+
+    assert result.metadata.draft_model_revision == "requested-draft"

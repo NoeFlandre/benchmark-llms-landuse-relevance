@@ -10,8 +10,8 @@ import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
+from landuse_relevance_bench.adapters.g5k_sites import SiteConfig, load_site_configs
 from landuse_relevance_bench.adapters.translations import load_manifest
 from landuse_relevance_bench.domain.roster import model_ids
 from landuse_relevance_bench.domain.sharding import model_language_pairs, shard_pairs
@@ -102,28 +102,6 @@ def _jobs_for_shards(  # noqa: C901, PLR0912
     return active
 
 
-def _load_sites(sites_config: Path) -> list[dict[str, Any]]:
-    config = json.loads(sites_config.read_text(encoding="utf-8"))
-    if not isinstance(config, dict):
-        raise ValueError("sites config must be a JSON object")
-    sites = config.get("sites")
-    if not isinstance(sites, list) or not sites:
-        raise ValueError("sites config must contain a non-empty sites list")
-    for site in sites:
-        if not isinstance(site, dict):
-            raise ValueError("each site must be an object")
-        name = site.get("name")
-        frontend = site.get("frontend")
-        weight = site.get("weight")
-        if not isinstance(name, str) or not name:
-            raise ValueError(f"invalid site entry: {site!r}")
-        if not isinstance(frontend, str) or not frontend:
-            raise ValueError(f"invalid site entry: {site!r}")
-        if not isinstance(weight, int) or isinstance(weight, bool) or weight < 1:
-            raise ValueError(f"invalid site entry: {site!r}")
-    return sites
-
-
 def _status_command(plan: StatusPlan, shard_index: int) -> str:
     return (
         f"cd {shlex.quote(plan.remote_root)} && uv run --no-sync lrb status "
@@ -154,10 +132,10 @@ def _parse_status_lines(
 
 
 def _rows_for_site_shards(
-    site: dict[str, Any], shard_indices: set[int], plan: StatusPlan
+    site: SiteConfig, shard_indices: set[int], plan: StatusPlan
 ) -> list[PairStatus]:
-    frontend = site["frontend"]
-    site_name = site["name"]
+    frontend = site.frontend
+    site_name = site.name
     oar_payload = json.loads(_ssh(frontend, "oarstat -u -J"))
     active = _jobs_for_shards(
         oar_payload,
@@ -206,8 +184,8 @@ def multisite_status(
     languages: tuple[str, ...] | None = None,
 ) -> list[PairStatus]:
     """Query each configured site and classify every pair in its fixed shard slots."""
-    sites = _load_sites(sites_config)
-    total_shards = sum(site["weight"] for site in sites)
+    sites = load_site_configs(sites_config)
+    total_shards = sum(site.weight for site in sites)
     all_models = models or model_ids()
     all_languages = languages or load_manifest(Path("data/translations")).languages
     all_pairs = model_language_pairs(all_models, all_languages)
@@ -216,9 +194,9 @@ def multisite_status(
     shard_offset = 0
 
     for site in sites:
-        shard_indices = set(range(shard_offset, shard_offset + site["weight"]))
+        shard_indices = set(range(shard_offset, shard_offset + site.weight))
         rows.extend(_rows_for_site_shards(site, shard_indices, plan))
-        shard_offset += site["weight"]
+        shard_offset += site.weight
 
     _validate_pair_coverage(rows, all_pairs)
     return rows

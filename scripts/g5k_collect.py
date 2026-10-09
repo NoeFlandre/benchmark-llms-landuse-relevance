@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from landuse_relevance_bench.adapters.g5k_sites import SiteConfig, validate_site_configs
 from landuse_relevance_bench.adapters.results_store import read_run, write_run
 from landuse_relevance_bench.adapters.translations import load_manifest
 from landuse_relevance_bench.domain.records import RunResult
@@ -22,14 +23,6 @@ class CollectionError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class SiteSpec:
-    """A site and its relative number of deterministic shard slots."""
-
-    name: str
-    weight: int
-
-
-@dataclass(frozen=True, slots=True)
 class CollectionReport:
     """Evidence produced after a complete validated merge."""
 
@@ -37,18 +30,14 @@ class CollectionReport:
     source_commit: str
 
 
-def allocate_pairs(pairs: Sequence[Pair], sites: Sequence[SiteSpec]) -> dict[str, tuple[Pair, ...]]:
+def allocate_pairs(
+    pairs: Sequence[Pair], sites: Sequence[SiteConfig]
+) -> dict[str, tuple[Pair, ...]]:
     """Allocate pairs by weighted deterministic round-robin slots."""
     canonical = _canonical_pairs(pairs)
-    if not sites:
-        raise ValueError("at least one site is required")
-    names = [site.name for site in sites]
-    if len(set(names)) != len(names) or any(not name.strip() for name in names):
-        raise ValueError("site names must be non-empty and unique")
-    if any(site.weight < 1 for site in sites):
-        raise ValueError("site weights must be positive")
-    slots = [site.name for site in sites for _ in range(site.weight)]
-    allocation: dict[str, list[Pair]] = {site.name: [] for site in sites}
+    checked = validate_site_configs(sites)
+    slots = [site.name for site in checked for _ in range(site.weight)]
+    allocation: dict[str, list[Pair]] = {site.name: [] for site in checked}
     for index, pair in enumerate(canonical):
         allocation[slots[index % len(slots)]].append(pair)
     return {name: tuple(site_pairs) for name, site_pairs in allocation.items()}

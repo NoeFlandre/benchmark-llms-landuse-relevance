@@ -1,8 +1,11 @@
 """Scriptable entry points for running, scoring and publishing the benchmark."""
 
 import json
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, TypedDict
+from typing import Annotated, TypedDict, TypeVar
 
 import typer
 
@@ -13,6 +16,7 @@ from landuse_relevance_bench.adapters.pipeline import (
     RunRequest,
 )
 from landuse_relevance_bench.adapters.providers import (
+    CachedProvider,
     cached_generator_provider,
     cached_scorer_provider,
 )
@@ -24,18 +28,15 @@ from landuse_relevance_bench.application import (
     DEFAULT_PROMPT,
     DEFAULT_RESULTS,
     DEFAULT_SCORER_PROMPT,
-    VIEWER_FILE,
     benchmark_one,
     comparable_runs,
     completed_pairs,
-    extra_scorer_prompts,
     languages_for_scorer,
-    load_prompts,
     manifest_for,
     mode_options,
     planned_pairs,
     print_run_plan,
-    publish_allow_patterns,
+    publish_to_hub,
     report_lines,
     score_one,
     selected_languages,
@@ -45,6 +46,8 @@ from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
 from landuse_relevance_bench.domain.roster import ROSTER, model_ids
 from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, scorer_for, scorer_ids
 from landuse_relevance_bench.domain.sharding import pair_statuses
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     add_completion=False,
@@ -95,6 +98,18 @@ SkipExisting = Annotated[
         help="Skip model-language pairs that already have stored results.",
     ),
 ]
+
+
+_T = TypeVar("_T")
+
+
+@contextmanager
+def _closing_provider(provider: CachedProvider[_T]) -> Iterator[CachedProvider[_T]]:
+    """Release the cached model when the block ends, even if the run raised."""
+    try:
+        yield provider
+    finally:
+        provider.close_cached()
 
 
 def _plan(
@@ -191,8 +206,7 @@ def run(
         )
     manifest, selected = selected_languages(data_root, language)
     pairs = _plan((model_id,), selected, manifest, (shard_index, shard_count), out)
-    provider = cached_generator_provider()
-    try:
+    with _closing_provider(cached_generator_provider()) as provider:
         for _, selected_language in pairs:
             benchmark_one(
                 RunRequest.for_run(
@@ -209,8 +223,6 @@ def run(
                 ),
                 provider,
             )
-    finally:
-        provider.close_cached()
 
 
 @app.command()
@@ -240,8 +252,7 @@ def score(
     manifest, selected = selected_languages(data_root, language)
     selected = languages_for_scorer(spec, selected, language)
     pairs = _plan((model_id,), selected, manifest, (shard_index, shard_count), out)
-    provider = cached_scorer_provider()
-    try:
+    with _closing_provider(cached_scorer_provider()) as provider:
         for _, selected_language in pairs:
             score_one(
                 RunRequest(
@@ -254,8 +265,6 @@ def score(
                 ),
                 provider,
             )
-    finally:
-        provider.close_cached()
 
 
 @app.command(name="run-all")
@@ -291,7 +300,7 @@ def run_all(
     pairs_by_model: dict[str, list[str]] = {}
     for model, selected_language in pairs:
         pairs_by_model.setdefault(model, []).append(selected_language)
-    failures = False
+    failed_pairs: list[str] = []
     for model, languages_for_model in pairs_by_model.items():
         provider = cached_generator_provider()
         model_batch_size, use_continuous_batching, use_throughput = mode_options(
@@ -300,8 +309,9 @@ def run_all(
             continuous_batching=continuous_batching,
             throughput=throughput,
         )
-        try:
+        with _closing_provider(provider):
             for selected_language in languages_for_model:
+                pair = f"{model} [{selected_language}]"
                 try:
                     benchmark_one(
                         RunRequest.for_run(
@@ -318,14 +328,22 @@ def run_all(
                         provider,
                         skip_existing=skip_existing,
                     )
+                except typer.BadParameter as exc:
+                    # Input problems are user errors, not run failures: no traceback.
+                    if not keep_going:
+                        raise
+                    typer.echo(f"{pair} rejected: {exc.message}", err=True)
+                    failed_pairs.append(pair)
                 except Exception as exc:
                     if not keep_going:
                         raise
-                    typer.echo(f"{model} [{selected_language}] failed: {exc}", err=True)
-                    failures = True
-        finally:
-            provider.close_cached()
-    if failures:
+                    logger.exception("%s failed", pair)
+                    typer.echo(f"{pair} failed: {exc}", err=True)
+                    failed_pairs.append(pair)
+    if failed_pairs:
+        typer.echo(
+            f"{len(failed_pairs)} run(s) did not complete: {', '.join(failed_pairs)}", err=True
+        )
         raise typer.Exit(code=1)
 
 
@@ -394,54 +412,20 @@ def publish(
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Preview without Hub upload.")] = False,
 ) -> None:
     """Push the stored runs, leaderboard and a generated card to the Hub."""
-    from landuse_relevance_bench.adapters.hf_publish import publish_results, read_published_runs
-
-    if not results_dir.is_dir():
-        raise typer.BadParameter(f"no run results directory at {results_dir}")
-    try:
-        published = read_published_runs(results_dir)
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    language_filter: list[str] | None = None
-    if language is not None:
-        _, selected = selected_languages(data_root, language)
-        language_filter = list(selected)
-    runs = comparable_runs(published, language_filter, results_dir)
-    # A reranker's score is not calibrated to a 0.5 boundary, so the sweep is published
-    # alongside the headline rows.
-    if not dry_run:
-        write_reports(runs, results_dir / "leaderboard.csv")
-    prompt_text, scorer_prompt_text = load_prompts(prompt, scorer_prompt)
-    if dry_run:
-        from landuse_relevance_bench.adapters.hf_publish import dataset_card
-
-        preview = dataset_card(
-            runs,
-            benchmark_name=benchmark_name,
-            prompt_text=prompt_text,
-            scorer_prompt_text=scorer_prompt_text,
-            extra_scorer_prompt_texts=extra_scorer_prompts(scorer_prompt),
-            timing_results=read_runs(timing_dir) if timing_dir else (),
-            viewer_file=VIEWER_FILE,
-        )
-        typer.echo(f"dry-run: would publish {len(runs)} result(s) to {repo_id}")
-        typer.echo(preview)
-        return
-    url = publish_results(
+    result = publish_to_hub(
         repo_id,
-        results_dir,
-        runs,
-        private=private,
-        benchmark_name=benchmark_name,
-        prompt_text=prompt_text,
-        scorer_prompt_text=scorer_prompt_text,
-        extra_scorer_prompt_texts=extra_scorer_prompts(scorer_prompt),
-        timing_results=read_runs(timing_dir) if timing_dir else (),
         data_root=data_root,
-        allow_patterns=publish_allow_patterns(
-            results_dir,
-            runs,
-            include_snapshot_status=language_filter is None,
-        ),
+        results_dir=results_dir,
+        prompt=prompt,
+        scorer_prompt=scorer_prompt,
+        benchmark_name=benchmark_name,
+        timing_dir=timing_dir,
+        language=language,
+        private=private,
+        dry_run=dry_run,
     )
-    typer.echo(f"published {len(runs)} run(s) to {url}")
+    if dry_run:
+        typer.echo(f"dry-run: would publish {result.run_count} result(s) to {repo_id}")
+        typer.echo(result.output)
+        return
+    typer.echo(f"published {result.run_count} run(s) to {result.output}")
