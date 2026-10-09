@@ -8,6 +8,7 @@ probability, and zero-shot models asked one shared hypothesis: NLI cross-encoder
 through the ``zero-shot-classification`` pipeline, GLiClass and GLiNER2.
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,8 @@ from landuse_relevance_bench.domain.variants import repository_of
 
 _SINGLE_LOGIT_COUNT = 1
 _BINARY_LOGIT_COUNT = 2
+#: A full commit SHA: the only revision that cannot move. Branches, tags and short hashes can.
+_COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 
 
 def _load_transformers() -> Any:
@@ -43,13 +46,17 @@ class ScorerSettings:
 def _trust_remote_code(settings: ScorerSettings, revision: str | None) -> bool:
     """Whether the checkpoint's remote code may run: only when opted in and pinned.
 
-    A moving branch head must never execute code, so an opt-in without a revision fails
-    before anything is downloaded.
+    A branch, a tag or a short hash can move or be re-pointed, so remote code runs only
+    for a full 40-character lowercase commit SHA. Any other opt-in fails before anything
+    is downloaded.
     """
     if not settings.trust_remote_code:
         return False
-    if not revision:
-        raise ValueError("trust_remote_code needs a pinned revision; refusing to run remote code")
+    if not revision or _COMMIT_SHA.fullmatch(revision) is None:
+        raise ValueError(
+            "trust_remote_code needs a pinned revision: a 40-character lowercase commit SHA, "
+            f"not {revision!r}; refusing to run remote code"
+        )
     return True
 
 

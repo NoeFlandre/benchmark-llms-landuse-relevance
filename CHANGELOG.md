@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- Security: the scoring adapters no longer run a Hub checkpoint's remote code by default.
-  Remote code runs only for a scoring model whose roster entry opts in, and only with a
-  pinned revision; otherwise loading fails before any download.
+- Security: scoring models no longer run their Hub checkpoint's remote code unless their
+  roster entry opts in. An opt-in needs a full 40-character lowercase commit SHA as the
+  revision; any other revision is refused before any download. No roster entry opts in
+  yet, so `Alibaba-NLP/gte-multilingual-reranker-base` and `LiquidAI/LFM2.5-Encoder-350M`,
+  which need remote code, fail to load until a commit is pinned and the entry opts in.
 - CI: pin Docker base images by digest, define `UV_VERSION` once, and enable
   Dependabot updates for the Docker ecosystem.
 - Replace the obfuscated lazy imports of optional runtimes with one `require` helper that
