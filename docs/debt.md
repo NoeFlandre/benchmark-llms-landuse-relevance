@@ -46,9 +46,10 @@ examples are guarded `zip(strict=True)` calls and redundant defaults. CI permits
 survivors (`scripts/check_mutants.py --max-survivors 0`).
 
 **CRAP ceilings and reviewed exceptions (#73).** CI requires 100% domain line and branch
-coverage. The CRAP ceiling is 8. Adapters and the CLI have a ceiling of 15.
+coverage. The CRAP ceiling is 8. Adapters, the CLI and the scripts in `scripts/` have a
+ceiling of 15.
 
-A function in an adapter or in the CLI that is above the ceiling must have an explicit
+A function in an adapter, the CLI or `scripts/` that is above the ceiling must have an explicit
 reason and a test reference in `scripts/crap-allowlist.json`. The checker reports each
 exception. It fails if an entry becomes stale. Therefore, the exceptions cannot grow
 without notice.
