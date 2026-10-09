@@ -34,9 +34,6 @@ jobs:
           load: true
           push: false
           build-args: LRB_SOURCE_COMMIT=${{ github.sha }}
-          # Layer cache per target, so later pushes reuse the torch install layers.
-          cache-from: type=gha,scope=docker-smoke-${{ matrix.target }}
-          cache-to: type=gha,mode=min,scope=docker-smoke-${{ matrix.target }}
 
       - name: CLI and non-root volume smoke
         env:
