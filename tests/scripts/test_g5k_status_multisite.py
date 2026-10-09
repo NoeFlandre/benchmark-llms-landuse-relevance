@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -9,8 +10,25 @@ import pytest
 from scripts import g5k_status_multisite as status
 
 
+@pytest.fixture
+def fake_ssh(monkeypatch, tmp_path: Path) -> Path:
+    """Provide an ssh client on PATH so the status code can resolve one.
+
+    The status module resolves ``ssh`` once at import time, so the module attribute is
+    repointed as well. Every remote call is still answered by the test's ``fake_run``.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    ssh = bin_dir / "ssh"
+    ssh.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    ssh.chmod(0o755)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
+    monkeypatch.setattr(status, "SSH_EXECUTABLE", str(ssh))
+    return ssh
+
+
 def test_multisite_status_reports_complete_running_queued_and_unclaimed_pairs(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, fake_ssh: Path
 ) -> None:
     config = tmp_path / "sites.json"
     config.write_text(
@@ -73,7 +91,7 @@ def test_multisite_status_reports_complete_running_queued_and_unclaimed_pairs(
 
 
 def test_multisite_status_refuses_incomplete_remote_status_coverage(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, fake_ssh: Path
 ) -> None:
     config = tmp_path / "sites.json"
     config.write_text(
