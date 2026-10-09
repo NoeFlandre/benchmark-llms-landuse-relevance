@@ -1,0 +1,951 @@
+{
+ "findings": [
+  {
+   "id": "issue-77",
+   "kind": "issue",
+   "status": "partly_done",
+   "remaining_work": [
+    "Fix Transformers continuous batching for LFM2: it fails with `Invalid group type: conv`, so the opt-in path cannot run on LFM2.5-2.6B or 8B-A1B. The 2026-09-28 issue comment says job 2070448 failed twice on that error and retry 2212081 was canceled.",
+    "Run the 154-row English golden comparison. Acceptance needs byte-identical raw_output on both models. Concurrency is not batch-invariant (ADR-0011:27-30), so byte identity may be unattainable. The owner must set the tolerance.",
+    "Measure the speed acceptance thresholds on one GPU type: 2.6B <= 280 s, 8B-A1B <= 470 s. The issue's last comment reports no timing result yet.",
+    "Commit golden files first, as the issue asks. None exist in the active tree: results/ holds only README.md and archive/, and results/README.md:17-18 says active readers refuse the archive. The archived 2.6B and 8B-A1B JSONs (model_revision matches roster.py:114/120, bf16, batch_size 16, 154 predictions) are candidates, but they come from source_commit c6d9085 and have no device_name.",
+    "Decide the stopgap (issue option 2, a lower batch_size for LFM2 reasoning entries). Nothing implements it: roster.py:110-120 leaves batch_size None, so these models get DEFAULT_BATCH_SIZE=16 (orchestration.py:18). Changing batch composition can also change bf16 greedy output, so it needs the same byte comparison.",
+    "Decide whether the SGLang throughput route (issue option 1, ADR-0011, roster.py:147-156 DSpark pairs) is acceptable. It changes runtime and published numbers: ADR-0011:37-38 records 474/4,500 verdict changes between GPUs for 2.6B throughput. It is a design call, not a drop-in fix.",
+    "Add a debt entry. docs/debt.md has zero batch or padding mentions (last changed 3cb600e), and docs/results.md:97-102 publishes the walltime table without the waste caveat. ADR-0009:42-46 notes shared batch latency and padding only.",
+    "Correct the stale issue body: hf_generator.py:123-142 is now generate() at lines 141-163, and results/*.json now lives under results/archive/historical-single-language/."
+   ],
+   "evidence": [
+    "Issue #77 (REST, repos/NoeFlandre/.../issues/77): state open, created 2026-09-26T12:22:21Z, updated 2026-09-28T13:25:18Z, no labels, 1 comment (id 5863003357, NoeFlandre, 2026-09-28): CB retry canceled, static jobs 2212395 and 2070601 waiting, no acceptance or equivalence result yet.",
+    "Issue timeline cross-references: only #11 and #79, both closed. No open PR references #77. Open PRs #81, #134 (fixes #120), #135 (fixes #124) do not address batching.",
+    "Branch scan of origin/* diffs against main: no branch changes batching behaviour. refactor/issue-88-dead-adapter-code touches hf_generator.py only for the revision property. claude/docs-asd-ste100-issues-b2r2ah changes ADR-0011 and results.md wording only. The handoff/issue-92 branches only record batch_size metadata.",
+    "src/landuse_relevance_bench/adapters/hf_generator.py:141-163: static generate() runs one model.generate over a fixed padded batch, so rows wait for the longest. :144-145 switches to CB when settings.continuous_batching is set. :165-197 `_generate_continuously` calls generate_batch. :286-289 rejects CB on the VL path.",
+    "src/landuse_relevance_bench/domain/orchestration.py:18 DEFAULT_BATCH_SIZE=16; :33 `for batch in _batched(items, batch_size)`. src/landuse_relevance_bench/adapters/pipeline.py:53 DEFAULT_MAX_NEW_TOKENS=4096; :64-65 and :331-332 CB run_id and generation_mode. src/landuse_relevance_bench/cli.py:84-86 `--continuous-batching` flag.",
+    "docs/adr/0011-sglang-throughput-mode.md:41-42 and src/landuse_relevance_bench/adapters/hf_publish.py:379: `Transformers continuous batching currently fails on LFM2 with Invalid group type: conv`. ADR-0011:17-18 notes 2.6B SGLang bs=1 took 966 s.",
+    "Git: d04c87e (feat: migrate to multilingual land-use benchmark, #11) introduced both the static and the continuous-batching paths in hf_generator.py. hf_generator.py was last touched by 1d05bd8 (#94).",
+    "Archived runs re-checked with python -I: results/archive/historical-single-language/LiquidAI__LFM2.5-2.6B.json duration 507.485 s, util 0.448, serial steps 94,733 (chars proxy). LiquidAI__LFM2.5-8B-A1B.json 853.213 s, util 0.484, serial steps 31,602. Both have 154 predictions and truncated=0, so the issue numbers reproduce. 1.2B-Instruct 2.209 s and 350M 1.584 s.",
+    "docs/debt.md: grep -ci 'batch|padd' = 0. docs/results.md:97-98 gives median 1,002.2 s (2.6B) and 1,535.8 s (8B-A1B) for the 85-language snapshot. results/README.md:17-18 says the archive is historical provenance only.",
+    "roster.py:110-120 LFM_2_6B and LFM_8B_A1B have no batch_size override. roster.py:147-156 DSpark SGLang pairs for 2.6B and 8B-A1B exist at batch_size=1 (roster.py:79)."
+   ],
+   "recommended_action": "finish_work",
+   "action_detail": "Still valid. The issue is open and not resolved on main. Static batching is still the default for LFM2.5-2.6B and 8B-A1B, and the reproduced numbers match the issue. Partial progress exists: the opt-in CB flag and path are on main (d04c87e), but CB is blocked for LFM2 by `Invalid group type: conv`, so no roster run uses it. Code is needed: diagnose or fix the LFM2 CB failure, or add a per-model batch_size stopgap, then run the 154-row byte comparison and the timing acceptance. Two owner decisions remain: whether non-byte-identical verdicts are acceptable, and whether the SGLang throughput route is acceptable. Not close_issue. The performance problem is not a correctness problem, so deferring is also defensible if the team accepts the 507 s and 853 s walltimes for now.",
+   "confidence": "high",
+   "github_state": "open; no labels; 1 comment (2026-09-28); timeline cross-refs only #11 and #79 (closed); no open PR or branch addresses it",
+   "unverified": [
+    "Did not run tests, GPU jobs, or the cluster checks. Did not see Lille/Lyon job outputs. The 154-row fixture is identified only by the SHA-256 manifest in the issue comment.",
+    "Did not check upstream whether a newer transformers (uv.lock 4.57.6; pyproject transformers>=4.57) fixes `Invalid group type: conv`. The root cause is unknown.",
+    "The archived runs record no device_name or generation_mode, so the reference GPU for the 280 s and 470 s thresholds cannot be fixed from the repo.",
+    "Not known whether static jobs 2212395 and 2070601 finished after 2026-09-28. The issue comment is the last update.",
+    "GitHub MCP failed to connect (400, Authorization header). gh GraphQL and the search API were blocked for this session, so issue data came from the REST endpoints and closed-PR text was not searched exhaustively.",
+    "The 55% figure uses len(raw_output) characters as a token proxy. The archived predictions have no generated_tokens field."
+   ]
+  },
+  {
+   "id": "pr-81",
+   "kind": "pr",
+   "status": "partly_done",
+   "github_state": "Draft, open since 2026-09-28. Head 8f4fbd4a0030a445faae236d82c2f50ab6569d90, 7 commits, 13 files. No reviews or comments. mergeable_state clean.",
+   "remaining_work": [
+    "Merge or rebase onto current main. Merge-base 72b0529 is about 30 commits behind main.",
+    "Add \"CITATION.cff\" to [tool.mutmut] also_copy in pyproject.toml (main lines 210-225). tests/unit/test_version_consistency.py, added to main by PR #127, reads it.",
+    "Re-run make mutation on the updated head. The gate must pass there before the PR is marked ready.",
+    "Fix the docs: docs/architecture.md:53 and docs/debt.md:39 on the branch cite the nonexistent flag --max-survivors 0.",
+    "Lift draft status. The PR body says 'Draft until the gate passes', and the head CI already passes."
+   ],
+   "evidence": [
+    "GitHub REST pulls/81 and pulls/81/files: 13 files; pyproject.toml, Makefile and ci.yml are not among them, so the PR does not widen gate scope. source_paths stays domain/ and adapters/results_store.py (main pyproject.toml:205-208).",
+    "Branch scripts/check_mutants.py:123-124 adds the missing `if __name__ == \"__main__\": sys.exit(main())`. Main's script ends at line 120 with no guard.",
+    "Branch CI run 36465798588, job 109075440712, 'Mutation gate (Python 3.12)' = success. Log: 'mutmut status counts: killed=1874, survived=26' and 'mutation gate passed: 1900 exact mutant id(s) checked'.",
+    "git apply --check of the merge-base..branch patch succeeds on origin/main. git merge-tree --write-tree reports no conflicts.",
+    "Two-dot diff against main shows main-only changes (#110, #127, #130) that are not PR changes. A three-way merge keeps them."
+   ],
+   "unverified": [
+    "The GitHub MCP server failed to connect (plugin:github:github 400), so all GitHub data came from gh api REST calls.",
+    "The PR body's figures from an older main run (1,723 killed / 191 survived / 14 untested of 1,928) were not re-verified. The latest main run tested no mutants (see main-mutation-gate-noop).",
+    "Post-merge gate outcome was not executed. By reading check_mutants.py, a mutmut run that collects no stats gives empty or unresolved results, which exits 1.",
+    "The new regression test runs read_results() before parse_allowlist() (check_mutants.py main, lines 98-99). It can pass via the mutmut read error without exercising the allowlist path. Not executed."
+   ],
+   "confidence": "high",
+   "recommended_action": "rebase_or_update",
+   "action_detail": "Rebase or merge main, add CITATION.cff to mutmut also_copy, confirm the gate is green on the updated head, then mark ready. Do not merge as-is: after #127 the guarded gate would likely go red on main."
+  },
+  {
+   "id": "main-mutation-gate-noop",
+   "kind": "health",
+   "status": "not_started",
+   "github_state": "Live on main at 5e52649.",
+   "remaining_work": [
+    "Land the __main__ guard (PR #81) and the CITATION.cff also_copy fix on main.",
+    "Until then, main's mutation job reports green while checking nothing."
+   ],
+   "evidence": [
+    "Main run 5e52649 (2026-10-08), job 113254359197, 'Mutation gate (Python 3.12)' = success. Log: 'failed to collect stats. runner returned 1', caused by FileNotFoundError on mutants/CITATION.cff in tests/unit/test_version_consistency.py.",
+    "That test was added by f274eb8 (PR #127, 2026-10-07). main pyproject.toml also_copy (lines 210-225) does not list CITATION.cff.",
+    "Main scripts/check_mutants.py has no __main__ guard (file ends at line 120), so `python scripts/check_mutants.py` prints nothing and exits 0 (Makefile:56).",
+    "Main docs/debt.md:33-40 says 'no mutant is permitted to survive' and that CI permits zero survivors. Neither holds on main."
+   ],
+   "unverified": [
+    "Whether the stats failure is deterministic on every main run was checked on one run only (5e52649). An earlier run (8e4690d, 2026-10-08) also passed, but its log was not inspected."
+   ],
+   "confidence": "high",
+   "recommended_action": "rebase_or_update",
+   "action_detail": "Fix on PR #81's branch, which is the same change set plus the CITATION.cff line. The main job is green while testing nothing, so this is the most urgent item here."
+  },
+  {
+   "id": "issue-91",
+   "kind": "issue",
+   "status": "not_started",
+   "github_state": "Open, created 2026-10-05, no comments, no labels. Body cites no PR number. The 'linked PR #81' relation was not confirmed in either body or the issue timeline.",
+   "remaining_work": [
+    "Add the unmutated modules to [tool.mutmut] source_paths (pyproject.toml:205-208). Candidates: application.py (mode_options L132, completed_pairs L178, filter_languages L352), adapters/pipeline.py (RunRequest.for_run L88), adapters/hf_publish.py (dataset_card L210, _speed_rows L292, _agreement_section L384), and possibly cli.py.",
+    "Run mutmut on the new scope and triage survivors into mutation-allowlist.txt with reasons. Kill the rest with exact-value tests.",
+    "Replace the 8 hand-written round(...) calls in hf_publish._speed_rows (lines 292-342) with a shared helper. results_store.rounded (main results_store.py:92) was deleted on the PR branch by 07c663c, so the helper must be re-added or placed elsewhere.",
+    "Remove crap-allowlist entries whose complexity drops below the ceiling. Current entries: hf_publish.py:_agreement_section and pipeline.py:for_run. There is no dataset_card entry.",
+    "Check the runtime budget. The mutation job has timeout-minutes 90 (ci.yml:57). The current 1,900-mutant gate ran about 12 minutes on the branch."
+   ],
+   "evidence": [
+    "PR #81 does not change source_paths, so it does not cover any of the modules listed above.",
+    "Issue claims that do not match main: 'hf_publish.py (866 lines)' is 898 lines. 'dataset_card and _agreement_section are in crap-allowlist.json' is only half true; dataset_card is absent. '_speed_rows (L260-308) hand-writes ten round expressions' is actually a def at L292 with 8 round( calls. Cited test_pipeline.py:138 is a > 0.0 check, not 'is not None' (that is line 137). test_cli.py:826 region asserts list membership (lines 871-873), not 'patterns is not None'. No isinstance(runner, CliRunner) assertions exist in test_cli_workflow.py. No isinstance(_default_api(), FakeApi) exists at test_hf_publish.py:386.",
+    "Acceptance criterion '--max-survivors 0' is not a real flag. check_mutants.py argparse defines only --allowlist (line 94). The same invalid flag appears in docs on main (architecture.md:82, debt.md:46) and on the branch."
+   ],
+   "unverified": [
+    "Actual survivor counts for application.py, pipeline.py, hf_publish.py and cli.py were not measured; a one-off mutmut run was not executed.",
+    "Whether PR #81 is formally linked to #91 was not confirmed."
+   ],
+   "confidence": "high",
+   "recommended_action": "decide",
+   "action_detail": "Keep open. PR #81 is only a prerequisite, and the scope expansion has not started. One question for the user: should #91 mutate only the pure functions it names (application.mode_options/completed_pairs/filter_languages, pipeline.for_run, hf_publish.dataset_card), or also all of hf_publish.py and cli.py?"
+  },
+  {
+   "id": "docs-max-survivors-flag",
+   "kind": "doc",
+   "status": "stale",
+   "github_state": "Main and branch docs both.",
+   "remaining_work": [
+    "Replace the nonexistent flag '--max-survivors 0' with the real invocation (python scripts/check_mutants.py) in docs/architecture.md and docs/debt.md, on main and on the PR branch.",
+    "Rewrite the 'CI permits zero survivors' sentence to match the actual gate."
+   ],
+   "evidence": [
+    "Main docs/architecture.md:81-82 and docs/debt.md:30-46. Branch docs/architecture.md:52-53 and docs/debt.md:27-39.",
+    "check_mutants.py argparse defines only --allowlist (branch line 94). No --max-survivors option exists on main or the branch."
+   ],
+   "unverified": [],
+   "confidence": "high",
+   "recommended_action": "rebase_or_update",
+   "action_detail": "Fix in the same PR #81 update. Documentation-only change."
+  },
+  {
+   "id": "issue-92",
+   "kind": "issue",
+   "status": "partly_done",
+   "remaining_work": [
+    "Split adapters/hf_publish.py (898 lines on main) into a facade plus modules, each around 300 lines or less. The issue's 3-module plan (card_validation, card_sections, hub) leaves card_sections at roughly 480 lines (L275-751), which breaks its own 300-line criterion, so split card_sections further.",
+    "Finish _agreement_section (hf_publish.py L384-434): move the complete-coverage verdict (lines ~404-409: language-set equality plus all lossless) into domain/agreement.py, then remove the _agreement_section entry from scripts/crap-allowlist.json (it is the only hf_publish entry left).",
+    "Use results_store.rounded() in _speed_rows (hf_publish.py L292-340). Seven calls are written as 'None if x is None else round(x, n)' at L309-336, and hf_publish.py does not import rounded yet. The issue said ten; main has eight round() calls total.",
+    "Retarget test monkeypatches when functions move, or the patches silently stop taking effect: tests/unit/test_cli.py:727, 791, 855 patch hf_publish._default_api; tests/acceptance/test_cli_workflow.py:110-115 patches hf_publish.publish_results; tests/unit/test_hf_publish.py (~L362) patches hf_publish.evaluate. Keep re-exports in hf_publish.py for dataset_card, publish_results, read_published_runs, write_viewer_dataset, _default_api and _same_gpu_row (imported by tests), plus whatever application.py:389 imports (not read in full).",
+    "Update pyproject.toml:135, which gives hf_publish.py per-file ignores PLC0415 and PLR0913, to the new module paths.",
+    "Update docs/debt.md:35, which says hf_publish.py is about 580 lines (actual 898).",
+    "Verify the import-linter contracts (pyproject.toml ~L175-214) and the golden test on the post-split tree. I did not run them."
+   ],
+   "evidence": [
+    "GitHub REST issue #92: open, no labels, 0 comments. The body cites 866 lines and dataset_card at L108-240, which is the pre-#97 state.",
+    "main 5e52649: wc -l adapters/hf_publish.py = 898. PR #97 changed the file by +76/-44 (net +32), and 866+32=898.",
+    "AST on main, 34 top-level defs. Longest: dataset_card 63 (L210-272), _scoring_section 63 (L473-535), write_viewer_dataset 59 (L840-898), publish_results 53 (L752-804), _agreement_section 51 (L384-434), _speed_rows 49 (L292-340).",
+    "scripts/crap-allowlist.json on main: the only hf_publish.py entry is _agreement_section (tests: test_hf_publish.py; test_agreement.py).",
+    "Goldens on main: tests/golden/dataset_card_archive.md (102 lines), tests/golden/dataset_card_mixed.md (91), tests/unit/test_card_golden.py (59). tests/unit/test_hf_publish.py is 1050 lines.",
+    "No publishing/ directory exists under src/landuse_relevance_bench/adapters/ on main.",
+    "domain/agreement.py already defines Agreement (L15), _compare (L34), _complete_coverage (L69) and speculative_agreements (L102), which _agreement_section calls.",
+    "Other src files over 300 lines (outside #92's explicit scope, relevant if the criterion is read package-wide): hf_scorer.py 726, results_store.py 479, application.py 431, cli.py 431, pipeline.py 407.",
+    "Proposed split by line range on main: card_validation.py (read_published_runs L76, _uniform L84, _validated_runs L108-127, ~50 lines); card.py (dataset_card composer plus _generation_settings, _scale_line, _aggregate_table, _optional_sections, L130-272, ~145); card_format.py (_markdown_table L275, _single_setting L287, _card_summary_value L717, _format_card_* L734-741, _setting_or_varying L744, ~50); card_speed_agreement.py (L292-436, ~150); card_scoring.py (_metric_rankings through _scoring_prompts, L437-607, ~170); card_logprob.py (L609-716, ~110); hub.py (DatasetHub L69-73, publish_results, _default_api, _reject_archive_paths, write_viewer_dataset, L752-898, ~150)."
+   ],
+   "recommended_action": "finish_work",
+   "action_detail": "Keep #92 open; the goal is not met. Do the remaining steps in this order: (1) move the _agreement_section verdict into domain and drop its allowlist entry; (2) switch _speed_rows to rounded(); (3) do the module split above, moving the monkeypatch targets and pyproject per-file ignores with it; (4) confirm the golden cards are byte-identical and the import-linter passes; (5) fix docs/debt.md:35. Close only when every file in the new package is about 300 lines or less and _agreement_section is off the allowlist.",
+   "confidence": "high",
+   "unverified": [
+    "Did not run pytest, import-linter, ruff, the mutation gate or the CRAP checker (read-only task). Golden byte-identity and import-linter status are unverified.",
+    "Did not read the bodies of domain/agreement.py. Whether _complete_coverage already covers the adapter's 'complete' check is unverified.",
+    "Did not read the bodies of _scoring_section, write_viewer_dataset, or application.py:389 beyond the AST measurements.",
+    "GitHub MCP tools failed to connect (plugin:github:github 400), so issue and PR data came from gh REST. Labels and comment count come from REST.",
+    "Open PRs #81, #134 and #135 were not checked individually. A scan of all non-handoff origin branches found no unmerged commits touching hf_publish.py except refactor/issue-92-dataset-card."
+   ]
+  },
+  {
+   "id": "pr-97",
+   "kind": "pr",
+   "status": "done",
+   "remaining_work": [],
+   "evidence": [
+    "REST: #97 closed and merged 2026-10-06T15:33:51Z. merge_commit_sha 43c62108597c481c3b80bf2bd9784a7c80d68b8c, head.sha 45940b875a57d695b3a0b6ec89b7e3da6bb808ac (matches origin/refactor/issue-92-dataset-card). +330/-48 over 5 files.",
+    "git merge-base --is-ancestor 43c6210 main: yes (squash merge). 45940b8 is not an ancestor of main, which is expected for a squash.",
+    "git diff 45940b8 43c6210 over the 5 PR paths (hf_publish.py, crap-allowlist.json, tests/golden, test_card_golden.py): empty, so the content is identical.",
+    "PR body: 'Refs #92 (not closed; remaining work below)'. The listed remaining work matches the open items in issue #92."
+   ],
+   "recommended_action": "none",
+   "action_detail": "Merged. Its slice is on main and the content is verified identical to the branch tip. It delivered dataset_card as a thin composer (L210-272), _validated_runs, the golden pins, and the dataset_card allowlist removal. It did not deliver the module split, the _agreement_section work, or rounded().",
+   "confidence": "high",
+   "unverified": [
+    "The PR's claimed validation (make lint types architecture acceptance crap) was not re-run."
+   ]
+  },
+  {
+   "id": "origin/refactor/issue-92-dataset-card",
+   "kind": "branch",
+   "status": "done",
+   "remaining_work": [],
+   "evidence": [
+    "Tip 45940b8 equals the head sha of merged PR #97.",
+    "Its one commit not on main (45940b8) is content-identical to squash commit 43c6210, which is on main."
+   ],
+   "recommended_action": "delete_branch",
+   "action_detail": "Remote branch of merged #97 with content already on main. Candidate for deletion, which I did not do.",
+   "confidence": "high",
+   "unverified": []
+  },
+  {
+   "id": "origin/handoff/issue-92-slice1-code-6df2e46 and origin/handoff/issue-92-slice1-notes-6df2e46",
+   "kind": "branch",
+   "status": "unclear",
+   "remaining_work": [],
+   "evidence": [
+    "Both branches exist on origin (git branch -r). Per the lead, neither has a PR. I did not verify that independently.",
+    "Not analysed, per scope; another agent covers handoff/* branches."
+   ],
+   "recommended_action": "decide",
+   "action_detail": "Out of my scope. The handoff agent should decide whether these hold any work for #92 beyond what is on main.",
+   "confidence": "low",
+   "unverified": [
+    "Content not read. PR linkage taken from the lead's context only."
+   ]
+  },
+  {
+   "id": "docs/debt.md:34-35",
+   "kind": "doc",
+   "status": "stale",
+   "remaining_work": [
+    "Change '~580 lines' for hf_publish.py to the real size, or drop the number, when #92 lands."
+   ],
+   "evidence": [
+    "main docs/debt.md:34-35 says hf_publish.py is '~580 lines' and one of the largest modules.",
+    "main adapters/hf_publish.py is 898 lines (wc -l)."
+   ],
+   "recommended_action": "finish_work",
+   "action_detail": "Update the figure as part of the #92 closeout.",
+   "confidence": "high",
+   "unverified": []
+  },
+  {
+   "id": "93",
+   "kind": "issue",
+   "status": "partly_done",
+   "github_state": "OPEN. PR #147 (squash commit 8e4690d on main) says 'partial fix ... Refs #93' and lists three items it did not do, so no closing keyword fired.",
+   "remaining_work": [
+    "C901/PLR0912 suppressions still on scripts/g5k_collect.py:51 (collect_results) and scripts/g5k_status_multisite.py:55 (_jobs_for_shards). With --ignore-noqa, ruff 0.16.8 still reports C901 14>10 and PLR0912 13>12 for the first, and C901 15>10 and PLR0912 16>12 for the second.",
+    "Acceptance criterion 'no noqa: C901 remains in scripts/' also fails on scripts/vendor_multilingual_dataset.py:296 (_hub_translation_paths, C901 11>10). The issue body does not name it, but the acceptance wording covers all of scripts/.",
+    "CRAP gate not extended: Makefile:52 runs scripts/crap.py over src/landuse_relevance_bench only (domain and adapters limits, cli.py). No scripts/ entry, ceiling or report exists.",
+    "Shell parser still independent: scripts/g5k_submit_multisite.sh:52-74 reads the same sites JSON via jq with its own checks (weight regex at :60, non-null name and frontend at :70-71). It has no blank or duplicate name check and does not call the Python validator. The strict acceptance text names only the two Python scripts, but the issue Evidence names this file as the third consumer.",
+    "pipeline.execute: the duplicated cleanup body is gone. A single helper _close_run_generator exists at src/landuse_relevance_bench/adapters/pipeline.py:152-167, added in commit 4fb3800 whose message says 'Closes #103'. execute still calls the helper from two branches (pipeline.py:225 in except, :228 in else) instead of one try/finally, so the literal 'execute has one cleanup code path' criterion is not met. The substance is fixed."
+   ],
+   "evidence": [
+    "DONE shared parser: src/landuse_relevance_bench/adapters/g5k_sites.py:11-58 defines SiteConfig, load_site_configs, parse_site_configs and validate_site_configs. Consumers are scripts/g5k_collect.py:12,38 and scripts/g5k_status_multisite.py:14,187. git grep on main finds no SiteSpec and no _load_sites. Table test: tests/unit/test_g5k_sites.py.",
+    "DONE divergence: g5k_sites.py:54-55 rejects blank and duplicate names for both scripts, which closes the rule gap the issue described.",
+    "PR #147 head 5a23f85 matches origin/fix/issue-93-site-config-parsing. It is not an ancestor of main because it was squash-merged as 8e4690d (6 files, 172+/50-). The squash commit message says 'Refs #93'.",
+    "Line drift only: the issue cites collect_results at scripts/g5k_collect.py:62, now :51. _jobs_for_shards stays at :55.",
+    "Pipeline provenance: commit 4fb3800 'refactor(adapters): share generator cleanup' is on main and touches only pipeline.py and sglang_generator.py. Its message says 'Closes #103', not #93. Coverage: tests/unit/test_pipeline.py:165-216 covers close after success, close failure not masking the prediction error, and close_generator=False.",
+    "execute call sites: src/landuse_relevance_bench/application.py:112 (production) plus tests in tests/unit/test_pipeline.py, tests/acceptance/test_benchmark_feature.py and tests/integration/test_transformers_generator.py. None needs changing for this issue.",
+    "Open PRs #81, #134 and #135: REST file lists contain no g5k, pipeline, sites, Makefile or vendor_multilingual files, so none of them conflicts with the remaining work."
+   ],
+   "recommended_action": "finish_work",
+   "action_detail": "Do not close #93 yet. Remaining work, in order: (1) split collect_results (g5k_collect.py:51) and _jobs_for_shards (g5k_status_multisite.py:55) into smaller steps and remove their noqa; (2) fix or justify the C901 noqa at vendor_multilingual_dataset.py:296 so scripts/ has no C901 suppressions; (3) add scripts/ to the CRAP gate (Makefile:52) with a ceiling, or explicitly report it. Optional: (4) route g5k_submit_multisite.sh through the Python validator, or add name checks in the shell; (5) convert the two execute call sites to try/finally, or accept the existing helper as done. Items 1-3 are the clear gap. If the team accepts the helper for item 5 and drops item 4 from scope, #93 can close once 1-3 land.",
+   "confidence": "high",
+   "unverified": [
+    "The GitHub MCP server failed to connect (400, Authorization header badly formatted), and the gh issue and pr view commands are blocked by GraphQL. I read the issue and PR #147 bodies through the gh REST API. I did not read issue comments, PR review comments, or check runs.",
+    "I did not run the test suite, make crap, or make check.",
+    "Ruff ran as 0.16.8 locally; the repo's pinned version was not checked. Thresholds come from pyproject.toml: mccabe max-complexity=10, and PLR0912 at the default of 12 since no override was found.",
+    "I did not check whether the vendor_multilingual_dataset.py noqa is tracked by a separate issue.",
+    "I did not verify that the CRAP gate would pass with scripts/ added."
+   ]
+  },
+  {
+   "id": "issue-100",
+   "kind": "issue",
+   "status": "partly_done",
+   "remaining_work": [
+    "Plan prelude repeated: cli.py:207-208 (run), cli.py:252-254 (score), cli.py:295-299 (run-all) all call selected_languages and _plan the same way.",
+    "Pair loop body repeated in three forms: cli.py:209-225 (run), cli.py:255-267 (score), cli.py:312-330 (run-all). Each loops over pairs, builds a RunRequest from _request_fields plus revision/batch_size/max_new_tokens/seed/dtype, and calls benchmark_one or score_one with the provider. The kwargs at cli.py:215-219 and cli.py:320-325 are near-identical.",
+    "Two RunRequest construction paths remain: RunRequest.for_run at cli.py:212 and cli.py:317, direct RunRequest(...) at cli.py:258. A single path is blocked by the roster lookup in for_run (adapters/pipeline.py:101-110 logs a warning and substitutes ModelSpec(name, 0, 'unlisted'); pipeline.py:111-115 applies batch-size defaulting). It needs a scorer-aware constructor or a split lookup, not a mechanical edit. PR #146's body says this part stays open.",
+    "Test gap: provider close is asserted only for score (tests/unit/test_cli.py:67-81, fake provider at :40-45). No test stubs cached_generator_provider (git grep finds none), so the close-on-failure paths for run (cli.py:209-225) and run-all (cli.py:312-342) have no CLI-level test. PR #146 changed exactly these paths.",
+    "Minor asymmetries, no current bug: close_generator=False is passed at cli.py:222 and cli.py:326 but not in score (cli.py:258-265). execute_scoring (pipeline.py:243-275) never reads it, so it is inert for scorers. run-all creates its provider at cli.py:305 and calls mode_options (cli.py:306-311) before the with at cli.py:312, while run and score create it inside the with (cli.py:209, cli.py:255). This is safe because CachedProvider.__init__ (adapters/providers.py:40-48) loads nothing.",
+    "Issue body line refs are stale: it cites cli.py:173-193, 222-238, 264-307. On main, run is cli.py:185-225, score cli.py:228-267, run-all cli.py:270-347."
+   ],
+   "evidence": [
+    "GitHub REST: issues/100 is OPEN, state_reason null, created 2026-10-06T18:52:59Z, no labels, no comments.",
+    "Issue body: the fix is to extract a provider-close helper and use one RunRequest construction path. Both are named in the suggested fix.",
+    "PR #146 body: 'Refs #100 (partly fixed: provider-close duplication removed; the single RunRequest construction path is not done)' and 'That part of #100 remains open.'",
+    "main cli.py:107-112 defines _closing_provider; it is used at cli.py:209, 255, 312. git grep close_cached on main shows the only cli.py call site is the helper at cli.py:112, so the provider-close half is done.",
+    "Predecessors: issue #90 closed completed 2026-10-06; commit 384a0b7 (#96) on main deduplicated options and request construction and made score release its provider.",
+    "Unverified by me: whether maintainers want the single RunRequest path at all, given the justification in PR #146."
+   ],
+   "recommended_action": "finish_work",
+   "action_detail": "Not closeable as written. Only the provider-close half is done. The plan-and-loop body is still triplicated (remaining_work 1-2), the RunRequest path is still split (3), and PR #146 itself says that part is open. Finish with a narrower scope: (a) one shared per-pair helper for the plan and loop body (items 1-2); (b) add run and run-all close-on-failure tests (item 4); (c) correct the stale line refs. Item 3 needs a design call: a scorer-aware constructor, or drop it from the issue as won't-do, since PR #146's reasoning holds. Close only if the maintainer accepts the three-way loop as-is.",
+   "confidence": "high",
+   "github_state": "OPEN, state_reason null, labels [], no comments; created 2026-10-06T18:52:59Z; updated 2026-10-06T18:52:59Z",
+   "unverified": [
+    "GitHub MCP server plugin:github:github failed to connect (HTTP 400, Authorization header), so all GitHub reads used gh api REST. gh GraphQL and the search/issues endpoint are blocked here, so cross-references to #100 in other issues or PRs were not searched.",
+    "I did not run pytest or ruff, so the test gap is by static search of the test files and the claimed behavior is not run.",
+    "Did not inspect check runs or review threads for #100."
+   ]
+  },
+  {
+   "id": "pr-146",
+   "kind": "pr",
+   "status": "done",
+   "remaining_work": [],
+   "evidence": [
+    "GitHub REST: PR #146 is closed and merged at 2026-10-08T06:09:15Z. Head e855d7442221ae0812d0651039811787601d622f, merge commit 5d9c05a. The head is not an ancestor of main, as expected for a squash merge; the content was verified from the diff instead.",
+    "git show 5d9c05a: only src/landuse_relevance_bench/cli.py changed, +19/-12. It adds _closing_provider at cli.py:107-112 and removes the three inline try/finally blocks.",
+    "Current main: cli.py:209, 255 and 312 use the helper. No inline close_cached remains in cli.py outside the helper.",
+    "PR body says the RunRequest construction paths are deliberately left as they are and that the remaining part of #100 stays open."
+   ],
+   "recommended_action": "none",
+   "action_detail": "Merged and correct for the provider-close scope it claims. Nothing to do here. Its remaining scope is tracked under issue-100.",
+   "confidence": "high",
+   "github_state": "MERGED 2026-10-08T06:09:15Z; base main; merge commit 5d9c05a",
+   "unverified": [
+    "Its validation claims (50 tests passed, ruff check and format) were not re-run.",
+    "Review threads and check runs for #146 were not inspected."
+   ]
+  },
+  {
+   "id": "issue-123",
+   "kind": "issue",
+   "status": "not_started",
+   "remaining_work": [
+    "Problem 1, target revision resolved after the engine loads: resolve the target before SGLangGenerator.load, then pass it to the engine as request.revision so the engine loads the recorded commit. Delete the post-load lookup at src/landuse_relevance_bench/adapters/sglang_generator.py:163.",
+    "Problem 2, draft_revision patched on after construction: pass draft_revision=request.draft_revision or \"\" into cls(...) at sglang_generator.py:96 and delete the assignment at :161. The constructor parameter at :80 is never passed by any caller in the repo.",
+    "Problem 3, os.environ mutated globally: replace the permanent os.environ.update at sglang_generator.py:92 with a context manager that sets PYTHONPATH from with_site_dir for the duration of sglang.Engine(...) (line :95) and restores the previous value, or unsets it, in a finally block. Leave sglang_compat.with_site_dir (:43-47) unchanged.",
+    "Cleanup: once the target is resolved before load, the try/except BaseException block at sglang_generator.py:162-170 is unnecessary. Its two tests in tests/unit/test_sglang_generator.py (lines 190-211 and 212-231) must be deleted with it.",
+    "Tests: tests/unit/test_sglang_generator.py:153-171 stubs the engine with a Loaded class that bypasses __init__ and asserts the post-construction assignment, so it passes on the current bug. Rewrite it to check the draft and target revisions reach the engine arguments. Add a test that os.environ PYTHONPATH is unchanged after load, and that the Engine call sees the shim path. The calls[0]/calls[1] ordering assumption in that test changes if the target is resolved first."
+   ],
+   "evidence": [
+    "Problem 1: sglang_generator.py:160 loads the engine (SGLangGenerator.load) before the target lookup at :163, which is resolve_revision(request.model_id, request.revision).",
+    "Problem 1: sglang_generator.py:41-42 passes revision to the engine only when request.revision is set, so an unpinned target loads the Hub head at engine start.",
+    "Problem 1: hf_generator.py:298 returns resolve_revision(request.model_id, request.revision, generator.revision), the pattern the issue cites. SGLang has no equivalent loaded-commit attribute, so pre-resolving and passing revision to the engine is the workable fix.",
+    "Problem 2: sglang_generator.py:96 is cls(engine, encode, request.max_new_tokens) and omits draft_revision.",
+    "Problem 2: sglang_generator.py:161 sets generator.draft_revision = resolved_request.draft_revision or \"\" after construction. The constructor parameter at :80 and assignment at :85 are not used on the real path.",
+    "Problem 2: the draft is resolved before load (sglang_generator.py:157-160), so the engine itself does get the pinned draft. Only the recorded value is set after construction.",
+    "Problem 2: tests/unit/test_sglang_generator.py:153-171 uses a stub Loaded class with a draft_revision class attribute, bypasses the constructor, and asserts generator.draft_revision == the resolved draft. It passes on the current code.",
+    "Problem 3: sglang_generator.py:92 is os.environ.update(with_site_dir(dict(os.environ))) with no restore. Any Python child started later in the same process inherits PYTHONPATH with the shim dir, so sglang_site/sitecustomize.py:3-5 runs in each of them.",
+    "Problem 3: sglang_compat.py:43-47 (with_site_dir) is a pure function. tests/unit/test_sglang_compat.py:81-90 covers only that function, and nothing tests restoration of the environment.",
+    "docs/adr/0010-dspark-speculative-decoding.md:70 says the shim reaches SGLang's spawned processes through PYTHONPATH, which is why the env change is needed at all.",
+    "No PR or branch for #123: no commit on any ref mentions 123 (git log --all -i --grep=123 is empty), and no origin branch name contains 123. The only unmerged commit touching the sglang area is 1fefd91 on origin/refactor/issue-88-dead-adapter-code. It does not modify sglang_generator.py, sglang_compat.py, sglang_site/ or the sglang tests. Its sglang-related change is an additive loaded_revision() in revision.py.",
+    "HEAD 5e52649 matches origin/main for every file cited (git diff --stat is empty), so the line numbers apply to main.",
+    "GitHub state: issue #123 is open, with no labels, no comments, created and last updated 2026-10-07. The GitHub MCP server failed to connect (plugin:github:github 400, malformed Authorization header), so the issue was fetched via gh api REST. gh issue view failed on GraphQL."
+   ],
+   "unverified": [
+    "Whether sglang 0.5.20/0.5.21 (pyproject.toml:52) spawns all of its child processes inside sglang.Engine(...), which the scoped-env fix depends on. sglang is not installed here (importlib find_spec returns None), so this could not be checked from source. Also not checked: which multiprocessing start method SGLang uses. With fork, children do not need PYTHONPATH.",
+    "Resolving the target before load changes engine arguments. An unpinned run will then load the resolved SHA instead of the Hub head. This is the intended fix, but it is a behavior change and was not exercised.",
+    "The unit and integration test suites were not run. No GPU or sglang runtime is available.",
+    "Not listed in the issue: sglang_generator.py:93 calls patch_lfm2_vl() in the parent process, which mutates sglang's class in place. It is idempotent (hasattr guards at sglang_compat.py:19 and :21-22), but it is another process-global change. Decide explicitly whether it falls under the same scoping fix."
+   ],
+   "recommended_action": "finish_work",
+   "action_detail": "All three defects listed in #123 still exist on main at 5e52649, each confirmed with file:line. No PR or branch addresses them, so the issue stays open. Minimal fix: (1) pass draft_revision into the constructor at sglang_generator.py:96 and remove the assignment at :161; (2) resolve the target before load and pass it as request.revision so the engine loads that commit, remove the try/except cleanup at :162-170, and delete its two tests at test_sglang_generator.py:190-211 and :212-231; (3) wrap sglang.Engine(...) at :95 in a context manager that sets PYTHONPATH from with_site_dir and restores the prior value, in place of the permanent update at :92; (4) rewrite the stub-based test at test_sglang_generator.py:153-171 and add env-restore and engine-argument tests. Before merging, run the unit tests and confirm SGLang spawns its children inside Engine(). Keep sglang_compat.with_site_dir unchanged.",
+   "confidence": "high"
+  },
+  {
+   "id": "issue-120",
+   "kind": "issue",
+   "status": "partly_done",
+   "remaining_work": [
+    "Merge PR #134 (the issue closes via 'Closes #120'); the fix exists only on branch fix/issue-120-trust-remote-code.",
+    "Enforce an immutable revision: `_trust_remote_code` accepts any non-empty string, so a branch or tag still passes (Codex P1, unresolved).",
+    "Maintainer decision on the two listed scorers that now fail to load: pin a commit and set trust_remote_code in SCORER_ROSTER, or accept fail-closed until that is done.",
+    "Correct the issue premise: 'listed models already carry pinned revisions' holds for the generative roster (domain/roster.py:102-126) but not the scoring roster. ScorerSpec has no revision field and `lrb score` defaults revision to None (cli.py:238)."
+   ],
+   "evidence": [
+    "main hf_scorer.py:206, 623 and 630 are the only literal trust_remote_code=True sites in the repo (git grep over all files, including scripts, Makefile and Docker; the only other hit is the test assertion at tests/unit/test_hf_scorer_runtime.py:453).",
+    "The issue's cited pipeline.py:90-97 is not a remote-code site: generative loaders never pass trust_remote_code, and unlisted generative runs only get revision=None with a warning (pipeline.py:104-110).",
+    "Issue #120 (open, no comments, no labels, created 2026-10-07) lists the unlisted-model and unpinned-revision risk; the PR body says 'Closes #120'.",
+    "On the PR branch, the scoring roster's trust flag defaults to False (domain/scorers.py:72), and no SCORER_ROSTER entry sets it True."
+   ],
+   "recommended_action": "decide",
+   "action_detail": "SECURITY ITEM. Fix is on open PR #134, not yet merged. Decide between two paths: (a) merge #134 now, fail-closed, which makes Alibaba-NLP/gte-multilingual-reranker-base and LiquidAI/LFM2.5-Encoder-350M fail to load until a commit is pinned and opted in; the issue said 'no behavior change for roster models', so this contradicts it; or (b) pin commits and opt in first, then merge. Either way, add the commit-SHA check from the open Codex P1 before closing the issue.",
+   "confidence": "high",
+   "github_state": "open; no comments; no labels; PR #134 open (Closes #120)",
+   "unverified": [
+    "Whether transformers applies the model-repo revision to the second repo named in the GTE auto_map (Alibaba-NLP/new-impl). If not, that code is still fetched unpinned. Not tested."
+   ]
+  },
+  {
+   "id": "pr-134",
+   "kind": "pr",
+   "status": "partly_done",
+   "remaining_work": [
+    "Enforce an immutable commit SHA in _trust_remote_code: require a 40-hex commit, and add tests that reject 'main' and a branch name.",
+    "Resolve the Codex P1 thread on hf_scorer.py:52 (thread unresolved, not outdated).",
+    "Correct the CHANGELOG 'only with a pinned revision' wording (CHANGELOG.md:5-7) to match whatever the check enforces.",
+    "Maintainer decision on the GTE and LFM2.5-Encoder scorers that will fail to load after merge (PR body says this is intended pending a decision).",
+    "Human review: only the Codex bot has reviewed (COMMENTED on 884a2f9); no human reviewer or approval."
+   ],
+   "evidence": [
+    "Head 884a2f9 (single commit, 4 files, +140/-9), base recorded as b48fa16, not draft. REST: mergeable=true, mergeable_state=clean.",
+    "git merge-tree --write-tree origin/main origin/fix/issue-120-trust-remote-code produced a clean tree with no conflicts, against current origin/main 5e52649 (main is 20+ commits past the PR base).",
+    "12 check runs on 884a2f9, all success: 'All green', CodeQL, Analyze (python), Dependency audit, Mutation gate (3.12), Deterministic quality gates (3.11 and 3.12), Lockfile, Documentation builds, Container builds, Docker smoke (transformers and sglang). Combined commit status is 'pending' with zero statuses, which is not a failure.",
+    "All three main literal sites are replaced: hf_scorer.py:212-221 (GteScorer), 637-646 (masked-LM tokenizer and model), and provide_scorer at 741 reads the roster flag. Unlisted models get trust=False because the roster lookup finds no entry.",
+    "hf_scorer.py:43-53: `if not revision: raise` only checks truthiness. Codex P1 (comment 4211548358, line 52): 'main', another branch or a movable tag passes the check. Review thread state: resolved=false, outdated=false.",
+    "CLI roster gate: `lrb score` rejects non-roster ids (cli.py:246-249), so the unlisted-model case is not reachable through the CLI.",
+    "HF config.json (fetched from the main branch): the GTE reranker has auto_map entries for NewForSequenceClassification and similar, and LFM2.5-Encoder has auto_map to modeling_lfm2_bidirectional. Both do need remote code, which supports the PR's fail-closed claim."
+   ],
+   "recommended_action": "finish_work",
+   "action_detail": "SECURITY ITEM. Do not merge as-is. It is mergeable and CI is green, but the security guard is incomplete. Finish: (1) require a 40-hex commit SHA, not any truthy string, in _trust_remote_code (hf_scorer.py:43-53), and add tests; close the Codex P1 thread. (2) Fix the CHANGELOG overclaim. (3) Get a maintainer decision on whether to accept the GTE and LFM2.5 scorer break now or pin commits and opt in first. (4) Get one human review. After that, merge. The PR's own 'Closes #120' also closes the issue.",
+   "confidence": "high",
+   "github_state": "open; not draft; mergeable clean; head 884a2f923b7628ae905b949c746e29db8b652b87; 12/12 check runs success; one unresolved bot review thread (Codex P1); no human review",
+   "unverified": [
+    "GitHub MCP server failed to connect (plugin:github:github 400, Authorization header), and gh pr view needs GraphQL, which is blocked here. All PR and issue data came from REST via gh. reviewDecision was not obtained.",
+    "Did not run tests locally (read-only scope). The PR's claim of 534 passed is taken from its body and CI, not re-run.",
+    "Whether the second-repo auto_map code (Alibaba-NLP/new-impl) is pinned by the model revision was not verified."
+   ]
+  },
+  {
+   "id": "branch:fix/issue-108-typed-cli-harness",
+   "kind": "branch",
+   "status": "stale",
+   "remaining_work": [],
+   "evidence": [
+    "Branch origin/fix/issue-108-typed-cli-harness tip fec5d68 (2026-10-06 19:26:17 UTC). Its history is 43c6210 (main, #97) -> 13aedb3 -> fec5d68. origin/main..branch is exactly these 2 commits.",
+    "13aedb3 = PR #112 head (REST pulls/112: head_sha 13aedb33, closed, merged 2026-10-06T19:56:24Z, merge commit ce2cca3, body says 'Closes #108'). Issue #108 closed/completed 2026-10-06T19:56:26Z.",
+    "13aedb3 content is on main verbatim: `git diff 13aedb3 origin/main -- tests/acceptance/test_cli_workflow.py` is empty, `git diff 13aedb3 ce2cca3` is empty, and reverse-applying 13aedb3's own diff onto origin/main succeeds (temp index, repo index untouched).",
+    "fec5d68 = 'docs: document run-all filter flags, --throughput and models --json (#109)' touching CHANGELOG.md, README.md, src/landuse_relevance_bench/cli.py, tests/unit/test_application_checkpoint.py. It is not an ancestor of origin/main or of origin/fix/issue-109-document-cli-flags, and no PR head points at it.",
+    "Its content reached main via PR #113 (REST pulls/113: head 142f70f1 on fix/issue-109-document-cli-flags, closes #109, merged 2026-10-06T21:20:36Z as 4b878be). Issue #109 closed/completed. The fec5d68 commit was apparently pushed to the #108 branch by mistake, and the #109 work was redone on its own branch.",
+    "Later main commits evolved the fec5d68 content: README.md:48 now reads `--skip-existing` / `--no-skip-existing` (#116); CHANGELOG.md Unreleased bullets reshaped (incl. --no-skip-existing); cli.py help strings all present (--keep-going, --throughput, --runtime, --results-dir, shard/seed/token/benchmark-name help) with benchmark default moved to DEFAULT_BENCHMARK_NAME (line 403, #117); tests/unit/test_application_checkpoint.py refactored by aedd164 (#114) but keeps the same 3 test names (lines 14, 18, 37).",
+    "Line-level check: every added line of fec5d68 vs 13aedb3 is verbatim on origin/main except 6 lines, all explained by those intentional later edits (README skip row, CHANGELOG heading/bullets, test import/helper rename, benchmark-name default constant).",
+    "The only PR whose head is this branch is #112 (REST pulls?state=all&head=NoeFlandre:fix/issue-108-typed-cli-harness). Main check-runs on 5e52649 report success (REST), not re-run locally."
+   ],
+   "recommended_action": "delete_branch",
+   "action_detail": "Safe to delete origin/fix/issue-108-typed-cli-harness. Nothing unique remains: 13aedb3 is verbatim on main via ce2cca3 (PR #112), and fec5d68 is the #109 docs change delivered via PR #113 (4b878be) and since evolved on main. It is a leftover, not a fix that never reached main. A local branch would need -D since its tip is not an ancestor of main (squash merges). After deletion fec5d68 is reachable only via reflog, which is acceptable because its content is on main. No cherry-pick needed.",
+   "confidence": "high",
+   "github_state": "PR #112 closed/merged (head 13aedb3, merge ce2cca3); issue #108 closed/completed; PR #113 closed/merged (head 142f70f, merge 4b878be); issue #109 closed/completed; no open PR uses this branch.",
+   "unverified": [
+    "Tests were not run on main or on the branch (read-only, no checkout). Behaviour of the refactored test_application_checkpoint.py was checked by name and structure only.",
+    "Not verified whether any fork, local clone or other automation references origin/fix/issue-108-typed-cli-harness.",
+    "GitHub MCP server plugin:github:github failed to connect (HTTP 400), so I used gh REST calls (gh api). gh GraphQL is blocked in this session, so gh pr list / gh pr view failed."
+   ]
+  },
+  {
+   "id": "origin/handoff/issue-92-slice1-code-6df2e46",
+   "kind": "branch",
+   "status": "partly_done",
+   "github_state": "No PR in any state (gh api pulls?state=all&head=NoeFlandre:<branch> returned []). Head 6df2e46f96f1e1c91f9376e2ba4af49026f8ada6, 5 commits on main 5e52649 (merge-base verified, branch is not an ancestor of main). Check runs on the head: total_count 0. Issue #92 is open (created 2026-10-05).",
+   "remaining_work": [
+    "Slice 1 code is NOT on main. card_sections.py, adapters/publishing/__init__.py, tests/unit/test_card_speed.py and tests/golden/speed_section_synthetic.md are absent from origin/main, and hf_publish.py on main still holds the speed renderers (_speed_rows at line 292, with inline None-guarded round() expressions).",
+    "No PR has been opened from this branch.",
+    "Sequencing with PR #81 is required. This branch imports results_store.rounded (origin/main results_store.py:92). PR #81 head 8f4fbd4 deletes rounded() (hunk @@ -89,11 +89,6 @@), so the merged result breaks card_sections/hf_publish import unless #81 is reconciled first (keep rounded and its property test).",
+    "Gates were run only locally by the handoff author at 6df2e46. Reported PASSED: lint, types, make test (580), acceptance, architecture, crap, smoke, wheel, docs-build. Reported FAILED and pre-existing: make scripts (2 tests, no ssh binary, reproduced on base 5e52649) and uv lock --check (pinned uv 0.11.16, also fails on main). Not run: make mutation, make security. No CI has run on this head.",
+    "Nits from the handoff: the _pooled_speed docstring says 'every language run of a model' but the grouping key is the run name; docs/debt.md still says hf_publish is about 580 lines.",
+    "Four private names stop being importable from hf_publish (_markdown_table, _single_setting, _reproducibility_note, summarise_speed). The handoff says no in-repo consumer used them; not re-verified."
+   ],
+   "evidence": [
+    "git diff origin/main...origin/handoff/issue-92-slice1-code-6df2e46 --stat: 5 files, +507/-131 (hf_publish.py 139 lines changed).",
+    "Forward check: the code-branch diff applies cleanly to origin/main (git apply --cached --check against a scratch index, working tree untouched).",
+    "Reverse check: git apply --cached -R fails with 'does not exist in index' for card_sections.py, test_card_speed.py and speed_section_synthetic.md, so the content is not on main.",
+    "origin/main hf_publish.py is 898 lines. Its _speed_rows is at line 292.",
+    "PR #97 (merged 2026-10-06, merge commit 43c6210, head refactor/issue-92-dataset-card, 'slice of #92') only decomposed dataset_card. Its Review notes list as still open: the publishing/ split, the _agreement_section move, using results_store.rounded() in _speed_rows, and files under ~300 lines. The speed-renderer move is therefore not covered by #97.",
+    "Issue #92 body item 4 asks for rounded() in _speed_rows, which this slice does. Its golden requirement is met on main for the full card by tests/golden/dataset_card_archive.md and dataset_card_mixed.md (added by #97). The slice's own golden is a narrower synthetic speed section."
+   ],
+   "recommended_action": "finish_work",
+   "action_detail": "Open a PR from handoff/issue-92-slice1-code-6df2e46 to main (base 5e52649, applies cleanly, no PR exists). Do not delete it: the slice code exists only on this branch and on the notes branch copy. Before merging, reconcile PR #81 so results_store.rounded is kept (the handoff's preferred resolution: revert #81's two rounded hunks plus the test_rounding_is_idempotent removal, keep the uv.lock [options] hunk). Re-run the gates on the PR, since CI has never run on this head.",
+   "confidence": "high",
+   "unverified": [
+    "I did not re-run lint, tests, type checks or any make target. The gate results and the claim that the moved renderers are byte-identical come from the handoff and the pinned tests, which I read but did not execute.",
+    "make mutation and make security have never been run by anyone, per the handoff.",
+    "I did not read the main CI workflow, so I cannot confirm whether uv lock --check is a required CI check.",
+    "Whether the moved renderers match the original output byte-for-byte is supported only by the handoff's claims and tests/unit/test_card_speed.py, which I did not run."
+   ]
+  },
+  {
+   "id": "origin/handoff/issue-92-slice1-notes-6df2e46",
+   "kind": "branch",
+   "status": "partly_done",
+   "github_state": "No PR in any state. Head 3996dc391ff7e71ef0803327c5845cc383f2a31f, 2 commits above the code head (97c98c1 handoff notes and evidence; 3996dc3 archive bundle), 7 commits above main. The 5 code files are byte-identical to the code branch (git diff between the two branches over src and tests is empty), so this branch adds no code that is not already on the code branch.",
+   "remaining_work": [
+    "Decision recorded but not delivered: reconcile PR #81 on a NEW branch. Keep results_store.rounded and its property test, keep the uv.lock [options] hunk, reconcile every mutation-allowlist.txt entry against current mutants with evidence, and do not force-push #81.",
+    "Not verified in the notes: PR #81 head 8f4fbd4 also removes the non-object JSON check in read_run and dumps_run_payload, both present on main (main results_store.py, the check added by 56050a3 / PR #136). The HANDOFF does not mention this removal, so it should be checked before #81 is reconciled.",
+    "Integration scratch review (00ab5a0) recorded FAIL and is unresolved. make mutation was never run. The notes say the #81 mutation allowlist is stale against main (write_run entries describe the old inline json.dumps, which main moved to dumps_run_payload). This is the handoff's own claim; I did not verify it.",
+    "Remaining issue #92 scope, not started: move card_validation and hub (publish_results, write_viewer_dataset) out of hf_publish; move scoring, logprob and agreement renderers into adapters/publishing/; move coverage and equality logic into domain/agreement.py and drop _agreement_section from scripts/crap-allowlist.json; bring hf_publish under ~300 lines (898 on main, 775 after slice 1 per the notes). Issue #92's body lists only items 1 to 4 and does not include the scoring, logprob and agreement moves.",
+    "Coordination: PR #134 changes domain/scorers.py (ScorerSpec.trust_remote_code), and the notes say the scoring card reads scorer_for(...).card. Coordinate before moving the scoring renderer. Issue #120 relates to #134.",
+    "Nits: _pooled_speed docstring wording; docs/debt.md still says hf_publish is about 580 lines.",
+    "Environment and infra items recorded as pre-existing: make scripts (ssh binary missing) and uv lock --check (pinned uv 0.11.16 prerelease-mode mismatch). Whether CI enforces the lock check is not verified."
+   ],
+   "evidence": [
+    "git log origin/main..origin/handoff/issue-92-slice1-notes-6df2e46 and git diff origin/main...notes --stat: 23 files, +1333/-131.",
+    "handoff/issue-92-slice1/HANDOFF.md (176 lines): sections 1-9 cover slice scope, SHAs, gate table, remaining work, pending decisions and recoverability.",
+    "Sensitive-data scan of the notes branch (api keys, tokens, secrets, private keys, /home/, /root/ paths): no credentials or machine paths found. The only hits are an attribution line and the word 'tokens' in review arithmetic.",
+    "archive/integration-00ab5a0.experimental.incremental.bundle: SHA-256 38b550b39e488f537a568bbb60bfe37a29cb6d7dbe344cc4321a7b47a8d8f029, matching archive/README.md. The archive README says it is a scratch merge and not a merge candidate.",
+    "git diff origin/main 8f4fbd4 (PR #81 head): removes rounded() and dumps_run_payload in results_store.py, plus the isinstance(payload, dict) check in read_run.",
+    "Evidence files (reviews/*.json, gate summaries, restore-tests/results.txt, inventory/*) are historical process records and are not needed on main."
+   ],
+   "recommended_action": "delete_branch",
+   "action_detail": "Do not delete yet. First move the useful content: (1) slice plan, gate results and lock caveat into the body of the new code PR; (2) the remaining #92 checklist (items listed above, including the scoring, logprob and agreement moves) into issue #92; (3) the #81 reconciliation instructions, plus the read_run and dumps_run_payload removal check, into PR #81 or the new reconciliation branch. Once that is done, delete the branch. The archive bundle is a scratch merge that can be regenerated, and the evidence files are not needed on main.",
+   "confidence": "medium",
+   "unverified": [
+    "I did not run git bundle verify on the archive bundle. I checked only its SHA-256.",
+    "I did not read the review JSON verdicts or the gate summaries in full, and did not re-run any gate.",
+    "The notes' claim that the #81 mutation allowlist is stale was not verified.",
+    "Whether dropping the four private names from hf_publish breaks any consumer was not re-verified.",
+    "I used gh api REST for PR lookups because GraphQL-based gh pr view is blocked in this session. The mcp__github__issue_read call for issue #92 succeeded."
+   ]
+  },
+  {
+   "id": "issue-124",
+   "kind": "issue",
+   "status": "partly_done",
+   "github_state": "OPEN, created 2026-10-07. closed_by_pull_requests: #135 (OPEN). Issue line refs are partly stale.",
+   "remaining_work": [
+    "Transformers image still built twice per push: ci.yml image job (main lines 103-114) and docker-smoke.yml matrix target transformers (main lines 14-32). PR #135 keeps both on purpose. Issue fix option 1 (drop one build, or make docker-smoke the single build) is not taken.",
+    "The cache #135 adds does not reduce the duplicate cost. Its cache-to export adds about 10 min to the image job on a cold run and pushed the docker-smoke transformers job into its 35-min timeout (see pr-135).",
+    "Docs-only skip covers only the mutation job. The issue body also names the full Python matrix for docs/results-only PRs. Gauntlet (ci.yml main lines 19-52), lockfile, security, image and docker-smoke (no paths filter, runs on every PR) still run for docs-only PRs. None of this is addressed.",
+    "Cost framing is overstated. Mutation testing runs about 2 min, not 90: 109 s on main run 37759969696, 113 s on PR head run 37683736069. 90 min and 35 min are timeout caps. Baseline smoke jobs without cache take 6-9 min (transformers) and 14-20 min (sglang). Savings from the mutation skip are about 2 min per docs-only PR.",
+    "Issue line refs are stale. docker-smoke.yml:152-171 and :164-171 do not exist (main docker-smoke.yml is 66 lines; build step is lines 23-32). ci.yml refs are off by +2 because main added the py.typed step at ci.yml:47-48. integration.yml concurrency is at lines 11-13, not 16-18.",
+    "Closing #124 via 'Fixes #124' on #135 would hide the still-open duplicate-build decision."
+   ],
+   "evidence": [
+    "Issue #124 body via GitHub MCP issue_read (get): problem list, suggested fixes 1-3, closed_by_pull_requests total_count 1 (#135, OPEN).",
+    "main .github/workflows/ci.yml: gauntlet lines 19-52, mutation lines 54-66 (timeout-minutes 90), image lines 103-114 (no cache), all-green needs lines 116-141.",
+    "main .github/workflows/docker-smoke.yml: no concurrency block (lines 1-66), matrix target [transformers, sglang] lines 17-21, build step lines 23-32. main integration.yml concurrency at lines 11-13.",
+    "PR #135 head 0ed4131 (branch issue-124-ci-build), docker-smoke.yml lines 9-12: concurrency group identical in pattern to ci.yml lines 8-10. Resolved.",
+    "PR #135 mutation change detector (ci.yml PR lines 58-86, run gated by steps.scope.outputs.run). PR head run 37683736069 job 113006079267 shows Detect step success, Install step executed (14 s), Mutation testing success (113 s).",
+    "Timing: main run 37759969696 'Mutation gate' step 'Mutation testing' 109 s, 'Container builds' 1 min. Main docker-smoke run 37759969654: transformers 6 min, sglang 14 min. Other PR-branch runs without cache: 37734448166 (transformers 7, sglang 20), 37731603536 (transformers 9, sglang 15)."
+   ],
+   "recommended_action": "finish_work",
+   "action_detail": "Keep #124 open, or change #135 to 'Refs #124', until the duplicate transformers build is decided. Keep the concurrency and mutation-skip parts. Drop the cache lines (see pr-135). Then decide the structural duplicate: either move the smoke into ci.yml so all-green gates it, or accept the duplicate and say so in the issue. Full-matrix and docker-smoke skips for docs-only PRs are an optional follow-up.",
+   "confidence": "high",
+   "unverified": [
+    "Whether the required-check set includes docker-smoke (branch protection API returned 403).",
+    "Whether a docs-only PR skips correctly in CI (no such run exists yet; PR body validated the detector only in a throwaway repo)."
+   ]
+  },
+  {
+   "id": "pr-135",
+   "kind": "pr",
+   "status": "partly_done",
+   "github_state": "OPEN, not draft. mergeable=true, mergeable_state=unstable. Head 0ed4131 (1 commit, 2 files, +35/-1), base main at b48fa16, which is 20 commits behind main (5e52649). Last updated 2026-10-07T20:42Z. One Codex summary comment and one Codex COMMENTED review with no inline findings. Check run 'Docker smoke (transformers)' is cancelled (35-min timeout). All other checks on head are success, including 'All green'.",
+   "remaining_work": [
+    "Remove the cache-from/cache-to lines. They regressed CI on cold runs. Image job 'Container builds' went from 1 min on main (run 37759969696) to 11 min on the PR head (run 37683736069; job 113006079175 spent 618 s in 'exporting to GitHub Actions Cache', and one 6.15 GB layer alone took 307.5 s). docker-smoke transformers (run 37683735965, job 113006078830) hit the 35-min timeout during GHA cache export: export started 20:47:43, last layer write 20:47:50, cancelled 21:15:02. Baselines are 6-9 min. sglang went from 14-20 min to 29 min.",
+    "The cache is unlikely to pay off even when warm. The layer it would save, RUN uv sync (Dockerfile:80), took 38.2 s in both PR logs. Dockerfile:34-35 sets ENV LRB_SOURCE_COMMIT in base; transformers (Dockerfile:79) inherits it and sglang (Dockerfile:68-69, RUN at :73) uses it too. A per-commit env value very likely busts the RUN cache on every new SHA. Inference, not verified locally (no Docker daemon).",
+    "Two cache scopes (ci-image and docker-smoke-transformers) each hold a roughly 6 GB layer. That exceeds the 10 GB GHA cache limit the PR body cites, so expect eviction. Inference.",
+    "Update the branch onto current main (20 commits behind). The 3-way merge is clean (git merge-tree tree 067cc17). The merged ci.yml keeps main's new 'Built wheel ships py.typed' step (merged ci.yml lines 47-48). The two-dot diff that appears to remove it is a comparison artifact. Then re-run CI, since all green results are for the old base.",
+    "PR body says 'Fixes #124' while the duplicate transformers build remains. Use 'Refs #124' unless the duplicate decision is also made here.",
+    "Consistency, low priority: the change detector treats results/ as a trigger with the reason 'mutmut copies results/', but skips docs/, which mutmut also copies (pyproject.toml [tool.mutmut] also_copy, lines 210-224). A narrow grep found no test reading docs/ or results/ by literal path (tests/unit, tests/property, tests/acceptance, scripts/check_mutants.py). The issue lists results-only PRs as skip candidates.",
+    "The docs-only skip has not run in CI yet. Only a throwaway-repo test is documented."
+   ],
+   "evidence": [
+    "GitHub REST pulls/135 (gh api): mergeable true, mergeable_state unstable, rebaseable true, base sha b48fa16, head sha 0ed4131.",
+    "git merge-tree --write-tree origin/main origin/issue-124-ci-build: exit 0, tree 067cc17; merged ci.yml lines 47-48 keep 'make wheel'.",
+    "PR branch ci.yml lines 138-139 and docker-smoke.yml lines 38-39 (the cache lines), plus PR ci.yml mutation job lines 58-86 and docker-smoke concurrency lines 9-12.",
+    "Run 37683735965 job 113006078830 steps: 'RUN uv sync' DONE 38.2 s; 'exporting layers' 300.7 s; 'loading layer' 6.15 GB ~78 s; 'exporting to GitHub Actions Cache' 20:47:43 with last writes at 20:47:50; '##[error] The operation was canceled.' at 21:15:02.",
+    "Run 37683736069 job 113006079175: 'exporting to GitHub Actions Cache' 20:40:47 to 20:51:05 (DONE 618.2 s); writing layer 03f819... 307.5 s.",
+    "Dockerfile lines 34-35 (ARG/ENV LRB_SOURCE_COMMIT in base), 68-69 (sglang-cuda-base), 73 (sglang RUN uv sync), 79-80 (transformers FROM base, RUN uv sync).",
+    "Codex review summary comment (chatgpt-codex-connector) and review 5448100548 on commit 0ed4131: no inline findings."
+   ],
+   "recommended_action": "finish_work",
+   "action_detail": "Do not merge as-is. Keep the docker-smoke concurrency (docker-smoke.yml 9-12) and the mutation change detector (ci.yml mutation job). Remove the four cache-from/cache-to lines (ci.yml 138-139, docker-smoke.yml 38-39). Change 'Fixes #124' to 'Refs #124'. Update the branch onto current main, then re-run CI and confirm the docker-smoke transformers job finishes well under 35 min. If caching is still wanted later, move the ARG/ENV LRB_SOURCE_COMMIT lines to the end of each stage and measure a second push first.",
+   "confidence": "high",
+   "unverified": [
+    "The Dockerfile ENV cache-bust (Dockerfile:34-35 before RUN at :80) is inferred from BuildKit semantics. No Docker daemon is available here (/var/run/docker.sock absent), so it is untested.",
+    "Whether 'Docker smoke (transformers)' is a required check. Branch protection and rulesets returned 403, so the cause of mergeable_state unstable is inferred, not confirmed.",
+    "Warm-cache behaviour is unmeasured; the PR has only one push, so no second run exists.",
+    "GitHub MCP reads worked despite a connector error notice. gh REST worked; gh GraphQL returned 403, so PR reads used REST."
+   ]
+  },
+  {
+   "id": "PR #79",
+   "kind": "pr",
+   "status": "done",
+   "github_state": "Closed unmerged, draft, closed 2026-09-28T03:43:48Z. Head codex/issues-59-78 at 0d81c263 (branch deleted).",
+   "remaining_work": [],
+   "evidence": [
+    "Closing comment 5862937251 by NoeFlandre (2026-09-28) says it is superseded by PR #11, which merged as d04c87e.",
+    "0d81c263 is an ancestor of PR #11 head 9988417 (GitHub compare 0d81c263...9988417: ahead 108, behind 0).",
+    "PR #11 head tree 04edc9cb equals the tree of main merge commit d04c87e (git/commits API). PR #11 merged 2026-09-28T01:02:00Z.",
+    "Continuous batching is on main: src/landuse_relevance_bench/adapters/hf_generator.py:71, 144-145, 165.",
+    "SGLang throughput is on main: src/landuse_relevance_bench/adapters/pipeline.py:100 and docs/adr/0011-sglang-throughput-mode.md.",
+    "Verdict parse_mode and precedence are on main: src/landuse_relevance_bench/domain/records.py:26 and docs/adr/0008-verdict-parsing.md:16-31.",
+    "Re-parse is on main: tests/unit/test_reparse_results.py imports scripts.reparse_results.",
+    "Agreement metrics are on main: src/landuse_relevance_bench/domain/agreement.py, used by adapters/hf_publish.py:15 and :384-390.",
+    "Generator cleanup landed: commit 15d732b removes the stale ruff ignore for deleted generators.py, and no generators.py exists on main.",
+    "CI from 0d81c263 is on main: .github/workflows/ci.yml:54-66 (mutation job) and :119 (all-green needs mutation); .github/workflows/docker-smoke.yml:46-51 (container UID check)."
+   ],
+   "recommended_action": "none",
+   "action_detail": "Nothing to restore from #79. Its open external items (GPU acceptance for #76-#78, final Hugging Face publication) are tracked by open issue #77, not by this PR.",
+   "confidence": "high",
+   "unverified": [
+    "0d81c263 is not in the local clone; it was checked through the GitHub API only.",
+    "Not checked individually: the uncertainty metrics, the 304-test and 96% coverage claim, and the GPU acceptance state of #76-#78 and issue #77."
+   ]
+  },
+  {
+   "id": "PR #54",
+   "kind": "pr",
+   "status": "not_started",
+   "github_state": "Closed unmerged 2026-09-28T08:35:22Z. Head dependabot/uv/huggingface-hub-1.32.0 (deleted). Title says 1.31.0 to 1.33.0.",
+   "remaining_work": [
+    "Bump huggingface-hub 1.31.0 to 1.33.0 in uv.lock. 1.31.0 is still pinned on main at uv.lock:37, 679, 1557, 1701 and others. No later hf-hub bump is on main."
+   ],
+   "evidence": [
+    "origin/main uv.lock pins huggingface-hub 0.36.2 (block at line 1217) and 1.31.0 (block at line 1240). The split is by extras.",
+    "No commit on origin/main mentions an hf-hub bump (git log origin/main).",
+    "Dependabot comments 5861605883 (2026-09-28T01:14Z) and 5865992015 (2026-09-28T08:09Z) say: 'Dependabot can't resolve your Python dependency files'.",
+    "Dependabot comment 5866403509 (08:35:24Z) is its standard acknowledgement of a close or ignore command. That command is not among the PR's comments, so the close mechanism is unclear.",
+    "PyPI metadata: transformers 5.12.1 and 5.17.0, both locked, require huggingface-hub>=1.5.0,<2.0, so 1.33.0 satisfies them. transformers 4.57.6 requires <1.0 and stays on 0.36.2. huggingface_hub 1.33.0 exists on PyPI (uploaded 2026-09-24).",
+    ".github/dependabot.yml:10-14: the uv block has no groups and no ignore rules."
+   ],
+   "recommended_action": "decide",
+   "action_detail": "Decide whether to take the 1.33.0 bump. The one blocker I checked (transformers) does not apply. If wanted, it is a finish_work: regenerate uv.lock at 1.33.0 and run uv lock --check. Not run here, since this is read-only.",
+   "confidence": "medium",
+   "unverified": [
+    "Whether uv resolves 1.33.0 for every extra and the speculative and gliner2 resolutions (not run).",
+    "Why the PR was closed. No maintainer comment explains it."
+   ]
+  },
+  {
+   "id": "PR #55",
+   "kind": "pr",
+   "status": "stale",
+   "github_state": "Closed unmerged 2026-09-28T08:32:30Z. Created 2026-09-26. Same bump as #87 (ruff 0.16.7 to 0.16.9).",
+   "remaining_work": [],
+   "evidence": [
+    "origin/main uv.lock:3819-3820 pins ruff 0.16.10, which is newer than 0.16.9.",
+    "Commit 41b690a (2026-10-07) 'chore(deps-dev): bump ruff from 0.16.7 to 0.16.10 (#131)' is on main.",
+    "pyproject.toml:69 declares ruff>=0.9, so no pin blocks the newer version."
+   ],
+   "recommended_action": "none",
+   "action_detail": "Superseded by the ruff 0.16.10 bump already on main. Nothing to do.",
+   "confidence": "high",
+   "unverified": [
+    "Ruff was not run. Supersession rests on version ordering."
+   ]
+  },
+  {
+   "id": "PR #87",
+   "kind": "pr",
+   "status": "stale",
+   "github_state": "Closed unmerged 2026-10-07T09:13:36Z. Created 2026-10-02. Duplicate of #55 (ruff 0.16.7 to 0.16.9).",
+   "remaining_work": [],
+   "evidence": [
+    "origin/main uv.lock:3819-3820 pins ruff 0.16.10.",
+    "Commit 41b690a (2026-10-07) 'bump ruff from 0.16.7 to 0.16.10 (#131)' landed the same day this PR closed.",
+    "PR #87 duplicates #55 for the same bump."
+   ],
+   "recommended_action": "none",
+   "action_detail": "Superseded by the ruff 0.16.10 bump already on main, and a duplicate of #55. Nothing to do.",
+   "confidence": "high",
+   "unverified": [
+    "Ruff was not run. Supersession rests on version ordering."
+   ]
+  },
+  {
+   "id": "PR #56",
+   "kind": "pr",
+   "status": "stale",
+   "github_state": "Closed unmerged 2026-09-28T08:34:24Z. Head dependabot/uv/hypothesis-6.168.1 (deleted).",
+   "remaining_work": [],
+   "evidence": [
+    "origin/main uv.lock:1304-1305 pins hypothesis 6.168.3.",
+    "Commit 5ae9859 (2026-10-07) 'chore(deps-dev): bump hypothesis from 6.168.0 to 6.168.3 (#86)' is on main.",
+    "pyproject.toml:68 declares hypothesis>=6.120."
+   ],
+   "recommended_action": "none",
+   "action_detail": "Superseded by the hypothesis 6.168.3 bump already on main. Nothing to do.",
+   "confidence": "high",
+   "unverified": [
+    "Hypothesis tests were not run. Supersession rests on version ordering."
+   ]
+  },
+  {
+   "id": "PR #85",
+   "kind": "pr",
+   "status": "stale",
+   "github_state": "Closed unmerged 2026-10-07T09:13:57Z. Head dependabot/uv/laya-0.3.22 (deleted).",
+   "remaining_work": [],
+   "evidence": [
+    "origin/main uv.lock:1697-1698 pins laya 0.3.26.",
+    "Commit 21a60dd (2026-10-07) 'chore(deps): bump laya from 0.3.20 to 0.3.26 (#133)' is on main.",
+    "pyproject.toml:25 declares laya>=0.3.5."
+   ],
+   "recommended_action": "none",
+   "action_detail": "Superseded by the laya 0.3.26 bump already on main. Nothing to do.",
+   "confidence": "high",
+   "unverified": [
+    "Laya was not run. Supersession rests on version ordering."
+   ]
+  },
+  {
+   "id": "debt-prompt-variant-sweep",
+   "kind": "doc",
+   "status": "not_started",
+   "remaining_work": [
+    "Design and run a sweep of prompt variants, with one prompt digest per variant",
+    "Report how far scores move across variants against the single-prompt baseline"
+   ],
+   "evidence": [
+    "docs/debt.md:8-10: 'There is one prompt and there are no variants... The next step is a sweep of prompt variants.'",
+    "main has no variant or sweep code in src/scripts/docs (git grep -i 'prompt.?variant|variants|sweep'); only a single custom prompt via --prompt (src/landuse_relevance_bench/cli.py:69, adapters/prompt_file.py)",
+    "Bodies of open issues 77, 91, 92, 93, 100, 120, 123, 124 do not mention it"
+   ],
+   "recommended_action": "open_issue",
+   "action_detail": "Open an issue for the prompt-variant sweep that docs/debt.md names as the next step. It is research work, not a bug.",
+   "confidence": "high",
+   "unverified": [
+    "Whether the owner has a sweep planned outside GitHub"
+   ]
+  },
+  {
+   "id": "debt-empty-model-revision",
+   "kind": "health",
+   "status": "partly_done",
+   "remaining_work": [
+    "Stop reading the private config._commit_hash attribute, or use a public API to resolve the loaded commit",
+    "Or fail the run when the revision is empty, instead of recording an empty string"
+   ],
+   "evidence": [
+    "docs/debt.md 'model_revision can be empty' paragraph: runs record '' and do not fail",
+    "src/landuse_relevance_bench/adapters/revision.py:40 reads getattr(model.config, '_commit_hash', '') (private Transformers attribute)",
+    "src/landuse_relevance_bench/adapters/revision.py:32 logs a warning and continues",
+    "Mitigation exists: --revision option at src/landuse_relevance_bench/cli.py:75",
+    "Sampled published runs af/Alibaba-NLP__gte-multilingual-reranker-base.json and af/LiquidAI__LFM2.5-350M.json both record a non-empty model_revision (HF dataset)",
+    "Not covered by #123, which concerns SGLang revision timing"
+   ],
+   "recommended_action": "open_issue",
+   "action_detail": "Low-priority issue: remove the dependence on the private _commit_hash attribute, or make an empty revision a hard error.",
+   "confidence": "medium",
+   "unverified": [
+    "Only 2 of 4,265 published run files were sampled for an empty model_revision; the full snapshot was not scanned"
+   ]
+  },
+  {
+   "id": "debt-hf-scorer-split",
+   "kind": "health",
+   "status": "not_started",
+   "remaining_work": [
+    "Split src/landuse_relevance_bench/adapters/hf_scorer.py by scorer family, with no behaviour change",
+    "Correct the stale line counts in docs/debt.md:34-35"
+   ],
+   "evidence": [
+    "hf_scorer.py is 726 lines on main with 9 concrete scorer classes (lines 166, 191, 224, 284, 401, 453, 507, 561, 602)",
+    "docs/debt.md:34-35 says '~690 lines, eight scorer families' for hf_scorer.py and '~580 lines' for hf_publish.py",
+    "main's hf_publish.py is 898 lines (issue #92 says 866); #92 covers only hf_publish.py, and no open issue covers the hf_scorer.py split"
+   ],
+   "recommended_action": "open_issue",
+   "action_detail": "Low-priority refactor issue for hf_scorer.py, which debt.md itself names as one of the largest modules. Fix the doc counts in the same change.",
+   "confidence": "medium",
+   "unverified": []
+  },
+  {
+   "id": "debt-transformers-env-split",
+   "kind": "health",
+   "status": "partly_done",
+   "remaining_work": [
+    "Track the upstream change that lets GTE run on the locked Transformers 5.17 and remove its isolated env",
+    "Resolve or document as permanent the GLiNER2 Transformers<5 pin",
+    "Fix the hazard where a concurrent job can uninstall the GLiClass extra from the shared env"
+   ],
+   "evidence": [
+    "scripts/g5k_node_run.sh:56 GTE_TRANSFORMERS_VERSION=\"5.11.0\"; :102 comment on the locked 5.17 runtime; :200-204 version check",
+    "pyproject.toml:36-39: gliner2 pins Transformers<5 and is locked separately",
+    "pyproject.toml:49: SGLang pins its own torch and transformers",
+    "docs/grid5000.md:128-137 documents the per-model envs and the GLiClass uninstall hazard (lines 135-136)",
+    "None of the 8 open issue bodies mention gliner, Transformers pins or isolated envs; #120 covers trust_remote_code only"
+   ],
+   "recommended_action": "open_issue",
+   "action_detail": "Issue to track the dependency workarounds and their removal path. The workarounds themselves are documented and working.",
+   "confidence": "medium",
+   "unverified": [
+    "Whether upstream has already fixed the GTE remote-code API mismatch"
+   ]
+  },
+  {
+   "id": "debt-g5k-compat-wrapper-untested",
+   "kind": "health",
+   "status": "not_started",
+   "remaining_work": [
+    "Delete scripts/g5k_both_configs.sh if no caller remains",
+    "Otherwise add a test that exercises it"
+   ],
+   "evidence": [
+    "scripts/g5k_both_configs.sh exists on main",
+    "docs/grid5000.md:148-150: 'a compatibility wrapper... The tests do not exercise it. Use the submission wrappers.'",
+    "git grep for both_configs in tests, Makefile and .github finds no references",
+    "Issue #93 covers the noqa and duplicated-parsing problems in other g5k scripts, not this wrapper"
+   ],
+   "recommended_action": "open_issue",
+   "action_detail": "Small cleanup issue: remove the untested compatibility wrapper or give it a test.",
+   "confidence": "medium",
+   "unverified": [
+    "Whether any external operator still calls the wrapper"
+   ]
+  },
+  {
+   "id": "stale-plan-multilingual-2026-09-20",
+   "kind": "doc",
+   "status": "done",
+   "remaining_work": [],
+   "evidence": [
+    "docs/superpowers/plans/2026-09-20-multilingual-benchmark-implementation-plan.md: every checkbox is still '- [ ]' (e.g. lines 35, 72, 154, 341-347)",
+    "Implemented on main: data/translations/manifest.json and 85 translation CSVs; results/archive/historical-single-language; write_aggregates_csv at src/landuse_relevance_bench/adapters/results_store.py:467; shard_index at application.py:165",
+    "Plan line 25 leaves the production sweep and HF publish out of local scope; the HF dataset SNAPSHOT_STATUS.md reports v3-multilingual 'complete', 4,265 of 4,265 runs"
+   ],
+   "recommended_action": "none",
+   "action_detail": "Stale checklist. Tick or archive the plan. No new issue needed.",
+   "confidence": "high",
+   "unverified": [
+    "The quality gates and the 25,500-row and hash checks in plan lines 341-347 were not re-run"
+   ]
+  },
+  {
+   "id": "stale-plan-reranker-2026-09-22",
+   "kind": "doc",
+   "status": "done",
+   "remaining_work": [],
+   "evidence": [
+    "docs/superpowers/plans/2026-09-22-reranker-benchmark.md:13-21: every checkbox is still unchecked",
+    "GteScorer (src/landuse_relevance_bench/adapters/hf_scorer.py:191) and MxbaiRerankerScorer (:224) are on main",
+    "No reranker branch on origin (git branch -r grep rerank is empty)",
+    "HF dataset SNAPSHOT_STATUS.md lists gte-multilingual-reranker-base and mxbai-rerank-base-v2 as 'complete, 85/85 languages'; per-language files such as af/mixedbread-ai__mxbai-rerank-base-v2.json are present"
+   ],
+   "recommended_action": "none",
+   "action_detail": "Stale checklist, work done. Tick or archive the plan. No new issue needed.",
+   "confidence": "high",
+   "unverified": [
+    "Did not re-download the published revision to verify rows and hashes (plan line 20)"
+   ]
+  },
+  {
+   "id": "scope-note-reviewed-not-reported",
+   "kind": "health",
+   "status": "done",
+   "remaining_work": [],
+   "evidence": [
+    "Scanned: docs/debt.md, 2 plans, 2 specs, CHANGELOG Unreleased, 11 ADRs (all 'accepted', none Proposed), and TODO/FIXME/XXX/HACK in src, scripts and tests and across the whole tree on main (zero hits)",
+    "Not reported (15 candidates), covered by open issues: mutation gap (#91), hf_publish split (#92), LFM2 batching (#77), SGLang revision and env mutation (#123), trust_remote_code (#120), CI build cost (#124), g5k collect noqa (#93)",
+    "Not reported, accepted or documented with no open action: verdict heuristic (ADR-0008); small per-language samples; unbalanced regions; cross-GPU verdict drift (docs/results.md:44-50); Encoder-350M 15/15 languages, intentional (docs/results.md:52-53); CRAP allowlist with 2 entries and #73 closed; test skip markers (CUDA, bash version)",
+    "CHANGELOG Unreleased: sampled claims verified on main (py.typed, optional_import.require, --no-skip-existing, dependabot docker, digest-pinned Dockerfile); no pending item found"
+   ],
+   "recommended_action": "none",
+   "action_detail": "8 findings reported against a cap of 25; 0 dropped for the cap.",
+   "confidence": "high",
+   "unverified": [
+    "The plugin:github:github MCP server failed to connect (400), so issue and PR bodies came from gh api REST; gh issue list hit a GraphQL restriction",
+    "Quality gates and CI were not run",
+    "Only one changelog sample set was spot-checked, not every Unreleased entry"
+   ]
+  },
+  {
+   "id": "main-health-a",
+   "kind": "health",
+   "status": "done",
+   "remaining_work": [],
+   "evidence": [
+    "gh api check-runs for 5e52649b1a583c6e96b77cb83e090d99feea6c6f returned 12 runs: 11 success (All green; Deterministic quality gates Python 3.11 and 3.12; Mutation gate (Python 3.12); Lockfile and speculative extra resolve; Dependency audit; Container builds; Docker smoke (transformers) and Docker smoke (sglang); Analyze (python); deploy).",
+    "Documentation builds: skipped, which is expected because .github/workflows/ci.yml:82 gates that job on github.event_name == 'pull_request'.",
+    "Combined commit status: state pending with total_count 0. The repo reports only check runs, so this is not a failure.",
+    "No failing jobs found on 5e52649."
+   ],
+   "recommended_action": "none",
+   "action_detail": "Main HEAD 5e52649 is green in GitHub CI. Nothing to fix.",
+   "confidence": "high",
+   "unverified": [
+    "The GitHub MCP server (plugin:github:github) failed to connect with a 400 'Authorization header is badly formatted' error, so mcp__github__get_commit was unavailable. The check runs were read with gh api instead; the data is the same REST endpoint."
+   ]
+  },
+  {
+   "id": "main-health-b",
+   "kind": "health",
+   "status": "partly_done",
+   "remaining_work": [
+    "Local make test is not green: 7 failures and 94.18% coverage (floor 95%) reproduce only without the optional runtimes. Rerun with torch and jinja2 installed to confirm, or rely on the green CI run."
+   ],
+   "evidence": [
+    "make lint (ruff format --check . then ruff check .): exit 0, '158 files already formatted', 'All checks passed!'. Ran with the global ruff 0.16.8; uv.lock pins 0.16.10.",
+    "make test: exit 2 at Makefile:31. 539 passed, 6 skipped, 7 failed in 82 s. All 7 failures are ModuleNotFoundError: 'torch' (4 tests) or 'jinja2' (3 tests); none is an assertion failure. Coverage total 94.18% against fail_under=95 (pyproject.toml:154).",
+    "Failing tests: tests/unit/test_hf_scorer_runtime.py::test_zero_shot_and_gliclass_adapters_validate_labels_and_empty_inputs; tests/unit/test_runtime_loading.py::test_the_nli_loader_builds_the_zero_shot_pipeline; tests/unit/test_new_scorers.py::test_masked_lm_scores_verbalizers_at_the_single_mask_position and ::test_masked_lm_requires_exactly_one_mask_sentinel_per_prompt (torch); tests/unit/test_new_scorers.py::test_gguf_turn_is_rendered_from_the_embedded_template_without_thinking, ::test_gguf_generation_is_greedy_and_reports_truncation, ::test_gguf_refuses_a_prompt_that_overflows_its_context (jinja2).",
+    "Setup: no .venv existed, and uv run would sync the dev group. make was run with a uv stand-in in the scratchpad (uvshim/uv) that runs commands directly, plus a scratch venv (Python 3.12.3) holding only pytest 9.1.1, pytest-cov 7.1.0, hypothesis 6.168.3 and typer 0.27.2 at lockfile versions. No torch, jinja2 or inference extras were installed. Full log: /tmp/claude-0/-home-user-benchmark-llms-landuse-relevance/e79ca158-6258-5a03-b16a-7a55502af9b7/scratchpad/make-test.log.",
+    "CI: .github/workflows/ci.yml:36 runs make lint and :40 runs make test. The quality-gate check runs for 5e52649 (Python 3.11 and 3.12) both concluded success, so the full locked environment passes these targets.",
+    "Cleanup: removed the .coverage, coverage.json, .hypothesis, .pytest_cache, .ruff_cache and __pycache__ directories my runs created. git status --ignored is now empty; no tracked files were touched."
+   ],
+   "recommended_action": "none",
+   "action_detail": "Lint passes locally. Local make test fails only because torch and jinja2 are not installed here; CI passed the same targets on this commit. The 94.18% coverage shortfall is probably caused by those error-out tests, but that link is not verified.",
+   "confidence": "high",
+   "unverified": [
+    "Whether the 94.18% coverage gap disappears with torch and jinja2 installed.",
+    "Lint result under the locked ruff 0.16.10 (ran 0.16.8)."
+   ]
+  },
+  {
+   "id": "main-health-c",
+   "kind": "health",
+   "status": "partly_done",
+   "remaining_work": [
+    "Decide whether to cut the next release: CHANGELOG 'Unreleased' has 9 entries across 37 commits since v0.2.0, and pyproject, __init__ and CITATION.cff still say 0.2.0. A bump has to change all three together, which tests/unit/test_version_consistency.py enforces.",
+    "Decide whether the CHANGELOG header date for [0.2.0] (2026-09-26) should be corrected to match the tag, which is dated 2026-09-28."
+   ],
+   "evidence": [
+    "Versions agree at 0.2.0: pyproject.toml:3, src/landuse_relevance_bench/__init__.py:3 and CITATION.cff:8. tests/unit/test_version_consistency.py passes (2 tests).",
+    "CHANGELOG.md:3 is '## Unreleased' with 9 bullet entries. CHANGELOG.md:26 is '## [0.2.0] - 2026-09-26'.",
+    "git tag -l lists v0.2.0. It is an annotated tag (object 304b0f3, tagger NoeFlandre, 2026-09-28) that peels to commit 72b0529 (2026-09-28). 72b0529 is an ancestor of main HEAD. origin also has refs/tags/v0.2.0 at 304b0f3 (git ls-remote).",
+    "git rev-list --count v0.2.0..HEAD = 37. pyproject.toml's version has not changed since the tag.",
+    "The [0.2.0] section was introduced in commit d04c87e on 2026-09-28, two days after its header date."
+   ],
+   "recommended_action": "decide",
+   "action_detail": "Versions, the Unreleased section and the tag are consistent with each other. The open items are a release decision for the 9 Unreleased entries, and the 0.2.0 header date, which disagrees with the tag date by two days.",
+   "confidence": "high",
+   "unverified": [
+    "Whether 2026-09-26 or 2026-09-28 is the intended release date. Git alone cannot settle that."
+   ]
+  }
+ ],
+ "critic": {
+  "missing": [
+   "Open issues 77, 91, 92, 93, 100, 120, 123, 124 and open PRs 81, 134, 135 all have findings. Confirmed open via gh REST (pulls: [135,134,81]; issues: [124,123,120,100,93,92,91,77]).",
+   "Of the 32 non-main remote branches, 20 have no finding that names them: claude/ci-mutation-timeout-b2r2ah (PR #84 merged), fix/issue-101, 102, 103, 104, 105, 106, 107, 119, 121, 122, 125, 126, 137, 138, 98, 99, issue-118-read-run, refactor/issue-89-hf-scorer-dedupe, refactor/issue-90-cli-dedupe.",
+   "3 branches appear only inside another finding's evidence, not as their own finding: claude/docs-asd-ste100-issues-b2r2ah (5 unique patches, PR #83 merged), fix/issue-109-document-cli-flags (PR #113 merged), refactor/issue-88-dead-adapter-code.",
+   "Ancestry-merged branches (0 commits ahead of main) with no finding: fix/issue-103-narrow-except, fix/issue-105-publish-cleanup, fix/issue-137-optional-import-errors, fix/issue-138-wheel-py-typed. These are deletion candidates that no finding proposes.",
+   "Unique-content branches with no finding: fix/issue-121-require-helper (1 unique patch, PR #129 merged) and fix/issue-126-docker-pin-dependabot (1 unique patch, PR #128 merged). The PR merge was checked via REST for these; the other no-finding branches were only checked by git patch-id, not by PR state.",
+   "Covered by name or head SHA: fix/mutation-gate-entrypoint = PR #81 head 8f4fbd4; fix/issue-100-dedupe-run-loop = PR #146 head e855d74; fix/issue-93-site-config-parsing = PR #147 head 5a23f85; issue-124-ci-build = PR #135 head; refactor/issue-92-dataset-card = PR #97 head; fix/issue-120-trust-remote-code = PR #134 head; fix/issue-108 covered; handoff branches covered.",
+   "No finding covers the PR #81 read_run JSON check or results_store.rounded removal as a verified base-vs-head difference (see contradictions)."
+  ],
+  "contradictions": [
+   "Recommended action on PR #81: the pr-81 finding says rebase_or_update the #81 branch. The handoff-notes finding records a decision to reconcile on a NEW branch and not to force-push #81. The handoff is the more specific decision and should win, but confirm with the owner before touching #81.",
+   "PR #81 content: the handoff says head 8f4fbd4 removes results_store.rounded() and the non-object JSON check in read_run / dumps_run_payload (PR #136 added it). pr-81 says merge-tree is clean and does not mention the read_run removal. The removal may be a two-dot diff artifact if base 72b0529 never had the check. Re-check: git show 72b0529:src/landuse_relevance_bench/adapters/results_store.py | grep -n 'isinstance(payload'. Not re-run here.",
+   "issue-91 says rounded() 'must be re-added or placed elsewhere' because #81 deletes it. The handoff says keep rounded and its property test during reconciliation, and rounded is on main at results_store.py:92. The handoff plan is stronger: keep it, do not re-add it.",
+   "Mutation gate on #81: pr-81 cites branch CI run 36465798588 with 'Mutation gate = success, 1900 mutants checked' as evidence. The handoff-notes says make mutation was never run by anyone and the #81 allowlist is stale. The finding does not record that run's head SHA. Re-check: gh api repos/NoeFlandre/benchmark-llms-landuse-relevance/actions/runs/36465798588 --jq .head_sha must equal 8f4fbd4 before trusting the pass.",
+   "main-health-a marks main 'done, nothing to fix' (all check runs green). main-mutation-gate-noop says the main mutation job is green while checking nothing and calls it the most urgent item. The main-mutation-gate-noop evidence is stronger (log shows 'failed to collect stats. runner returned 1' under a success conclusion). Downgrade main-health-a to 'green but hollow' for the mutation job.",
+   "issue-120 option (a) says merge #134 now (fail-closed). pr-134 says do not merge as-is, because Codex P1 on hf_scorer.py:43-53 (truthiness-only revision check) is unresolved. pr-134 is stronger: the defect is in the code and the review thread is open. Re-check hf_scorer.py:43-53 on head 884a2f9 and the thread state before any merge.",
+   "issue-92 acceptance scope: the issue-92 finding treats _agreement_section allowlist removal and the domain/agreement.py move as required to close #92. The handoff-notes says issue #92's body lists only items 1 to 4 (publishing split, _agreement_section move, rounded(), files under ~300 lines) and excludes scoring, logprob and agreement. Re-read the #92 body (REST issues/92) before using it as a closing criterion.",
+   "fix/issue-108 finding says 'every added line verbatim on main except 6 lines, all explained by later edits'. The line check found about 10 added lines of fec5d68 not found verbatim on main, including test body changes in tests/unit/test_application_checkpoint.py (def boom; monkeypatch of read_run). The 6-line count understates the difference. The delete recommendation may still hold, but the test should be checked.",
+   "handoff-notes finding is internally inconsistent: recommended_action is delete_branch (confidence medium) but action_detail says 'Do not delete yet'. Follow action_detail."
+  ],
+  "risky_actions": [
+   "delete_branch origin/fix/issue-108-typed-cli-harness (confidence high). Its tip fec5d68 is not patch-equivalent to main, and about 10 added lines are not verbatim (including test body changes). Before deleting: confirm the read_run-failure test still exists in tests/unit/test_application_checkpoint.py on main, and record fec5d68 (or tag it) so it is not lost, since it would then be reachable only through the reflog.",
+   "delete_branch origin/handoff/issue-92-slice1-notes-6df2e46 (confidence medium, and the finding itself says do not delete yet). This branch holds the only copy of HANDOFF.md, the gate results and the archive bundle. Move the content into the issue, PR or new branch first, then delete.",
+   "delete_branch origin/refactor/issue-92-dataset-card (confidence high). Low risk: tip 45940b8 equals merged PR #97 head, and the squash commit 43c6210 is on main. Check the PR state again immediately before deleting.",
+   "Bulk deletion of the 20 no-finding leftover branches: none has a finding, and the patch-equivalence check can miss later edits. Gate each deletion on merged PR state (checked via REST for 6 of them: #83, #84, #113, #128, #129, #136). Ancestry-merged ones (fix/issue-103, 105, 137, 138) are the safest.",
+   "Merging PR #134 auto-closes #120 ('Closes #120') while the Codex P1 is unresolved and two scorers (GTE reranker, LFM2.5-Encoder-350M) would fail to load. Require resolved P1, a 40-hex SHA check, a human review and an explicit owner decision on the scorer break first.",
+   "Merging PR #135 auto-closes #124 ('Fixes #124') while the duplicate transformers build remains. Change to 'Refs #124' first. Remove the cache-from/cache-to lines and confirm the docker-smoke transformers job finishes under its 35-min timeout.",
+   "Updating PR #81 in place (rebase_or_update) or marking it ready: a conflict resolved by taking the PR side would revert main's read_run JSON check (#136) and drop rounded(). Verify the base content first. Lift draft only after the mutation gate passes on the updated head and the mutmut CITATION.cff also_copy line is added.",
+   "Closing any of issues 77, 91, 92, 93, 100, 120, 123, 124: no finding recommends close_issue. Keep them open. Issue 120 must stay open until #134 merges with the SHA check, and issue 124 until the duplicate build decision is made."
+  ],
+  "rechecks": [
+   "1. origin/main scripts/check_mutants.py is 120 lines with no '__main__' match (grep exit 1). origin/main pyproject.toml has no CITATION.cff entry (grep exit 1). CONFIRMED: pr-81 and main-mutation-gate-noop claims hold.",
+   "2. origin/main trust_remote_code=True appears only at src/landuse_relevance_bench/adapters/hf_scorer.py:206, 623 and 630 (src and scripts). CONFIRMED: issue-120 and pr-134 target these exact sites.",
+   "3. origin/main sglang_generator.py:92 is os.environ.update(with_site_dir(...)) with no restore, and draft_revision is assigned after load (about :161). CONFIRMED: issue-123 Problems 2 and 3 are present, with line numbers matching.",
+   "4. origin/main noqa suppressions: scripts/g5k_collect.py:51 (C901, PLR0912), scripts/g5k_status_multisite.py:55 (C901, PLR0912), scripts/vendor_multilingual_dataset.py:296 (C901). Makefile:52 CRAP gate covers only src/landuse_relevance_bench. CONFIRMED: issue-93 remaining items 1-3 are real.",
+   "5. fix/issue-108-typed-cli-harness: git cherry marks fec5d68 as not patch-equivalent to main. Line-level added-line check finds about 10 non-verbatim lines, including test body changes. PARTIALLY CONFIRMED: content is largely on main, but the 6-line count is understated and the test body was not verified. Delete recommendation is conditional.",
+   "Also verified (coverage data, not claim re-checks): open PR and issue lists match the task list; 32 non-main remote branches classified by ahead count and patch-id; 6 unmerged-content branches mapped to merged PRs via gh REST. Not re-run: pytest, ruff, CI run logs, base-vs-head diffs for PR #81, Codex P1 thread state."
+  ],
+  "notes": [
+   "Branch scan (ahead of main / unique patch-ids): 4 ancestry-merged, 15 fully patch-equivalent to main, 1 unique-content branch per fix/issue-109, fix/issue-121, fix/issue-126 (all merged via PRs), 5 unique for claude/docs-asd (PR #83 merged), fix/mutation-gate-entrypoint 7 unique (= PR #81 head), fix/issue-108 2 ahead (1 unique), handoff code 5 unique, handoff notes 7 unique, issue-124-ci-build 1 unique (= PR #135), fix/issue-120 1 unique (= PR #134).",
+   "main health: hf_publish.py is 898 lines (wc -l), so debt.md '~580' and issue-92 '866' are both stale.",
+   "GitHub MCP (plugin:github:github) failed to connect with HTTP 400 (Authorization header). All GitHub data came from gh api REST. gh GraphQL is blocked. Issue and PR bodies were read via REST, and review-thread resolution and check-run head SHAs were not verified for every item.",
+   "Several findings cite line numbers that have drifted (issue-100, issue-123, issue-124 docker-smoke refs). Re-verify line refs before editing from these findings.",
+   "Local make test was not run; main-health-b reports 7 failures from missing torch and jinja2 only. CI is green, so the local failure is not a regression signal."
+  ]
+ }
+}
