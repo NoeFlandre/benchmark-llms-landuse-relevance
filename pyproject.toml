@@ -145,7 +145,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["src/landuse_relevance_bench"]
+source = ["src/landuse_relevance_bench", "scripts"]
 branch = true
 
 [tool.coverage.report]
