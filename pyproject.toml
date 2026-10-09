@@ -220,5 +220,6 @@ also_copy = [
     # Read by tests/unit/test_archive_boundary.py; without them the stats run fails
     # and no mutant is ever tested.
     "README.md",
+    "CITATION.cff",
     "pyproject.toml",
 ]

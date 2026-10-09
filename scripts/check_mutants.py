@@ -95,8 +95,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        results = read_results()
         allowlist = parse_allowlist(args.allowlist.read_text(encoding="utf-8"))
+        results = read_results()
         errors = validate_results(results, allowlist)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"mutation gate error: {exc}")
