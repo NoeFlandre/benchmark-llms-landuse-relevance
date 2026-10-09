@@ -89,6 +89,11 @@ ARCHIVE_COMPONENT = "archive"
 _MIN_NESTED_RESULT_PARTS = 2
 
 
+def rounded(value: float | None, digits: int) -> float | None:
+    """Round a reported metric, preserving unavailable measurements as ``None``."""
+    return None if value is None else round(value, digits)
+
+
 def run_filename(model_id: str, language: str) -> Path:
     """Return the active nested path for one model-language result."""
     normalized_language = language.strip().lower()

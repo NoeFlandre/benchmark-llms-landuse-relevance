@@ -27,23 +27,26 @@ raw generations. Therefore, you can see each such case.
 Constrained decoding removes the heuristic fully. But then the benchmark does not measure
 instruction-following. Refer to [ADR-0001](adr/0001-greedy-generation.md).
 
-**Mutation testing covers only the domain.** Tests cover the adapters, but the mutation
-step does not mutate them. Mutants of filesystem code and model-runtime code are mostly
-equivalent mutants.
+**Mutation testing covers only the domain and `results_store.py`.** Tests cover the other
+adapters, but the mutation step does not mutate them. Mutants of filesystem code and
+model-runtime code are mostly equivalent mutants.
 
 The adapters are not thin now. `hf_scorer.py` (~690 lines, eight scorer families) and
 `hf_publish.py` (~580 lines) are the largest modules. Unit tests with fake runtimes
 cover their branches. Mutation does not cover them.
 
-**No mutant survives, and no mutant is permitted to survive.** Until the 2026-09 uplift,
-the gate was broken and did not show it. The copied workspace of mutmut did not have the
-documentation that one unit test reads. Therefore, its stats run failed and no mutant was
-tested. The survivor count was zero.
+**Survivors are allowed only when reviewed.** Until the 2026-09 uplift, the gate was broken
+and did not show it. The copied workspace of mutmut did not have the documentation that one
+unit test reads. Therefore, its stats run failed and no mutant was tested. The survivor count
+was zero.
 
-The workspace now copies the files that the tests read. `check_mutants.py` refuses a run
-that killed nothing. The domain does not use constructs that make equivalent mutants. Two
-examples are guarded `zip(strict=True)` calls and redundant defaults. CI permits zero
-survivors (`scripts/check_mutants.py --max-survivors 0`).
+The workspace now copies the files that the tests read. `make mutation` runs mutmut, ignores
+its exit code, then runs `scripts/check_mutants.py`. That script refuses a run that killed
+nothing, refuses any mutant status other than killed or survived, and fails on each survivor
+whose exact ID is not in `mutation-allowlist.txt`. It also fails on an allowlist entry that no
+longer survives. Each allowlist entry carries its equivalence reason. Some surviving mutants are
+equivalent, such as redundant `zip(strict=True)` guards and locale-default encodings that
+resolve to UTF-8. CI does not permit zero survivors; it permits only the reviewed ones.
 
 **CRAP ceilings and reviewed exceptions (#73).** CI requires 100% domain line and branch
 coverage. The CRAP ceiling is 8. Adapters and the CLI have a ceiling of 15.
