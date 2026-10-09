@@ -28,7 +28,7 @@ types:  ## Static type check
 	$(RUN) ty check src
 
 test:  ## Unit and property tests with coverage
-	HYPOTHESIS_PROFILE=$(HYPOTHESIS_PROFILE) $(RUN) pytest tests/unit tests/property --cov --cov-report=term-missing --cov-report=json
+	HYPOTHESIS_PROFILE=$(HYPOTHESIS_PROFILE) $(RUN) pytest tests/unit tests/property tests/scripts --cov --cov-report=term-missing --cov-report=json
 
 property:  ## Property-based tests
 	HYPOTHESIS_PROFILE=$(HYPOTHESIS_PROFILE) $(RUN) pytest tests/property
@@ -49,7 +49,7 @@ integration:  ## Real model runtime, downloads a tiny model
 	$(RUN) pytest tests/integration -m integration
 
 crap: test  ## CRAP score guardrail over the coverage written by `test`
-	$(RUN) python scripts/crap.py --limit src/landuse_relevance_bench/domain=8 --limit src/landuse_relevance_bench/adapters=15 --limit src/landuse_relevance_bench/cli.py=15 --full-coverage src/landuse_relevance_bench/domain --allowlist scripts/crap-allowlist.json
+	$(RUN) python scripts/crap.py --limit src/landuse_relevance_bench/domain=8 --limit src/landuse_relevance_bench/adapters=15 --limit src/landuse_relevance_bench/cli.py=15 --limit scripts=15 --full-coverage src/landuse_relevance_bench/domain --allowlist scripts/crap-allowlist.json
 
 mutation:  ## Mutation testing, gated on exact reviewed survivor IDs
 	$(RUN) mutmut run --max-children 4 || true
