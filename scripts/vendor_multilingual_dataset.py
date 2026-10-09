@@ -293,7 +293,7 @@ def _fetch_language_rows(
     return tuple(rows)
 
 
-def _hub_translation_paths(  # noqa: C901
+def _hub_translation_paths(
     dataset: str,
     revision: str,
     split: str,
@@ -308,24 +308,33 @@ def _hub_translation_paths(  # noqa: C901
         raise TranslationDataError("Hub tree response has no file list")
     paths: dict[str, str] = {}
     for raw_entry in payload:
-        entry = _mapping(raw_entry, "Hub tree entry")
-        if entry.get("type") != "file":
+        translation = _hub_translation_entry(raw_entry)
+        if translation is None:
             continue
-        path = entry.get("path")
-        if not isinstance(path, str):
-            continue
-        parts = path.split("/")
-        if len(parts) != TRANSLATION_PATH_PART_COUNT or parts[:2] != ["data", "translations"]:
-            continue
-        language, filename = parts[2:]
-        if filename != f"v3-final-{language}.csv" or not LANGUAGE_PATTERN.fullmatch(language):
-            continue
+        language, path = translation
         if language in paths:
             raise TranslationDataError(f"duplicate Hub translation file for {language!r}")
         paths[language] = path
     if not paths:
         raise TranslationDataError(f"Hub dataset {dataset!r} has no translation CSV files")
     return paths
+
+
+def _hub_translation_entry(raw_entry: object) -> tuple[str, str] | None:
+    """The (language, path) of a Hub tree entry that is a translation CSV, otherwise None."""
+    entry = _mapping(raw_entry, "Hub tree entry")
+    if entry.get("type") != "file":
+        return None
+    path = entry.get("path")
+    if not isinstance(path, str):
+        return None
+    parts = path.split("/")
+    if len(parts) != TRANSLATION_PATH_PART_COUNT or parts[:2] != ["data", "translations"]:
+        return None
+    language, filename = parts[2:]
+    if filename != f"v3-final-{language}.csv" or not LANGUAGE_PATTERN.fullmatch(language):
+        return None
+    return language, path
 
 
 def _read_hub_csv(
