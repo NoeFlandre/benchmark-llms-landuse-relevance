@@ -67,6 +67,11 @@ class ScorerSpec:
     card: tuple[str, str, str] = DEFAULT_CARD
     #: A model's declared language coverage, or None for the full benchmark inventory.
     supported_languages: tuple[str, ...] | None = None
+    #: Whether the checkpoint's own Python code may run. Off unless the model needs it.
+    #: The loader requires a full commit SHA, but that pins the model repository only: a
+    #: model whose ``auto_map`` names another Hub repo is not safe to opt in until that repo
+    #: is pinned too.
+    trust_remote_code: bool = False
 
     @property
     def repository(self) -> str:
@@ -75,6 +80,9 @@ class ScorerSpec:
 
 
 SCORER_ROSTER: tuple[ScorerSpec, ...] = (
+    # trust_remote_code stays off. The config.json auto_map names Alibaba-NLP/new-impl for
+    # its modeling code, another repo that the model-revision pin does not cover, so GTE
+    # is refused until that repo is pinned too (issue #120).
     ScorerSpec(
         "Alibaba-NLP/gte-multilingual-reranker-base",
         306_000_000,

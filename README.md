@@ -33,6 +33,8 @@ uv run lrb report                      # detailed and aggregate leaderboards
 uv run lrb publish NoeFlandre/benchmark-llms-landuse-relevance
 ```
 
+GTE (`Alibaba-NLP/gte-multilingual-reranker-base`) and `LiquidAI/LFM2.5-Encoder-350M` are refused until a decision on their remote code is made (issue #120), so `lrb score` fails to load either of them.
+
 You do not need a GPU for `lrb report` and `lrb models`. The code imports `torch` only
 when it loads a model.
 

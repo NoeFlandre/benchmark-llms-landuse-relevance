@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Security: scoring models no longer run their Hub checkpoint's remote code unless their
+  roster entry opts in. An opt-in needs a full 40-character lowercase commit SHA as the
+  revision; any other revision is refused before any download. The SHA pins only the
+  model repository. Code that an `auto_map` entry names in another Hub repository is
+  still fetched at that repository's default branch, so a model whose `auto_map` names
+  another repo is not safe to opt in until that repo is pinned too. No roster entry opts
+  in yet, so `Alibaba-NLP/gte-multilingual-reranker-base` (its `auto_map` names
+  `Alibaba-NLP/new-impl`) and `LiquidAI/LFM2.5-Encoder-350M` fail to load until a
+  decision is made (issue #120).
 - CI: pin Docker base images by digest, define `UV_VERSION` once, and enable
   Dependabot updates for the Docker ecosystem.
 - Replace the obfuscated lazy imports of optional runtimes with one `require` helper that
