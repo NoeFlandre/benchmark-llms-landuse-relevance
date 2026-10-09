@@ -5,7 +5,7 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 from landuse_relevance_bench.adapters import providers
-from landuse_relevance_bench.adapters.gpu_memory import MIB, gpu_memory_line
+from landuse_relevance_bench.adapters.gpu_memory import MIB, free_gpu_memory_bytes, gpu_memory_line
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 
 
@@ -33,6 +33,39 @@ def test_gpu_memory_line_is_silent_without_torch_or_cuda(monkeypatch, torch) -> 
     monkeypatch.setitem(sys.modules, "torch", torch)
 
     assert gpu_memory_line("after_close", "org/model") is None
+
+
+def test_free_gpu_memory_bytes_reports_free_bytes(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "torch", _fake_torch())
+
+    assert free_gpu_memory_bytes() == 3 * MIB + 5
+
+
+@pytest.mark.parametrize("torch", [None, _fake_torch(available=False), _fake_torch(error=True)])
+def test_free_gpu_memory_bytes_is_none_without_torch_or_cuda(monkeypatch, torch) -> None:
+    monkeypatch.setitem(sys.modules, "torch", torch)
+
+    assert free_gpu_memory_bytes() is None
+
+
+@pytest.mark.parametrize(
+    ("runtime", "module"), [("transformers", "hf_generator"), ("sglang", "sglang_generator")]
+)
+def test_generator_provider_dispatches_on_runtime(monkeypatch, runtime: str, module: str) -> None:
+    import importlib
+
+    target = importlib.import_module(f"landuse_relevance_bench.adapters.{module}")
+    monkeypatch.setattr(target, "provide", lambda _request: (runtime, "rev"))
+    request = RunRequest(
+        model_id="a/b",
+        language="en",
+        benchmark_path=Path("x"),
+        prompt_path=Path("x"),
+        output_dir=Path("x"),
+        runtime=runtime,
+    )
+
+    assert providers.generator_provider()(request) == (runtime, "rev")
 
 
 def test_cached_provider_logs_memory_before_load_and_after_close(capsys) -> None:

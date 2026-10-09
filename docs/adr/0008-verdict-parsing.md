@@ -1,28 +1,32 @@
-# ADR-0008 — Prefer explicit verdicts when parsing generations
+# ADR-0008 - Prefer explicit verdicts when parsing generations
 
 **Status:** accepted · 2026-09-26
 
 ## Context
 
-Some generations begin with a direct `yes` or `no` answer and continue with prose that
-mentions the other label. Taking the final token can then reverse a clearly stated
-answer. Other models reason first, restate the rubric, and put their answer at the end.
+Some generations start with a direct `yes` or `no` answer. Then they continue with text
+that mentions the other label. If the parser takes the final token, it can reverse an
+answer that is clearly stated. Other models reason first and repeat the rubric. They put
+their answer at the end.
 
 ## Decision
 
 Parse in this order:
 
-1. An exact standalone `yes` or `no`, allowing surrounding whitespace and punctuation.
+1. An exact standalone `yes` or `no`. Surrounding whitespace and punctuation are
+   permitted.
 2. A standalone `yes` or `no` at the start of the response.
-3. The final standalone `yes` or `no` anywhere in the response, preserving the fallback
-   for reasoning-first outputs.
+3. The final standalone `yes` or `no` anywhere in the response. This keeps the fallback
+   for outputs that reason first.
 
-Each prediction stores `parse_mode` (`exact`, `leading`, or `last`); unparsable and
-truncated outputs have no mode. Raw generations remain unchanged. Saved results can be
-recomputed with `python scripts/reparse_results.py results` without loading models.
+Each prediction stores `parse_mode` (`exact`, `leading`, or `last`). Unparsable outputs
+and truncated outputs have no mode. The raw generations stay unchanged.
+
+To recompute the saved results without a model load, run:
+`python scripts/reparse_results.py results`
 
 ## Consequences
 
-- A leading answer takes precedence over later mentions of the other label.
-- Reasoning-first outputs retain their former last-token interpretation.
-- Historical results and their summaries must be regenerated when this rule changes.
+- A leading answer has priority over later mentions of the other label.
+- Outputs that reason first keep their former last-token interpretation.
+- When this rule changes, regenerate the historical results and their summaries.

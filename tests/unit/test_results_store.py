@@ -109,6 +109,19 @@ def test_reading_a_corrupt_run_file_fails_loudly(tmp_path: Path) -> None:
         read_run(path)
 
 
+@pytest.mark.parametrize("content", ["[]", '"x"', "42"])
+def test_reading_valid_json_that_is_not_an_object_names_the_path(
+    tmp_path: Path, content: str
+) -> None:
+    path = tmp_path / "not-an-object.json"
+    path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="does not contain a JSON object") as excinfo:
+        read_run(path)
+
+    assert str(path) in str(excinfo.value)
+
+
 def test_reading_legacy_metadata_explains_that_it_is_archive_only(tmp_path: Path) -> None:
     payload = _result().to_dict()
     del payload["metadata"]["language"]

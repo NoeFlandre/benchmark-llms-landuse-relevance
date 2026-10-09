@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from landuse_relevance_bench.adapters.g5k_sites import SiteConfig
 from landuse_relevance_bench.adapters.results_store import write_run
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
@@ -9,7 +10,6 @@ from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunR
 from landuse_relevance_bench.domain.sharding import model_language_pairs
 from scripts.g5k_collect import (
     CollectionError,
-    SiteSpec,
     allocate_pairs,
     collect_results,
     expected_pairs_for_models,
@@ -48,7 +48,10 @@ def _result(model_id: str, language: str, source_commit: str = "commit-a") -> Ru
 
 def test_weighted_site_allocation_is_deterministic_and_complete() -> None:
     pairs = model_language_pairs(["a/model", "b/model"], ["en", "fr", "de"])
-    sites = (SiteSpec("nancy", 2), SiteSpec("grenoble", 1))
+    sites = (
+        SiteConfig("nancy", "nancy", 2),
+        SiteConfig("grenoble", "grenoble", 1),
+    )
 
     allocation = allocate_pairs(pairs, sites)
 

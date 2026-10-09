@@ -105,17 +105,10 @@ def _package_version_section(results: Sequence[RunResult]) -> str:
     return f"\n\n{label} recorded in run metadata: {values}{missing_note}."
 
 
-def dataset_card(
-    results: Sequence[RunResult],
-    *,
-    benchmark_name: str,
-    prompt_text: str,
-    scorer_prompt_text: str = "",
-    extra_scorer_prompt_texts: Sequence[str] = (),
-    timing_results: Sequence[RunResult] = (),
-    viewer_file: str = "",
-) -> str:
-    """Build a terse card whose scores are recomputed from every prediction."""
+def _validated_runs(
+    results: Sequence[RunResult], prompt_text: str
+) -> tuple[list[RunResult], list[RunResult]]:
+    """Refuse results a card must not describe; return the generative and scoring runs."""
     if not results:
         raise ValueError("cannot build a card from an empty set of results")
     incompatibilities = collection_comparability_errors(results)
@@ -131,11 +124,11 @@ def dataset_card(
     prompt_sha256 = _uniform(generative, "prompt digest", lambda r: r.metadata.prompt_sha256)
     if sha256_of_text(prompt_text) != prompt_sha256:
         raise ValueError("prompt text does not match the digest recorded in the runs")
-    scoring = [r for r in results if not r.metadata.is_generative]
-    scoring_prompts = _scoring_prompts(
-        scoring, prompt_text, (scorer_prompt_text, *extra_scorer_prompt_texts)
-    )
-    version_section = _package_version_section(results)
+    return generative, [r for r in results if not r.metadata.is_generative]
+
+
+def _generation_settings(generative: Sequence[RunResult]) -> str:
+    """The prompt-and-settings line: decoding, seed, budget, precision, batch, quants."""
     decoding = _uniform(generative, "decoding", lambda r: r.metadata.decoding)
     # A GGUF quant has no torch dtype; its precision is its recorded quant label.
     full_precision = [r for r in generative if not r.metadata.quantization]
@@ -155,43 +148,86 @@ def dataset_card(
     batch_size_line = (
         f"batch {batch_sizes[0]}" if len(batch_sizes) == 1 else "batch varies by model"
     )
+    return (
+        f"English prompt · {decoding} decoding · seed {seed} · "
+        f"`max_new_tokens={max_new_tokens}` ·\n"
+        f"`{dtype}` · {batch_size_line}.{quant_line}"
+    )
+
+
+def _scale_line(results: Sequence[RunResult], benchmark_name: str) -> str:
     n_items = _uniform(results, "items per language", lambda r: r.metrics.n_items)
     languages = sorted({result.metadata.language for result in results})
     language_label = "language" if len(languages) == 1 else "languages"
     item_label = "item" if n_items == 1 else "items"
-    viewer_path = Path(viewer_file or "data/train.csv")
+    return (
+        f"`{benchmark_name}` · {len(languages)} {language_label} x {n_items} "
+        f"{item_label}/language ·\n"
+        f"{len(languages) * n_items:,} items · binary `yes`/`no` labels."
+    )
+
+
+def _aggregate_table(generative: Sequence[RunResult]) -> str:
+    """The per-model macro table, with best and second-best cells emphasised."""
     header = "| " + " | ".join(CARD_COLUMNS) + " |"
     divider = "|" + "|".join(["---"] * len(CARD_COLUMNS)) + "|"
-
-    def table(subset: Sequence[RunResult]) -> str:
-        rows = aggregate_rows(subset)
-        metric_columns = tuple(
-            column for column in CARD_COLUMNS if column not in {"model_id", "language_count"}
+    rows = aggregate_rows(generative)
+    metric_columns = tuple(
+        column for column in CARD_COLUMNS if column not in {"model_id", "language_count"}
+    )
+    rankings = _metric_rankings(rows, metric_columns)
+    body = "\n".join(
+        "| "
+        + " | ".join(
+            _ranked_cell(row, column, str(row[column]), rankings) for column in CARD_COLUMNS
         )
-        rankings = _metric_rankings(rows, metric_columns)
-        return "\n".join(
-            "| "
-            + " | ".join(
-                _ranked_cell(row, column, str(row[column]), rankings) for column in CARD_COLUMNS
-            )
-            + " |"
-            for row in rows
-        )
+        + " |"
+        for row in rows
+    )
+    return f"{header}\n{divider}\n{body}"
 
-    body = table(generative)
-    scoring_section = _scoring_section(scoring, prompts=scoring_prompts) if scoring else ""
-    comparison = _logprob_comparison(results, timing_results)
+
+def _optional_sections(
+    results: Sequence[RunResult],
+    scoring: Sequence[RunResult],
+    scoring_prompts: Sequence[tuple[str, str]],
+    timing_results: Sequence[RunResult],
+) -> str:
+    """Scoring, log-prob comparison, speed and agreement sections, each only if non-empty."""
     sections = [
         section
         for section in (
-            scoring_section,
-            comparison,
+            _scoring_section(scoring, prompts=scoring_prompts) if scoring else "",
+            _logprob_comparison(results, timing_results),
             _speed_section(results),
             _agreement_section(results),
         )
         if section
     ]
-    sections_block = "\n\n" + "\n\n".join(sections) if sections else ""
+    return "\n\n" + "\n\n".join(sections) if sections else ""
+
+
+def dataset_card(
+    results: Sequence[RunResult],
+    *,
+    benchmark_name: str,
+    prompt_text: str,
+    scorer_prompt_text: str = "",
+    extra_scorer_prompt_texts: Sequence[str] = (),
+    timing_results: Sequence[RunResult] = (),
+    viewer_file: str = "",
+) -> str:
+    """Build a terse card whose scores are recomputed from every prediction."""
+    generative, scoring = _validated_runs(results, prompt_text)
+    scoring_prompts = _scoring_prompts(
+        scoring, prompt_text, (scorer_prompt_text, *extra_scorer_prompt_texts)
+    )
+    version_section = _package_version_section(results)
+    settings = _generation_settings(generative)
+    scale = _scale_line(results, benchmark_name)
+    viewer_path = Path(viewer_file or "data/train.csv")
+    table = _aggregate_table(generative)
+    sections_block = _optional_sections(results, scoring, scoring_prompts, timing_results)
     return f"""---
 license: mit
 configs:
@@ -210,8 +246,7 @@ tags:
 
 # Land-use relevance benchmark
 
-`{benchmark_name}` · {len(languages)} {language_label} x {n_items} {item_label}/language ·
-{len(languages) * n_items:,} items · binary `yes`/`no` labels.
+{scale}
 
 [Code](https://github.com/NoeFlandre/benchmark-llms-landuse-relevance){version_section}
 
@@ -219,8 +254,7 @@ tags:
 
 Does a sentence describe a place's land or environment in ways visible to satellites?
 
-English prompt · {decoding} decoding · seed {seed} · `max_new_tokens={max_new_tokens}` ·
-`{dtype}` · {batch_size_line}.{quant_line}
+{settings}
 
 ### Prompt text
 
@@ -235,9 +269,7 @@ Per-model macro averages across languages. Per-language 95% intervals and paired
 [`leaderboard.csv`](leaderboard.csv); full macro metrics: [`aggregates.csv`](aggregates.csv).
 Bold = best; underline = second best in each metric column.
 
-{header}
-{divider}
-{body}{sections_block}"""
+{table}{sections_block}"""
 
 
 def _markdown_table(columns: Sequence[str], rows: Sequence[dict[str, Any]]) -> str:

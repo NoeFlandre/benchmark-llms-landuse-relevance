@@ -4,7 +4,7 @@ from pathlib import Path
 from factories import make_result
 from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
-from landuse_relevance_bench.adapters.results_store import read_run, run_filename
+from landuse_relevance_bench.adapters.results_store import read_run, run_filename, write_run
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction
@@ -67,3 +67,25 @@ def test_reparse_keeps_truncated_output_unparsed(tmp_path: Path) -> None:
     updated = read_run(path)
     assert updated.predictions[0].predicted is None
     assert updated.predictions[0].parse_mode is None
+
+
+def test_reparse_leaves_a_canonical_run_file_byte_identical(tmp_path: Path) -> None:
+    prompt_text = load_prompt(Path("data/prompt.txt"))
+    prediction = Prediction(
+        item_id="0" * 16,
+        expected=Label.NO,
+        predicted=Label.NO,
+        raw_output="no",
+        parse_mode="exact",
+    )
+    result = make_result(
+        "test/canonical",
+        (prediction,),
+        prompt_sha256=sha256_of_text(prompt_text),
+    )
+    path = write_run(result, tmp_path)
+    before = path.read_bytes()
+
+    reparse_directory(tmp_path)
+
+    assert path.read_bytes() == before

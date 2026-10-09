@@ -1,53 +1,83 @@
 # Architecture
 
-Four layers, enforced by `import-linter` and by a test that fails the build if the
-rule is broken:
+The code has four layers. `import-linter` enforces them. A test fails the build if
+someone breaks the rule.
 
 ```
 cli  →  application  →  adapters  →  domain
 ```
 
-## `domain` — pure
+## `domain` - pure code
 
-No filesystem, no network, no model runtime; `csv`, `pathlib`, `typer`, `torch`,
-`transformers` and `huggingface_hub` are forbidden imports here. Holds the label type,
-prompt rendering, verdict parsing, the metrics and threshold sweeps, the run records,
-the generative and scoring rosters, and the orchestration that drives a benchmark
-across anything satisfying one of two protocols: `TextGenerator` (prompts in, text
-out) or `LabelScorer` (prompt/sentence pairs in, yes/no scores out).
+The `domain` layer has no filesystem, no network, and no model runtime. These imports
+are not permitted in this layer: `csv`, `pathlib`, `typer`, `torch`, `transformers`, and
+`huggingface_hub`.
 
-Those two protocols are the only seams to a model runtime. Every test above the unit
-level substitutes a scripted generator or scorer through them, which is why the
-acceptance suite runs end to end in seconds without a GPU.
+The layer holds these items:
 
-## `adapters` — the edges
+- the label type
+- prompt rendering
+- verdict parsing
+- the metrics and the threshold sweeps
+- the run records
+- the generative and scoring rosters
+- the orchestration that drives a benchmark
 
-Translation-manifest and CSV loading, prompt loading, content digests, the results
-store, and Hub publishing. Generators: Transformers, and llama.cpp for GGUF quants
-(`llama_generator.py`). Scorers (`hf_scorer.py`): Qwen reranker, GTE, mxbai, Laya,
-causal log-probability, the NLI zero-shot pipeline, GLiClass and GLiNER2 — see
+The orchestration works with anything that satisfies one of two protocols. The first is
+`TextGenerator`: prompts in, text out. The second is `LabelScorer`: prompt/sentence
+pairs in, yes/no scores out.
+
+These two protocols are the only seams to a model runtime. Every test above the unit
+level replaces the generator or scorer with a scripted one through these protocols. For
+this reason, the acceptance suite runs end to end in seconds without a GPU.
+
+## `adapters` - the edges
+
+The `adapters` layer holds these items:
+
+- the loading of the translation manifest and the CSV files
+- prompt loading
+- content digests
+- the results store
+- Hub publishing
+
+The generators are Transformers and llama.cpp for GGUF quants (`llama_generator.py`).
+The scorers are in `hf_scorer.py`: Qwen reranker, GTE, mxbai, Laya, causal
+log-probability, the NLI zero-shot pipeline, GLiClass, and GLiNER2. Refer to
 [ADR-0007](adr/0007-additional-runtimes.md).
-`pipeline.execute` and `pipeline.execute_scoring` are the use cases: load one language,
-run the model, score exactly the predictions it produced, and write the nested
-model-language checkpoint. Active readers explicitly exclude `results/archive/`.
 
-## `cli` — the surface
+`pipeline.execute` and `pipeline.execute_scoring` are the use cases. Each one loads one
+language and runs the model. Then it scores exactly the predictions that the model
+produced and writes the nested model-language checkpoint. The active readers exclude
+`results/archive/`.
 
-`lrb models | languages | run | run-all | scorers | score | status | report | publish`.
-Optional dependencies are imported lazily, so `lrb report` works on a laptop with no
-`torch` installed. Scoring adapters expose a common typed input and preserve both
-normalised and native relevance values; the results adapter derives threshold sweeps
-and best-operating-point summaries from those stored values.
+## `cli` - the surface
 
-## `application` — the command use cases
+The commands are `lrb models | languages | run | run-all | scorers | score | status |
+report | publish`.
 
-Language and run selection, sharded run plans, checkpoint-aware runs and report
-lines. It turns bad input into usage errors, so `cli` only declares commands and
-options. Model providers, including the one-model-at-a-time cache that logs free GPU
-memory before each load and after each close, live in `adapters/providers.py`.
+The code imports optional dependencies when it needs them. Therefore, `lrb report` works
+on a laptop that has no `torch`.
+
+The scoring adapters give a common typed input. They keep both the normalised relevance
+value and the native relevance value. The results adapter derives the threshold sweeps
+and the best-operating-point summaries from these stored values.
+
+## `application` - the command use cases
+
+The `application` layer holds the language selection, the run selection, the sharded run
+plans, the checkpoint-aware runs, and the report lines. It changes bad input into usage
+errors. Therefore, `cli` only declares commands and options.
+
+The model providers are in `adapters/providers.py`. They include the cache that holds
+one model at a time. The cache logs the free GPU memory before each load and after each
+close.
 
 ## Quality gates
 
-`make check` runs the gauntlet: ruff → ty → unit → property → acceptance →
-architecture → CRAP. Mutation testing is separate (`make mutation`); CI runs the same
-commands plus mutation, gated by `scripts/check_mutants.py --max-survivors 0`.
+The command `make check` runs these checks in this order: ruff → ty → unit → property →
+acceptance → architecture → CRAP.
+
+Mutation testing is separate (`make mutation`). CI runs the same commands and also runs
+mutation. The command `scripts/check_mutants.py --max-survivors 0` gates the mutation
+step.

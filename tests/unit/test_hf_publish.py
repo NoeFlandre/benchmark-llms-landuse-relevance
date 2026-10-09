@@ -143,7 +143,7 @@ def test_aggregate_table_rows_are_not_indented_as_code() -> None:
     aggregate = card.split("## Aggregate scores")[1].split("## Runtime performance")[0]
     table_lines = [line for line in aggregate.splitlines() if line.lstrip().startswith("|")]
 
-    assert table_lines
+    assert len(table_lines) == 4  # Header, separator and one row per scored run.
     assert all(line.startswith("|") for line in table_lines)
 
 
@@ -378,12 +378,18 @@ def test_empty_cards_and_mismatched_same_gpu_devices_are_rejected() -> None:
 
 
 def test_default_huggingface_api_is_created_lazily(monkeypatch) -> None:
+    created: list[object] = []
+
     class FakeApi:
-        pass
+        def __init__(self) -> None:
+            created.append(self)
 
     monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(HfApi=FakeApi))
+    assert created == []
 
-    assert isinstance(_default_api(), FakeApi)
+    api = _default_api()
+
+    assert created == [api]
 
 
 def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(

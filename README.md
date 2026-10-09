@@ -1,18 +1,21 @@
 # benchmark-llms-landuse-relevance
 
-Do small open-weight LLMs know when a sentence about a place says something a
-satellite could see?
+Do small open-weight LLMs know when a sentence about a place describes something that a
+satellite can see?
 
-The active benchmark is an 85-language golden human set with 300 aligned adjudicated
-items per language. Each item is labelled `yes` if it carries land-use, land-cover, or
-geographic-environment signal — vegetation, water, terrain, buildings, roads, mining,
-managed land — and `no` if it only concerns history, administration, people, or events.
-One English prompt, one token of expected output, and the open-weight models listed in
-`domain/roster.py`, scored end to end on Grid'5000 GPUs.
+The active benchmark is an 85-language golden human set. It has 300 aligned adjudicated
+items for each language. An item has the label `yes` if it has land-use, land-cover, or
+geographic-environment signal. Examples are vegetation, water, terrain, buildings,
+roads, mining, and managed land. An item has the label `no` if it is only about
+history, administration, people, or events.
+
+The benchmark uses one English prompt and one token of expected output. It tests the
+open-weight models in `domain/roster.py`. It scores them end to end on Grid'5000 GPUs.
 
 - **Code:** this repository
 - **Results:** [NoeFlandre/benchmark-llms-landuse-relevance](https://huggingface.co/datasets/NoeFlandre/benchmark-llms-landuse-relevance)
-- **Docs:** `make docs`, or [the published site](https://noeflandre.github.io/benchmark-llms-landuse-relevance/)
+- **Documentation:** run `make docs`, or read [the published site](https://noeflandre.github.io/benchmark-llms-landuse-relevance/)
+- **Glossary:** [docs/glossary.md](docs/glossary.md)
 
 ## Quick start
 
@@ -30,65 +33,98 @@ uv run lrb report                      # detailed and aggregate leaderboards
 uv run lrb publish NoeFlandre/benchmark-llms-landuse-relevance
 ```
 
-Without a GPU, `lrb report` and `lrb models` still work — `torch` is imported only
-when a model is actually loaded.
+You do not need a GPU for `lrb report` and `lrb models`. The code imports `torch` only
+when it loads a model.
 
-## What gets measured
+### Command-line flags
 
-Positive class is `yes`. Generative runs report accuracy, precision, recall, F1,
-balanced accuracy, Matthews correlation, and `unparsed_rate`. Scoring runs also keep
-the model's normalised relevance score and native score per item, sweep thresholds, and
-report the best MCC, F1, balanced accuracy, precision, recall, and ROC-AUC in
-`scoring_summary.csv`.
+Run `lrb <command> --help` for the complete list. These flags are not in the quick
+start.
 
-Scoring runs record inference throughput in items per second and peak allocated CUDA
-VRAM when a CUDA device is available. These values appear in the detailed
-`leaderboard.csv` and the scoring summary.
+| Flag | Commands | Effect |
+| --- | --- | --- |
+| `--only REGEX` | `run-all` | Run only the roster run names that match the regular expression. |
+| `--runtime NAME` | `run-all` | Restrict the roster to `transformers` or `sglang`. Repeat the flag to select both. |
+| `--skip-existing` / `--no-skip-existing` | `run-all` | Skip a model-language pair that already has a stored result (default), or run it again. |
+| `--keep-going` | `run-all` | Continue after a failed run. The command prints each failure to standard error and exits with status 1 at the end. Without this flag, the first failure stops the command. |
+| `--throughput` | `run`, `run-all` | Use the SGLang multi-request throughput mode. |
+| `--json` | `models` | Print the roster as JSON. |
 
-The adapters preserve each checkpoint's intended interface: the Qwen rerankers score
-their yes/no continuation; GTE receives a prompt/sentence pair and returns its
-sequence-classification relevance logit; mxbai receives its official binary
-query/document turn; Laya receives four JSON sentence fields with one typed `noul`
-question per field; `LFM2.5-2.6B@logprob` reads `P(yes)` against `P(no)` from one
-forward pass over the generative turn with an empty think block appended; the NLI
-models, GLiClass and GLiNER2 score the hypothesis in `data/prompt_zeroshot.txt`. Laya
-uses the checkpoint's 1,024-token context and SDK-selected runtime dtype; other scoring
-sequence lengths are recorded per run.
+```bash
+uv run lrb run-all --runtime transformers --only 'LFM2' --keep-going
+uv run lrb models --json
+```
+
+`run-all` fails with a usage error when `--only` and `--runtime` match no rostered run.
+
+## What the benchmark measures
+
+The positive class is `yes`. A generative run reports accuracy, precision, recall, F1,
+balanced accuracy, Matthews correlation, and `unparsed_rate`.
+
+A scoring run keeps the normalised relevance score and the native score of the model for
+each item. It sweeps thresholds. It reports the best MCC, F1, balanced accuracy,
+precision, recall, and ROC-AUC in `scoring_summary.csv`.
+
+A scoring run records the inference throughput in items per second. It also records the
+peak allocated CUDA VRAM when a CUDA device is available. These values are in the
+detailed `leaderboard.csv` and in the scoring summary.
+
+Each adapter keeps the interface that the checkpoint was made for:
+
+- The Qwen rerankers score their yes/no continuation.
+- GTE receives a prompt/sentence pair. It returns its sequence-classification relevance
+  logit.
+- mxbai receives its official binary query/document turn.
+- Laya receives four JSON sentence fields. It receives one typed `noul` question for
+  each field.
+- `LFM2.5-2.6B@logprob` reads `P(yes)` against `P(no)` from one forward pass. The
+  forward pass uses the generative turn with an empty think block at the end.
+- The NLI models, GLiClass, and GLiNER2 score the hypothesis in `data/prompt_zeroshot.txt`.
+
+Laya uses the context of 1,024 tokens of the checkpoint and the runtime dtype that the
+SDK selects. The run records the other scoring sequence lengths.
 
 Decoding is greedy, so a run replays exactly. The verdict is the last standalone
-`yes`/`no` in the generation — two of these models open with an analysis preamble that
-restates the prompt's own rubric, and reading from the front scores that restatement as
-the answer. A generation that exhausted its token budget without stopping carries no
-verdict at all, whatever words appear in it. Either failure is counted as an error
-rather than dropped or coerced, and the raw text is kept, so another convention can be
-recomputed from the published results without re-running the models. See
+`yes`/`no` in the generation. Two of these models start with an analysis preamble. The
+preamble repeats the rubric of the prompt. If the parser reads from the start, it scores
+this repeated text as the answer.
+
+A generation that used the complete token budget without a stop has no verdict. This is
+true for all the words in the generation. The benchmark counts each of these two failures
+as an error. It does not drop the item and it does not force a label. It keeps the raw
+text. Therefore, you can recompute another convention from the published results. You
+do not need to run the models again. Refer to
 [ADR-0002](docs/adr/0002-unparsed-as-error.md) and
 [ADR-0005](docs/adr/0005-generation-budget.md).
 
-The published benchmark uses a 4096-token generation budget so models have enough room
-to reach their yes/no verdict without turning the score into a test of output length.
+The published benchmark uses a generation budget of 4096 tokens. This gives the models
+enough room to reach their yes/no verdict. The score then does not test the length of
+the output.
 
-Every result file pins the model revision, the prompt sha256, the benchmark sha256, the
+Each result file pins the model revision, the prompt sha256, the benchmark sha256, the
 decoding settings, the seed, and the source commit.
 
 ## Data
 
-The active inventory is [`data/translations/manifest.json`](data/translations/manifest.json):
-85 language configurations with 300 aligned, adjudicated rows each. The Hub release
-provides the same records as a single viewer-friendly `data/train.csv` split.
+The active inventory is [`data/translations/manifest.json`](data/translations/manifest.json).
+It has 85 language configurations. Each configuration has 300 aligned adjudicated rows.
+The Hub release gives the same records as one `data/train.csv` split for the viewer.
 
 ## Outputs
 
-Each completed model-language pair is checkpointed as
-`results/<language>/<run-name>.json`. `lrb report` derives per-language
-`leaderboard.csv`, model-level macro `aggregates.csv`, `threshold_sweep.csv`, and
-`scoring_summary.csv` from those predictions. Earlier single-language files are kept
-under `results/archive/` and are excluded from active reports.
+The benchmark saves each completed model-language pair as a checkpoint in
+`results/<language>/<run-name>.json`. The command `lrb report` makes these files from
+the predictions: the `leaderboard.csv` of each language, the model-level macro
+`aggregates.csv`, `threshold_sweep.csv`, and `scoring_summary.csv`. The earlier
+single-language files are in `results/archive/`. The active reports do not include
+them.
 
-Both locations can be moved without passing flags to every command. `LRB_DATA_DIR`
-(default `data`) sets where `translations/`, `prompt.txt` and `prompt_reranker.txt` are
-read from. `LRB_RESULTS_DIR` (default `results`) sets where runs are written and read.
-Explicit `--data-root`, `--prompt` and `--out`/`--results-dir` options still win.
+You can move both locations without flags on each command. `LRB_DATA_DIR` (default
+`data`) sets the directory from which the code reads `translations/`, `prompt.txt`, and
+`prompt_reranker.txt`. `LRB_RESULTS_DIR` (default `results`) sets the directory to which
+the code writes runs and from which it reads them. The explicit options `--data-root`,
+`--prompt`, and `--out`/`--results-dir` have priority.
 
 ## Models
 
@@ -140,21 +176,25 @@ Explicit `--data-root`, `--prompt` and `--out`/`--results-dir` options still win
 | `fastino/gliner2.5-multi-v1` | ~0.287B | GLiNER2 label confidence |
 | `LiquidAI/LFM2.5-Encoder-350M` | ~0.355B | yes/no masked-token logits (15 languages) |
 
-`LiquidAI/LFM2.5-2.6B@logprob` sends the generative prompt and chat turn, closes the
-template's opening `<think>` in the input, and reads P(yes) vs P(no) at the next
-position from a single forward pass — no token is generated. The NLI, GLiClass and
-GLiNER2 models use their own zero-shot APIs with the sentence as input and one
-hypothesis taken from the LLM prompt (`data/prompt_zeroshot.txt`). The GGUF quant runs
-through llama.cpp with the generative prompt, template, greedy decoding and budget, and
-records its quant label in `quantization` rather than `dtype`.
+`LiquidAI/LFM2.5-2.6B@logprob` sends the generative prompt and the chat turn. It closes
+the opening `<think>` of the template in the input. It reads P(yes) against P(no) at the
+next position from one forward pass. The model does not generate a token.
 
-`LiquidAI/LFM2.5-Encoder-350M` is scored separately as a bidirectional masked-LM: its
-single `[MASK]` position ranks the `yes` and `no` tokens. Results cover only the model
-card's 15 supported languages.
+The NLI, GLiClass, and GLiNER2 models use their own zero-shot APIs. The input is the
+sentence. They use one hypothesis from the LLM prompt (`data/prompt_zeroshot.txt`).
 
-For each `+DSpark` run, `lrb report` checks identical generated text and verdicts
-against the same-target `@sglang` baseline under greedy decoding. The card and
-`leaderboard.csv` also include recorded speed and confidence summaries.
+The GGUF quant runs through llama.cpp. It uses the generative prompt, the template,
+greedy decoding, and the budget. It records its quant label in `quantization`, not in
+`dtype`.
+
+`LiquidAI/LFM2.5-Encoder-350M` is a bidirectional masked-LM. The benchmark scores it
+separately. Its single `[MASK]` position ranks the `yes` and `no` tokens. The results
+cover only the 15 languages that the model card supports.
+
+For each `+DSpark` run, `lrb report` compares the generated text and the verdicts with
+the `@sglang` baseline of the same target. The comparison must show identical text and
+verdicts under greedy decoding. The card and `leaderboard.csv` also include the recorded
+speed and confidence summaries.
 
 ## Grid'5000
 
@@ -166,9 +206,9 @@ usagepolicycheck -t
  scripts/g5k_submit.sh
 ```
 
-The node script checkpoints each model's result as it finishes and skips models already
-done, so an overrun job is resumed rather than repeated. See
-[docs/grid5000.md](docs/grid5000.md).
+The node script saves the result of each model as a checkpoint when the model is
+complete. It skips the models that are complete. Therefore, you resume a job that
+exceeded its walltime. You do not repeat it. Refer to [docs/grid5000.md](docs/grid5000.md).
 
 ## Development
 
@@ -178,17 +218,18 @@ make mutation  # mutation testing over the domain
 make docker    # reproducible runtime image
 ```
 
-Three layers — `cli → adapters → domain` — enforced by `import-linter` and by a test
-that fails the build if a domain module reaches for the filesystem or a model runtime.
-Everything above the unit level substitutes a scripted generator through the one-method
-`TextGenerator` protocol, which is why the acceptance suite runs in seconds without a
-GPU. See [docs/architecture.md](docs/architecture.md) and
-[docs/debt.md](docs/debt.md) for the known weaknesses.
+The code has three layers: `cli → adapters → domain`. `import-linter` enforces them. A
+test fails the build if a domain module uses the filesystem or a model runtime.
+
+All tests above the unit level replace the generator with a scripted generator. They use
+the `TextGenerator` protocol, which has one method. For this reason, the acceptance
+suite runs in seconds without a GPU. Refer to [docs/architecture.md](docs/architecture.md)
+and [docs/debt.md](docs/debt.md) for the known weaknesses.
 
 ## Docker
 
-The default image uses Transformers. Build it with the current commit recorded in run
-metadata, then keep model weights and results in Docker-managed volumes:
+The default image uses Transformers. Build it with the current commit in the run
+metadata. Then keep the model weights and the results in Docker-managed volumes:
 
 ```bash
 docker build --build-arg LRB_SOURCE_COMMIT="$(git rev-parse HEAD)" \
@@ -203,10 +244,13 @@ docker run --rm -v lrb-results:/app/results \
   landuse-relevance-bench:transformers report --results-dir /app/results
 ```
 
-For the separate CUDA/SGLang runtime, build `--target sglang` and select an `@sglang`
-model id such as `LiquidAI/LFM2.5-2.6B@sglang`. SGLang needs an NVIDIA driver and the
-NVIDIA Container Toolkit on the host. To publish, make `HF_TOKEN` available in the
-shell and pass it at runtime with `-e HF_TOKEN`; never pass credentials as build args:
+For the separate CUDA/SGLang runtime, build `--target sglang`. Select an `@sglang` model
+id, for example `LiquidAI/LFM2.5-2.6B@sglang`. SGLang needs an NVIDIA driver and the
+NVIDIA Container Toolkit on the host.
+
+WARNING: Do not pass credentials as build arguments.
+
+To publish, make `HF_TOKEN` available in the shell. Pass it at runtime with `-e HF_TOKEN`:
 
 ```bash
 docker run --rm -e HF_TOKEN \
@@ -217,9 +261,9 @@ docker run --rm -e HF_TOKEN \
 
 ## Citation
 
-Please cite the software release described in [`CITATION.cff`](CITATION.cff).
+Cite the software release that [`CITATION.cff`](CITATION.cff) describes.
 
 ## Licence
 
-MIT. The benchmark sentences are quoted from their cited sources; `source_url` is
-carried on every row.
+MIT. The benchmark sentences are quotes from the sources that they cite. Each row has
+its `source_url`.

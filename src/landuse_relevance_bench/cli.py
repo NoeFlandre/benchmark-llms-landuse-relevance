@@ -1,8 +1,11 @@
 """Scriptable entry points for running, scoring and publishing the benchmark."""
 
 import json
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypedDict, TypeVar
 
 import typer
 
@@ -13,11 +16,14 @@ from landuse_relevance_bench.adapters.pipeline import (
     RunRequest,
 )
 from landuse_relevance_bench.adapters.providers import (
+    CachedProvider,
     cached_generator_provider,
     cached_scorer_provider,
 )
 from landuse_relevance_bench.adapters.results_store import read_runs, write_reports
+from landuse_relevance_bench.adapters.translations import TranslationManifest
 from landuse_relevance_bench.application import (
+    DEFAULT_BENCHMARK_NAME,
     DEFAULT_DATA_ROOT,
     DEFAULT_PROMPT,
     DEFAULT_RESULTS,
@@ -25,14 +31,12 @@ from landuse_relevance_bench.application import (
     benchmark_one,
     comparable_runs,
     completed_pairs,
-    extra_scorer_prompts,
     languages_for_scorer,
-    load_prompts,
     manifest_for,
     mode_options,
     planned_pairs,
     print_run_plan,
-    publish_allow_patterns,
+    publish_to_hub,
     report_lines,
     score_one,
     selected_languages,
@@ -43,7 +47,14 @@ from landuse_relevance_bench.domain.roster import ROSTER, model_ids
 from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, scorer_for, scorer_ids
 from landuse_relevance_bench.domain.sharding import pair_statuses
 
-app = typer.Typer(add_completion=False, help=__doc__, invoke_without_command=True)
+logger = logging.getLogger(__name__)
+
+app = typer.Typer(
+    add_completion=False,
+    help=__doc__,
+    invoke_without_command=True,
+    no_args_is_help=True,
+)
 
 
 @app.callback()
@@ -61,6 +72,76 @@ Language = Annotated[
     list[str] | None,
     typer.Option("--language", help="Language code(s), repeatable or comma-separated."),
 ]
+Revision = Annotated[str | None, typer.Option(help="Pin the model to a commit.")]
+BatchSizeOption = typer.Option(help="Prompts per forward pass.")
+BatchSize = Annotated[int | None, BatchSizeOption]
+ResultsDir = Annotated[
+    Path, typer.Option("--results-dir", help="Directory holding stored run results.")
+]
+MaxNewTokens = Annotated[int, typer.Option(help="Maximum tokens to generate per prompt.")]
+Seed = Annotated[int, typer.Option(help="Random seed for decoding.")]
+Dtype = Annotated[str, typer.Option(help="Torch dtype name.")]
+ContinuousBatching = Annotated[
+    bool, typer.Option("--continuous-batching", help="Use Transformers continuous batching.")
+]
+Throughput = Annotated[
+    bool, typer.Option("--throughput", help="Use SGLang multi-request throughput mode.")
+]
+ShardIndex = Annotated[int, typer.Option("--shard-index", help="Zero-based index of this shard.")]
+ShardCount = Annotated[
+    int, typer.Option("--shard-count", help="Total number of shards the work is split into.")
+]
+SkipExisting = Annotated[
+    bool,
+    typer.Option(
+        "--skip-existing/--no-skip-existing",
+        help="Skip model-language pairs that already have stored results.",
+    ),
+]
+
+
+_T = TypeVar("_T")
+
+
+@contextmanager
+def _closing_provider(provider: CachedProvider[_T]) -> Iterator[CachedProvider[_T]]:
+    """Release the cached model when the block ends, even if the run raised."""
+    try:
+        yield provider
+    finally:
+        provider.close_cached()
+
+
+def _plan(
+    models: tuple[str, ...] | list[str],
+    selected: tuple[str, ...],
+    manifest: TranslationManifest,
+    shard: tuple[int, int],
+    out: Path,
+) -> tuple[tuple[str, str], ...]:
+    """Pair models with languages for this shard and print the plan."""
+    pairs = planned_pairs(models, selected, *shard)
+    print_run_plan(models, selected, manifest, pairs, out)
+    return pairs
+
+
+class _Where(TypedDict):
+    language: str
+    benchmark_path: Path
+    prompt_path: Path
+    output_dir: Path
+
+
+def _request_fields(
+    manifest: TranslationManifest, data_root: Path, language: str, prompt: Path, out: Path
+) -> _Where:
+    """The request fields every command derives the same way from its options."""
+    return {
+        "language": language,
+        "benchmark_path": data_root / manifest.files[language].path,
+        "prompt_path": prompt,
+        "output_dir": out,
+    }
 
 
 @app.command()
@@ -108,17 +189,15 @@ def run(
     prompt: Prompt = DEFAULT_PROMPT,
     out: Results = DEFAULT_RESULTS,
     language: Language = None,
-    revision: Annotated[str | None, typer.Option(help="Pin the model to a commit.")] = None,
-    batch_size: Annotated[int | None, typer.Option(help="Prompts per forward pass.")] = None,
-    max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
-    seed: Annotated[int, typer.Option()] = 0,
-    dtype: Annotated[str, typer.Option(help="Torch dtype name.")] = DEFAULT_DTYPE,
-    continuous_batching: Annotated[bool, typer.Option("--continuous-batching")] = False,
-    throughput: Annotated[
-        bool, typer.Option(help="Use SGLang multi-request throughput mode.")
-    ] = False,
-    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
-    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+    revision: Revision = None,
+    batch_size: BatchSize = None,
+    max_new_tokens: MaxNewTokens = DEFAULT_MAX_NEW_TOKENS,
+    seed: Seed = 0,
+    dtype: Dtype = DEFAULT_DTYPE,
+    continuous_batching: ContinuousBatching = False,
+    throughput: Throughput = False,
+    shard_index: ShardIndex = 0,
+    shard_count: ShardCount = 1,
 ) -> None:
     """Benchmark one model on every selected language."""
     if model_id in scorer_ids():
@@ -126,18 +205,13 @@ def run(
             f"{model_id!r} is a scoring model; `lrb score` benchmarks scoring models"
         )
     manifest, selected = selected_languages(data_root, language)
-    pairs = planned_pairs((model_id,), selected, shard_index, shard_count)
-    print_run_plan((model_id,), selected, manifest, pairs, out)
-    provider = cached_generator_provider()
-    try:
+    pairs = _plan((model_id,), selected, manifest, (shard_index, shard_count), out)
+    with _closing_provider(cached_generator_provider()) as provider:
         for _, selected_language in pairs:
             benchmark_one(
                 RunRequest.for_run(
                     model_id,
-                    language=selected_language,
-                    benchmark_path=data_root / manifest.files[selected_language].path,
-                    prompt_path=prompt,
-                    output_dir=out,
+                    **_request_fields(manifest, data_root, selected_language, prompt, out),
                     revision=revision,
                     batch_size=batch_size,
                     max_new_tokens=max_new_tokens,
@@ -149,8 +223,6 @@ def run(
                 ),
                 provider,
             )
-    finally:
-        provider.close_cached()
 
 
 @app.command()
@@ -163,12 +235,12 @@ def score(
     ] = None,
     out: Results = DEFAULT_RESULTS,
     language: Language = None,
-    revision: Annotated[str | None, typer.Option(help="Pin the model to a commit.")] = None,
-    batch_size: Annotated[int, typer.Option(help="Prompts per forward pass.")] = DEFAULT_BATCH_SIZE,
-    seed: Annotated[int, typer.Option()] = 0,
-    dtype: Annotated[str, typer.Option(help="Torch dtype name.")] = DEFAULT_DTYPE,
-    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
-    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+    revision: Revision = None,
+    batch_size: Annotated[int, BatchSizeOption] = DEFAULT_BATCH_SIZE,
+    seed: Seed = 0,
+    dtype: Dtype = DEFAULT_DTYPE,
+    shard_index: ShardIndex = 0,
+    shard_count: ShardCount = 1,
 ) -> None:
     """Score one non-generative model on every selected language."""
     if model_id not in scorer_ids():
@@ -179,24 +251,20 @@ def score(
     prompt = prompt or Path(spec.prompt)
     manifest, selected = selected_languages(data_root, language)
     selected = languages_for_scorer(spec, selected, language)
-    pairs = planned_pairs((model_id,), selected, shard_index, shard_count)
-    print_run_plan((model_id,), selected, manifest, pairs, out)
-    provider = cached_scorer_provider()
-    for _, selected_language in pairs:
-        score_one(
-            RunRequest(
-                model_id=model_id,
-                language=selected_language,
-                benchmark_path=data_root / manifest.files[selected_language].path,
-                prompt_path=prompt,
-                output_dir=out,
-                revision=revision,
-                batch_size=batch_size,
-                seed=seed,
-                dtype=dtype,
-            ),
-            provider,
-        )
+    pairs = _plan((model_id,), selected, manifest, (shard_index, shard_count), out)
+    with _closing_provider(cached_scorer_provider()) as provider:
+        for _, selected_language in pairs:
+            score_one(
+                RunRequest(
+                    model_id=model_id,
+                    **_request_fields(manifest, data_root, selected_language, prompt, out),
+                    revision=revision,
+                    batch_size=batch_size,
+                    seed=seed,
+                    dtype=dtype,
+                ),
+                provider,
+            )
 
 
 @app.command(name="run-all")
@@ -205,37 +273,34 @@ def run_all(
     prompt: Prompt = DEFAULT_PROMPT,
     out: Results = DEFAULT_RESULTS,
     language: Language = None,
-    batch_size: Annotated[int | None, typer.Option()] = None,
-    continuous_batching: Annotated[
-        bool, typer.Option("--continuous-batching", help="Use Transformers continuous batching.")
-    ] = False,
-    throughput: Annotated[
-        bool, typer.Option("--throughput", help="Use SGLang multi-request throughput mode.")
-    ] = False,
-    max_new_tokens: Annotated[int, typer.Option()] = DEFAULT_MAX_NEW_TOKENS,
-    seed: Annotated[int, typer.Option()] = 0,
-    dtype: Annotated[str, typer.Option()] = DEFAULT_DTYPE,
-    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
-    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+    batch_size: BatchSize = None,
+    continuous_batching: ContinuousBatching = False,
+    throughput: Throughput = False,
+    max_new_tokens: MaxNewTokens = DEFAULT_MAX_NEW_TOKENS,
+    seed: Seed = 0,
+    dtype: Dtype = DEFAULT_DTYPE,
+    shard_index: ShardIndex = 0,
+    shard_count: ShardCount = 1,
     only: Annotated[str | None, typer.Option("--only", help="Regex over roster run names.")] = None,
     runtime: Annotated[
         list[str] | None,
         typer.Option("--runtime", help="Restrict to transformers or sglang (repeatable)."),
     ] = None,
-    skip_existing: Annotated[bool, typer.Option("--skip-existing")] = True,
-    keep_going: Annotated[bool, typer.Option("--keep-going")] = False,
+    skip_existing: SkipExisting = True,
+    keep_going: Annotated[
+        bool, typer.Option("--keep-going", help="Continue after a failed run; exit 1 at the end.")
+    ] = False,
 ) -> None:
     """Benchmark every rostered model on every selected language."""
     manifest, selected = selected_languages(data_root, language)
     models = selected_models(only, runtime)
     if not models:
         raise typer.BadParameter("no rostered runs match the selected filters")
-    pairs = planned_pairs(models, selected, shard_index, shard_count)
-    print_run_plan(models, selected, manifest, pairs, out)
+    pairs = _plan(models, selected, manifest, (shard_index, shard_count), out)
     pairs_by_model: dict[str, list[str]] = {}
     for model, selected_language in pairs:
         pairs_by_model.setdefault(model, []).append(selected_language)
-    failures = False
+    failed_pairs: list[str] = []
     for model, languages_for_model in pairs_by_model.items():
         provider = cached_generator_provider()
         model_batch_size, use_continuous_batching, use_throughput = mode_options(
@@ -244,16 +309,14 @@ def run_all(
             continuous_batching=continuous_batching,
             throughput=throughput,
         )
-        try:
+        with _closing_provider(provider):
             for selected_language in languages_for_model:
+                pair = f"{model} [{selected_language}]"
                 try:
                     benchmark_one(
                         RunRequest.for_run(
                             model,
-                            language=selected_language,
-                            benchmark_path=data_root / manifest.files[selected_language].path,
-                            prompt_path=prompt,
-                            output_dir=out,
+                            **_request_fields(manifest, data_root, selected_language, prompt, out),
                             batch_size=model_batch_size,
                             continuous_batching=use_continuous_batching,
                             throughput_mode=use_throughput,
@@ -265,24 +328,32 @@ def run_all(
                         provider,
                         skip_existing=skip_existing,
                     )
+                except typer.BadParameter as exc:
+                    # Input problems are user errors, not run failures: no traceback.
+                    if not keep_going:
+                        raise
+                    typer.echo(f"{pair} rejected: {exc.message}", err=True)
+                    failed_pairs.append(pair)
                 except Exception as exc:
                     if not keep_going:
                         raise
-                    typer.echo(f"{model} [{selected_language}] failed: {exc}", err=True)
-                    failures = True
-        finally:
-            provider.close_cached()
-    if failures:
+                    logger.exception("%s failed", pair)
+                    typer.echo(f"{pair} failed: {exc}", err=True)
+                    failed_pairs.append(pair)
+    if failed_pairs:
+        typer.echo(
+            f"{len(failed_pairs)} run(s) did not complete: {', '.join(failed_pairs)}", err=True
+        )
         raise typer.Exit(code=1)
 
 
 @app.command()
 def status(
     data_root: DataRoot = DEFAULT_DATA_ROOT,
-    results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
+    results_dir: ResultsDir = DEFAULT_RESULTS,
     language: Language = None,
-    shard_index: Annotated[int, typer.Option("--shard-index")] = 0,
-    shard_count: Annotated[int, typer.Option("--shard-count")] = 1,
+    shard_index: ShardIndex = 0,
+    shard_count: ShardCount = 1,
     include_scorers: Annotated[
         bool, typer.Option("--include-scorers", help="Also list scoring models.")
     ] = False,
@@ -297,7 +368,7 @@ def status(
 
 @app.command()
 def report(
-    results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
+    results_dir: ResultsDir = DEFAULT_RESULTS,
     out: Annotated[Path | None, typer.Option("--out", help="Leaderboard CSV path.")] = None,
     language: Language = None,
 ) -> None:
@@ -322,12 +393,14 @@ def report(
 def publish(
     repo_id: Annotated[str, typer.Argument(help="Hugging Face dataset repository id.")],
     data_root: DataRoot = DEFAULT_DATA_ROOT,
-    results_dir: Annotated[Path, typer.Option("--results-dir")] = DEFAULT_RESULTS,
+    results_dir: ResultsDir = DEFAULT_RESULTS,
     prompt: Prompt = DEFAULT_PROMPT,
     scorer_prompt: Annotated[
         Path, typer.Option("--scorer-prompt", help="Prompt template used by scoring models.")
     ] = DEFAULT_SCORER_PROMPT,
-    benchmark_name: Annotated[str, typer.Option("--benchmark-name")] = "v3-multilingual",
+    benchmark_name: Annotated[
+        str, typer.Option("--benchmark-name", help="Benchmark name shown on the dataset card.")
+    ] = DEFAULT_BENCHMARK_NAME,
     timing_dir: Annotated[
         Path | None,
         typer.Option(
@@ -339,54 +412,20 @@ def publish(
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Preview without Hub upload.")] = False,
 ) -> None:
     """Push the stored runs, leaderboard and a generated card to the Hub."""
-    from landuse_relevance_bench.adapters.hf_publish import publish_results, read_published_runs
-
-    if not results_dir.is_dir():
-        raise typer.BadParameter(f"no run results directory at {results_dir}")
-    try:
-        published = read_published_runs(results_dir)
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    language_filter: list[str] | None = None
-    if language is not None:
-        _, selected = selected_languages(data_root, language)
-        language_filter = list(selected)
-    runs = comparable_runs(published, language_filter, results_dir)
-    # A reranker's score is not calibrated to a 0.5 boundary, so the sweep is published
-    # alongside the headline rows.
-    if not dry_run:
-        write_reports(runs, results_dir / "leaderboard.csv")
-    prompt_text, scorer_prompt_text = load_prompts(prompt, scorer_prompt)
-    if dry_run:
-        from landuse_relevance_bench.adapters.hf_publish import dataset_card
-
-        preview = dataset_card(
-            runs,
-            benchmark_name=benchmark_name,
-            prompt_text=prompt_text,
-            scorer_prompt_text=scorer_prompt_text,
-            extra_scorer_prompt_texts=extra_scorer_prompts(scorer_prompt),
-            timing_results=read_runs(timing_dir) if timing_dir else (),
-            viewer_file="data/train.csv",
-        )
-        typer.echo(f"dry-run: would publish {len(runs)} result(s) to {repo_id}")
-        typer.echo(preview)
-        return
-    url = publish_results(
+    result = publish_to_hub(
         repo_id,
-        results_dir,
-        runs,
-        private=private,
-        benchmark_name=benchmark_name,
-        prompt_text=prompt_text,
-        scorer_prompt_text=scorer_prompt_text,
-        extra_scorer_prompt_texts=extra_scorer_prompts(scorer_prompt),
-        timing_results=read_runs(timing_dir) if timing_dir else (),
         data_root=data_root,
-        allow_patterns=publish_allow_patterns(
-            results_dir,
-            runs,
-            include_snapshot_status=language_filter is None,
-        ),
+        results_dir=results_dir,
+        prompt=prompt,
+        scorer_prompt=scorer_prompt,
+        benchmark_name=benchmark_name,
+        timing_dir=timing_dir,
+        language=language,
+        private=private,
+        dry_run=dry_run,
     )
-    typer.echo(f"published {len(runs)} run(s) to {url}")
+    if dry_run:
+        typer.echo(f"dry-run: would publish {result.run_count} result(s) to {repo_id}")
+        typer.echo(result.output)
+        return
+    typer.echo(f"published {result.run_count} run(s) to {result.output}")

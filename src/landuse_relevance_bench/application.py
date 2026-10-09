@@ -6,6 +6,7 @@ errors; the command definitions themselves stay in :mod:`landuse_relevance_bench
 
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
+from typing import Literal, NamedTuple, TypedDict
 
 import typer
 
@@ -21,7 +22,13 @@ from landuse_relevance_bench.adapters.pipeline import (
 from landuse_relevance_bench.adapters.prompt_file import PromptFileError, load_prompt
 from landuse_relevance_bench.adapters.provenance import source_commit
 from landuse_relevance_bench.adapters.providers import generator_provider, scorer_provider
-from landuse_relevance_bench.adapters.results_store import leaderboard_rows, read_run, run_filename
+from landuse_relevance_bench.adapters.results_store import (
+    leaderboard_rows,
+    read_run,
+    read_runs,
+    run_filename,
+    write_reports,
+)
 from landuse_relevance_bench.adapters.translations import (
     TranslationDataError,
     TranslationManifest,
@@ -47,6 +54,22 @@ DEFAULT_RESULTS = _DEFAULTS.results
 _INPUT_ERRORS = (OSError, BenchmarkFileError, PromptFileError, TranslationDataError, ValueError)
 
 
+CheckpointState = Literal["complete", "pending", "invalid"]
+
+
+def _checkpoint_state(path: Path, model: str, language: str) -> CheckpointState:
+    """Classify a stored result: absent is pending; unreadable or mismatched is invalid."""
+    if not path.is_file():
+        return "pending"
+    try:
+        result = read_run(path)
+    except (OSError, ValueError):
+        return "invalid"
+    if result.metadata.name == model and result.metadata.language == language:
+        return "complete"
+    return "invalid"
+
+
 def run_pair(
     request: RunRequest,
     run: Callable[[], RunResult],
@@ -56,15 +79,15 @@ def run_pair(
 ) -> None:
     """Run one model-language pair unless it is checkpointed; input problems are usage errors."""
     result_path = request.output_dir / run_filename(request.name, request.language)
-    if skip_existing and result_path.is_file():
-        try:
-            existing = read_run(result_path)
-        except ValueError as exc:
-            raise typer.BadParameter(str(exc)) from exc
-        if existing.metadata.name != request.name or existing.metadata.language != request.language:
-            raise typer.BadParameter(f"{result_path} contains a different model-language run")
-        typer.echo(f"{request.name} [{request.language}] already complete; skipping")
-        return
+    if skip_existing:
+        state = _checkpoint_state(result_path, request.name, request.language)
+        if state == "invalid":
+            raise typer.BadParameter(
+                f"{result_path} is unreadable or contains a different model-language run"
+            )
+        if state == "complete":
+            typer.echo(f"{request.name} [{request.language}] already complete; skipping")
+            return
     try:
         result = run()
     except _INPUT_ERRORS as exc:
@@ -154,18 +177,14 @@ def planned_pairs(
 
 def completed_pairs(pairs: Sequence[tuple[str, str]], results_dir: Path) -> set[tuple[str, str]]:
     """The pairs whose stored result is readable and belongs to that model-language pair."""
-    completed = set()
-    for model_id, selected_language in pairs:
-        path = results_dir / run_filename(model_id, selected_language)
-        if not path.is_file():
-            continue
-        try:
-            result = read_run(path)
-        except ValueError:
-            continue
-        if result.metadata.name == model_id and result.metadata.language == selected_language:
-            completed.add((model_id, selected_language))
-    return completed
+    return {
+        (model_id, selected_language)
+        for model_id, selected_language in pairs
+        if _checkpoint_state(
+            results_dir / run_filename(model_id, selected_language), model_id, selected_language
+        )
+        == "complete"
+    }
 
 
 def print_run_plan(
@@ -176,21 +195,11 @@ def print_run_plan(
     results_dir: Path,
 ) -> None:
     """Show workload size and valid checkpoint state before loading a model."""
-    completed = pending = invalid = 0
-    for model_id, language in pairs:
-        path = results_dir / run_filename(model_id, language)
-        if not path.is_file():
-            pending += 1
-            continue
-        try:
-            result = read_run(path)
-        except (OSError, ValueError):
-            invalid += 1
-            continue
-        if result.metadata.name == model_id and result.metadata.language == language:
-            completed += 1
-        else:
-            invalid += 1
+    states = [
+        _checkpoint_state(results_dir / run_filename(model_id, language), model_id, language)
+        for model_id, language in pairs
+    ]
+    completed, pending, invalid = (states.count(k) for k in ("complete", "pending", "invalid"))
     prompt_count = sum(manifest.files[language].rows for language in selected) * len(models)
     assigned_prompts = sum(manifest.files[language].rows for _, language in pairs)
     typer.echo(
@@ -236,6 +245,18 @@ def report_lines(runs: Sequence[RunResult]) -> Iterator[str]:
         )
 
 
+DEFAULT_BENCHMARK_NAME = "v3-multilingual"
+VIEWER_FILE = "data/train.csv"
+RELEASE_FILES = (
+    "README.md",
+    "leaderboard.csv",
+    "aggregates.csv",
+    "threshold_sweep.csv",
+    "scoring_summary.csv",
+    VIEWER_FILE,
+)
+
+
 def publish_allow_patterns(
     results_dir: Path,
     runs: Sequence[RunResult],
@@ -244,12 +265,7 @@ def publish_allow_patterns(
 ) -> list[str]:
     """Limit uploads to selected runs and the generated release files."""
     patterns = {
-        "README.md",
-        "leaderboard.csv",
-        "aggregates.csv",
-        "threshold_sweep.csv",
-        "scoring_summary.csv",
-        "data/train.csv",
+        *RELEASE_FILES,
         *(str(run_filename(run.metadata.name, run.metadata.language)) for run in runs),
     }
     if include_snapshot_status and (results_dir / "SNAPSHOT_STATUS.md").is_file():
@@ -338,3 +354,78 @@ def filter_languages(results: Sequence[RunResult], selectors: list[str] | None) 
     if not selected:
         return list(results)
     return [result for result in results if result.metadata.language in selected]
+
+
+class _CardInputs(TypedDict):
+    """Card and timing inputs shared by the dry-run preview and the Hub upload."""
+
+    benchmark_name: str
+    prompt_text: str
+    scorer_prompt_text: str
+    extra_scorer_prompt_texts: tuple[str, ...]
+    timing_results: Sequence[RunResult]
+
+
+class PublishOutput(NamedTuple):
+    run_count: int
+    output: str  # the Hub URL, or the generated card on a dry run
+
+
+def publish_to_hub(  # noqa: PLR0913 - one parameter per publish option, mirroring the CLI
+    repo_id: str,
+    *,
+    data_root: Path,
+    results_dir: Path,
+    prompt: Path,
+    scorer_prompt: Path,
+    benchmark_name: str,
+    timing_dir: Path | None,
+    language: list[str] | None,
+    private: bool,
+    dry_run: bool,
+) -> PublishOutput:
+    """Push the stored runs, leaderboard and a generated card, or preview the card on a dry run."""
+    # Only the publish path needs the Hub adapter, so the import stays inside the function.
+    from landuse_relevance_bench.adapters.hf_publish import (  # noqa: PLC0415
+        dataset_card,
+        publish_results,
+        read_published_runs,
+    )
+
+    if not results_dir.is_dir():
+        raise typer.BadParameter(f"no run results directory at {results_dir}")
+    try:
+        published = read_published_runs(results_dir)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    language_filter: list[str] | None = None
+    if language is not None:
+        _, selected = selected_languages(data_root, language)
+        language_filter = list(selected)
+    runs = comparable_runs(published, language_filter, results_dir)
+    if not dry_run:
+        # A reranker's score is not calibrated to a 0.5 boundary, so the threshold sweep
+        # is written beside the leaderboard and linked from the card.
+        write_reports(runs, results_dir / "leaderboard.csv")
+    prompt_text, scorer_prompt_text = load_prompts(prompt, scorer_prompt)
+    card: _CardInputs = {
+        "benchmark_name": benchmark_name,
+        "prompt_text": prompt_text,
+        "scorer_prompt_text": scorer_prompt_text,
+        "extra_scorer_prompt_texts": extra_scorer_prompts(scorer_prompt),
+        "timing_results": read_runs(timing_dir) if timing_dir else (),
+    }
+    if dry_run:
+        return PublishOutput(len(runs), dataset_card(runs, viewer_file=VIEWER_FILE, **card))
+    url = publish_results(
+        repo_id,
+        results_dir,
+        runs,
+        private=private,
+        data_root=data_root,
+        allow_patterns=publish_allow_patterns(
+            results_dir, runs, include_snapshot_status=language_filter is None
+        ),
+        **card,
+    )
+    return PublishOutput(len(runs), url)
