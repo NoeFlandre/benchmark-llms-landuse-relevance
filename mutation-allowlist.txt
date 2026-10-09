@@ -12,7 +12,6 @@ landuse_relevance_bench.adapters.results_store.x_dumps_run_payload__mutmut_4: en
 landuse_relevance_bench.adapters.results_store.x_write_run__mutmut_19: UTF-8 codec names are case-insensitive aliases
 landuse_relevance_bench.adapters.results_store.x_read_run__mutmut_3: encoding=None uses the locale encoding, UTF-8 on the Linux runner (PEP 538/540)
 landuse_relevance_bench.adapters.results_store.x_read_run__mutmut_5: UTF-8 codec names are case-insensitive aliases
-landuse_relevance_bench.adapters.results_store.x_leaderboard_rows__mutmut_7: <= differs from < only for a repeated model-language pair, which is invalid input
 landuse_relevance_bench.adapters.results_store.x_scoring_summary_rows__mutmut_26: roc_auc_macro is identical on every sweep row of a model
 landuse_relevance_bench.adapters.results_store.x_write_reports__mutmut_38: the sweep argument is a cache; recomputing it from the same results gives the same rows
 landuse_relevance_bench.adapters.results_store.x_write_reports__mutmut_40: the sweep argument is a cache; recomputing it from the same results gives the same rows

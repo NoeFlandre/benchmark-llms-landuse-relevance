@@ -151,6 +151,16 @@ def test_the_top_run_per_language_is_the_highest_f1() -> None:
     ]
 
 
+def test_a_tied_repeated_pair_keeps_the_first_run_as_the_mcnemar_reference() -> None:
+    # The root leaderboard reads active and archived runs together, so one model-language
+    # pair can appear twice. Both runs have F1 0.4; the first one read stays the reference.
+    first = _run("a/m", ((Y, N), (Y, N), (Y, Y), (Y, Y), (N, Y), (N, Y), (N, Y), (N, Y)))
+    second = _run("a/m", ((Y, N), (Y, N), (Y, N), (Y, Y), (N, N), (N, N), (N, N), (N, N)))
+    assert first.metrics.f1 == second.metrics.f1
+    rows = leaderboard_rows([first, second])
+    assert [row["mcnemar_p_vs_top"] for row in rows] == [1.0, 0.375]
+
+
 def test_aggregate_rows_pin_every_macro_and_spread_value() -> None:
     english = _run("a/m", MIXED)
     french = _run("a/m", ((Y, Y), (N, Y), (N, Y), (N, Y), (Y, N)), language="fr")
