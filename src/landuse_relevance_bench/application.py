@@ -387,6 +387,7 @@ def publish_to_hub(  # noqa: PLR0913 - one parameter per publish option, mirrori
     """Push the stored runs, leaderboard and a generated card, or preview the card on a dry run."""
     # Only the publish path needs the Hub adapter, so the import stays inside the function.
     from landuse_relevance_bench.adapters.hf_publish import (  # noqa: PLC0415
+        CardOptions,
         dataset_card,
         publish_results,
         read_published_runs,
@@ -416,7 +417,18 @@ def publish_to_hub(  # noqa: PLR0913 - one parameter per publish option, mirrori
         "timing_results": read_runs(timing_dir) if timing_dir else (),
     }
     if dry_run:
-        return PublishOutput(len(runs), dataset_card(runs, viewer_file=VIEWER_FILE, **card))
+        preview = dataset_card(
+            runs,
+            benchmark_name=card["benchmark_name"],
+            prompt_text=card["prompt_text"],
+            options=CardOptions(
+                scorer_prompt_text=card["scorer_prompt_text"],
+                extra_scorer_prompt_texts=card["extra_scorer_prompt_texts"],
+                timing_results=card["timing_results"],
+                viewer_file=VIEWER_FILE,
+            ),
+        )
+        return PublishOutput(len(runs), preview)
     url = publish_results(
         repo_id,
         results_dir,

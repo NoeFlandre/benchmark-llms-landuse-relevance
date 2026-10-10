@@ -7,16 +7,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from landuse_relevance_bench.adapters import hf_publish, translations
+from landuse_relevance_bench.adapters import translations
 from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.hf_publish import (
+    CardOptions,
     _default_api,
-    _same_gpu_row,
     dataset_card,
     publish_results,
     read_published_runs,
     write_viewer_dataset,
 )
+from landuse_relevance_bench.adapters.publishing import card_validation
+from landuse_relevance_bench.adapters.publishing.card_logprob import _same_gpu_row
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
@@ -359,7 +361,7 @@ def test_viewer_export_is_one_neat_multilingual_csv(tmp_path: Path, monkeypatch)
 def test_card_rejects_metrics_that_are_not_derived_from_predictions(monkeypatch) -> None:
     result = _result()
     monkeypatch.setattr(
-        hf_publish,
+        card_validation,
         "evaluate",
         lambda _outcomes: replace(result.metrics, accuracy=0.0),
     )
@@ -532,7 +534,7 @@ def test_scoring_models_are_reported_in_their_own_section() -> None:
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
     generative, rest = card.split("## Scoring models")
     scoring = rest.split("## Runtime performance")[0]
@@ -593,7 +595,7 @@ def test_encoder_output_behavior_is_summarized_from_published_runs() -> None:
         ],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
     scoring = card.split("## Scoring models")[1].split("## Runtime performance")[0]
 
@@ -619,7 +621,7 @@ def test_scoring_summary_emphasizes_best_values_and_lower_vram() -> None:
         ],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
     summary = card.split("### Best thresholded scoring metrics")[1]
     header = next(line for line in summary.splitlines() if line.startswith("| model |"))
@@ -646,7 +648,7 @@ def test_the_card_says_why_scoring_models_never_look_unparsed() -> None:
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
 
     assert "by construction" not in card
@@ -657,7 +659,7 @@ def test_generation_settings_ignore_the_scoring_runs() -> None:
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
 
     assert "`max_new_tokens=8`" in card
@@ -669,7 +671,7 @@ def test_a_card_of_only_scoring_runs_is_refused() -> None:
             [_scored("score/two")],
             benchmark_name="benchmark.csv",
             prompt_text=PROMPT,
-            scorer_prompt_text=SCORER_PROMPT,
+            options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
         )
 
 
@@ -684,7 +686,7 @@ def test_the_card_shows_the_reranker_input_it_was_actually_given() -> None:
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
     scoring = card.split("## Scoring models")[1]
 
@@ -701,7 +703,7 @@ def test_the_card_refuses_a_scoring_prompt_the_runs_did_not_use() -> None:
             [_result("gen/one"), _scored("score/two")],
             benchmark_name="benchmark.csv",
             prompt_text=PROMPT,
-            scorer_prompt_text="a different reranker prompt {}",
+            options=CardOptions(scorer_prompt_text="a different reranker prompt {}"),
         )
 
 
@@ -710,7 +712,7 @@ def test_the_card_warns_that_a_reranker_score_is_not_calibrated_to_a_boundary() 
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
     scoring = card.split("## Scoring models")[1]
 
@@ -723,7 +725,7 @@ def test_the_card_is_minimal_but_keeps_benchmark_settings_and_sequence_length() 
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
 
     assert "85" not in card
@@ -746,7 +748,7 @@ def test_the_card_keeps_a_compact_model_specific_scoring_setup() -> None:
         ],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
 
     assert "### Scoring setup" in card
@@ -772,7 +774,7 @@ def test_scoring_setup_does_not_repeat_the_score_formula_as_its_cutoff() -> None
         ],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
     setup_rows = {
         model_id: next(line for line in card.splitlines() if line.startswith(f"| {model_id} |"))
@@ -805,7 +807,7 @@ def test_scoring_setup_describes_settings_that_vary_between_runs() -> None:
         [_result("gen/one"), float16_run, bfloat16_run],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
     laya_setup = next(
         line
@@ -822,7 +824,7 @@ def test_scoring_summary_pairs_each_best_metric_with_its_threshold() -> None:
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
     summary = card.split("### Best thresholded scoring metrics")[1]
     header = summary.splitlines()[2]
@@ -845,7 +847,7 @@ def test_public_card_omits_redundant_scoring_table_and_aggregate_columns() -> No
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
     aggregate = card.split("## Aggregate scores")[1].split("## Scoring models")[0]
     scoring = card.split("## Scoring models")[1]
@@ -865,7 +867,7 @@ def test_the_card_uses_model_defined_for_legacy_missing_sequence_lengths() -> No
         [_result("gen/one"), scored],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
 
     assert "| Qwen/Qwen3-Reranker-0.6B |" in card
@@ -881,7 +883,7 @@ def test_the_card_explicitly_selects_the_viewer_split() -> None:
         [_result("gen/one")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        viewer_file="data/train.csv",
+        options=CardOptions(viewer_file="data/train.csv"),
     )
 
     assert "configs:" in card
@@ -894,7 +896,7 @@ def test_the_card_uses_an_explicit_viewer_file_path() -> None:
         [_result("gen/one")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        viewer_file="data/train.csv",
+        options=CardOptions(viewer_file="data/train.csv"),
     )
     metadata = card.split("---", 2)[1]
 
@@ -922,7 +924,7 @@ def test_the_card_contains_no_plot_content() -> None:
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
 
     assert "## Plots" not in card
@@ -934,7 +936,7 @@ def test_the_card_has_neat_spacing_between_sections() -> None:
         [_result("gen/one"), _scored("score/two")],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
 
     assert "\n\n\n" not in card
@@ -962,8 +964,9 @@ def test_the_card_matches_each_scoring_prompt_to_the_runs_that_used_it() -> None
         [_result("gen/one"), _scored("score/two"), zeroshot, logprob],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
-        extra_scorer_prompt_texts=(ZEROSHOT_PROMPT,),
+        options=CardOptions(
+            scorer_prompt_text=SCORER_PROMPT, extra_scorer_prompt_texts=(ZEROSHOT_PROMPT,)
+        ),
     )
     scoring = card.split("## Scoring models")[1]
 
@@ -1041,7 +1044,10 @@ def test_the_comparison_adds_a_same_gpu_timing_row_from_reruns() -> None:
         ),
     )
     card = dataset_card(
-        [generated, scored], benchmark_name="b", prompt_text=PROMPT, timing_results=[rerun]
+        [generated, scored],
+        benchmark_name="b",
+        prompt_text=PROMPT,
+        options=CardOptions(timing_results=[rerun]),
     )
 
     assert (
