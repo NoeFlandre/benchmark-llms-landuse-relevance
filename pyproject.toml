@@ -221,4 +221,6 @@ also_copy = [
     # and no mutant is ever tested.
     "README.md",
     "pyproject.toml",
+    # Read by tests/unit/test_version_consistency.py; without it the stats run fails.
+    "CITATION.cff",
 ]
