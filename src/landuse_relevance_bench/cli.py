@@ -2,7 +2,7 @@
 
 import json
 import logging
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
@@ -105,7 +105,7 @@ _T = TypeVar("_T")
 
 
 @contextmanager
-def _closing_provider(provider: CachedProvider[_T]) -> Iterator[CachedProvider[_T]]:
+def _closing_provider(provider: CachedProvider[_T]) -> Generator[CachedProvider[_T], None, None]:
     """Release the cached model when the block ends, even if the run raised."""
     try:
         yield provider
