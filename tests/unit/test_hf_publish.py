@@ -147,6 +147,8 @@ def test_aggregate_table_rows_are_not_indented_as_code() -> None:
 
     assert len(table_lines) == 4  # Header, separator and one row per scored run.
     assert all(line.startswith("|") for line in table_lines)
+    assert table_lines[0].split("|")[1].strip() == "model_id"
+    assert sorted(line.split("|")[1].strip() for line in table_lines[2:]) == ["a/one", "b/two"]
 
 
 def test_card_summarizes_speed_across_languages_without_expanding_every_run() -> None:
@@ -412,7 +414,7 @@ def test_publishing_writes_the_card_into_the_uploaded_folder(tmp_path: Path) -> 
 
 
 def test_publishing_nothing_is_refused(tmp_path: Path) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="refusing to publish an empty set of results"):
         publish_results("me/bench", tmp_path, [], api=FakeApi(), prompt_text=PROMPT)
 
 

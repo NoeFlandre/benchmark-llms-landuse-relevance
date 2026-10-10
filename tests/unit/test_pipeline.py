@@ -123,19 +123,23 @@ def test_unparsable_generations_survive_into_the_stored_result(request_for) -> N
     assert result.metrics.unparsed_rate == 0.5
 
 
-def test_scoring_records_throughput_and_peak_vram(request_for) -> None:
+def test_scoring_records_throughput_and_peak_vram(monkeypatch, request_for) -> None:
     scorer = MeasuredScorer()
     request = request_for(model_id="Alibaba-NLP/gte-multilingual-reranker-base")
+    # The timed call reads the clock twice: 2.0 seconds elapse around the scoring run.
+    ticks = iter((10.0, 12.0))
+    monkeypatch.setattr(pipeline, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
 
     from landuse_relevance_bench.adapters.pipeline import execute_scoring
 
     result = execute_scoring(request, lambda _: (scorer, "gte-rev"))
 
-    assert scorer.started and scorer.finished
+    assert scorer.started is True
+    assert scorer.finished is True
     assert result.metadata.model_revision == "gte-rev"
     assert result.metadata.sequence_length == 8192
-    assert result.metadata.throughput_items_per_second is not None
-    assert result.metadata.throughput_items_per_second > 0.0
+    assert len(result.predictions) == 2
+    assert result.metadata.throughput_items_per_second == 1.0  # 2 items over 2.0 seconds
     assert result.metadata.peak_vram_bytes == 123456
 
 
@@ -292,7 +296,7 @@ def test_scoring_calls_a_begin_hook_without_requiring_an_end_hook(request_for) -
         lambda _: (scorer, "start-rev"),
     )
 
-    assert scorer.started
+    assert scorer.started is True
 
 
 def test_generation_records_the_generator_declared_batch_size_dtype_and_draft(request_for) -> None:
