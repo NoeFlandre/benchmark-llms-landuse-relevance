@@ -10,12 +10,13 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION}@sha256:440fd6477af86a2f1b38080c539f1672c
 # python:3.12-slim
 FROM python@sha256:1eb6b7d4b76454b1de8317863ac3213b678c337b27e604a4e3fb70bddbb2bad7 AS base
 
-# Build the venv on the image's own Python. A uv-managed interpreter lives under
-# /root, which the runtime user cannot see, so the venv would fail at run time.
+# This image's own Python is not 3.12, so uv installs a managed 3.12. Keep that
+# interpreter outside /root: the runtime user cannot read /root, so a venv built
+# on it would fail at run time.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_PYTHON_DOWNLOADS=never \
-    UV_PYTHON_PREFERENCE=only-system \
+    UV_PYTHON=3.12 \
+    UV_PYTHON_INSTALL_DIR=/opt/uv-python \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     HF_HOME=/cache/huggingface \
