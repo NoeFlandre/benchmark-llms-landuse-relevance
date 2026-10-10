@@ -58,3 +58,50 @@ def test_read_mutmut_results_requests_all_mutant_ids(monkeypatch) -> None:
     monkeypatch.setattr(check_mutants.subprocess, "run", fake_run)
 
     assert check_mutants.read_results() == {"id": "killed"}
+
+
+def test_read_mutmut_results_fails_when_the_runner_exits_non_zero(monkeypatch) -> None:
+    def fake_run(command, **kwargs):
+        return type("Completed", (), {"returncode": 1, "stdout": "", "stderr": "boom"})()
+
+    monkeypatch.setattr(check_mutants.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="exit code 1: boom"):
+        check_mutants.read_results()
+
+
+def test_main_exits_non_zero_when_mutmut_results_cannot_be_read(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    """A failed mutmut runner must fail the gate, never pass it silently."""
+    allowlist = tmp_path / "allowlist.txt"
+    allowlist.write_text("module.function__allowed: equivalent behavior\n", encoding="utf-8")
+
+    def failing_read_results(root=None):
+        raise RuntimeError("mutmut results failed with exit code 1: stats failed")
+
+    monkeypatch.setattr(check_mutants, "read_results", failing_read_results)
+    monkeypatch.setattr("sys.argv", ["check_mutants.py", "--allowlist", str(allowlist)])
+
+    assert check_mutants.main() == 1
+    assert "mutation gate error: mutmut results failed" in capsys.readouterr().out
+
+
+def test_gate_script_runs_main_and_fails_on_an_invalid_allowlist(tmp_path) -> None:
+    """Regression: without a ``__main__`` guard the script did nothing and exited 0."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(check_mutants.__file__)
+    allowlist = tmp_path / "allowlist.txt"
+    allowlist.write_text("a-mutant-id-without-a-reason\n", encoding="utf-8")
+    done = subprocess.run(  # noqa: S603 - runs this repository's own script
+        [sys.executable, str(script), "--allowlist", str(allowlist)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    )
+    assert done.returncode != 0
+    assert "mutation gate error: allowlist line 1" in done.stdout

@@ -285,19 +285,12 @@ def threshold_sweep_rows(results: Sequence[RunResult]) -> list[dict[str, Any]]:
                 "n_items_total": sum(m.n_items for m in scored),
                 "roc_auc_macro": auc,
             }
-            for metric_name in CLASSIFICATION_METRICS:
-                if metric_name == "unparsed_rate":
-                    continue
+            for metric_name in (m for m in CLASSIFICATION_METRICS if m != "unparsed_rate"):
                 row[f"{metric_name}_macro"] = round(
                     fmean(getattr(m, metric_name) for m in scored), 4
                 )
             rows.append(row)
     return rows
-
-
-def write_threshold_sweep_csv(results: Sequence[RunResult], path: Path) -> Path:
-    """Write the sweep beside the leaderboard; empty of rows when nothing scores."""
-    return _write_rows(threshold_sweep_rows(results), THRESHOLD_SWEEP_COLUMNS, path)
 
 
 SCORING_SUMMARY_COLUMNS = (
@@ -336,7 +329,7 @@ def scoring_summary_rows(
 
     rows = []
     for model_id, runs in sorted(scoring.items()):
-        sweep_rows = sweep_by_model.get(model_id, [])
+        sweep_rows = sweep_by_model.get(model_id)
         if not sweep_rows:
             continue
         row: dict[str, Any] = {
@@ -407,11 +400,6 @@ def _write_rows(rows: Sequence[dict[str, Any]], columns: Sequence[str], path: Pa
         writer.writeheader()
         writer.writerows(rows)
     return path
-
-
-def write_scoring_summary_csv(results: Sequence[RunResult], path: Path) -> Path:
-    """Write one best-threshold row per scoring model."""
-    return _write_rows(scoring_summary_rows(results), SCORING_SUMMARY_COLUMNS, path)
 
 
 def _throughput_macro(results: Sequence[RunResult]) -> float | None:

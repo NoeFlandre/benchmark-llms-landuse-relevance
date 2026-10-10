@@ -54,6 +54,7 @@ def test_a_speculative_run_that_reproduces_its_baseline_is_lossless() -> None:
         "t/model@sglang",
     )
     assert agreement.n_compared == 2
+    assert agreement.language == META.language
 
 
 def test_a_changed_verdict_or_generation_is_counted() -> None:

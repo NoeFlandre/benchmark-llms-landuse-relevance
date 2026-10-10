@@ -95,8 +95,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        results = read_results()
         allowlist = parse_allowlist(args.allowlist.read_text(encoding="utf-8"))
+        results = read_results()
         errors = validate_results(results, allowlist)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"mutation gate error: {exc}")
@@ -118,3 +118,7 @@ def main() -> int:
         return 1
     print(f"\nmutation gate passed: {len(results)} exact mutant id(s) checked")
     return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

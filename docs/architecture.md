@@ -79,5 +79,7 @@ The command `make check` runs these checks in this order: ruff → ty → unit �
 acceptance → architecture → CRAP.
 
 Mutation testing is separate (`make mutation`). CI runs the same commands and also runs
-mutation. The command `scripts/check_mutants.py --max-survivors 0` gates the mutation
-step.
+mutation. `make mutation` runs mutmut, ignores its exit code, then runs
+`scripts/check_mutants.py`. That script reads the stored mutmut results and fails on any
+unreviewed survivor, any stale entry in `mutation-allowlist.txt`, any unresolved mutant
+status, a run that killed nothing, or a mutmut results read that fails.

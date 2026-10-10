@@ -216,7 +216,7 @@ exceeded its walltime. You do not repeat it. Refer to [docs/grid5000.md](docs/gr
 
 ```bash
 make check     # ruff → ty → unit → property → acceptance → architecture → CRAP
-make mutation  # mutation testing over the domain
+make mutation  # mutation testing over the domain and results_store.py
 make docker    # reproducible runtime image
 ```
 

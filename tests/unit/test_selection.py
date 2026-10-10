@@ -93,3 +93,12 @@ def test_scoring_runs_of_one_method_must_share_inference_settings() -> None:
 
     assert len(errors) == 1
     assert errors[0].startswith("scorer: runs are not comparable")
+
+
+def test_one_scorer_may_use_a_different_benchmark_per_language() -> None:
+    results = [
+        make_result("scorer", inference="scoring", language="en", benchmark_sha256="a" * 64),
+        make_result("scorer", inference="scoring", language="fr", benchmark_sha256="c" * 64),
+    ]
+
+    assert collection_comparability_errors(results) == ()

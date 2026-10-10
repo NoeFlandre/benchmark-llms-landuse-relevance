@@ -220,6 +220,9 @@ also_copy = [
     # Read by tests/unit/test_archive_boundary.py; without them the stats run fails
     # and no mutant is ever tested.
     "README.md",
+    # Read by tests/unit/test_version_consistency.py.
+    "CITATION.cff",
+    "src/landuse_relevance_bench/py.typed",
     "pyproject.toml",
     # Read by tests/unit/test_version_consistency.py; without it the stats run fails.
     "CITATION.cff",
