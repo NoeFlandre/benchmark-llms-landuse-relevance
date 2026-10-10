@@ -13,8 +13,6 @@ concurrency:
 permissions:
   contents: read
 
-# This workflow is the only pull request build of the transformers image. The All green
-# job in ci.yml does not aggregate it, so its result is not part of that gate.
 jobs:
   smoke:
     name: Docker smoke (${{ matrix.target }})
