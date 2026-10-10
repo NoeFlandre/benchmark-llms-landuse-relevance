@@ -48,7 +48,7 @@ from landuse_relevance_bench.domain.roster import (
     quantization_of,
     spec_for,
 )
-from landuse_relevance_bench.domain.scorers import scorer_for
+from landuse_relevance_bench.domain.scorers import scorer_for, scorer_ids
 
 DEFAULT_MAX_NEW_TOKENS = 4096
 DEFAULT_DTYPE = "bfloat16"
@@ -83,6 +83,21 @@ class RunRequest:
     @property
     def name(self) -> str:
         return self.run_id or self.model_id
+
+    @classmethod
+    def for_model(cls, name: str, *, batch_size: int | None = None, **options: Any) -> "RunRequest":
+        """The one factory the CLI uses: a scoring id gets a plain request, a roster id its spec.
+
+        Scoring ids are not in the generative roster, so they are built from their options
+        alone; the default batch size applies when none is given.
+        """
+        if name in scorer_ids():
+            return cls(
+                name,
+                batch_size=DEFAULT_BATCH_SIZE if batch_size is None else batch_size,
+                **options,
+            )
+        return cls.for_run(name, batch_size=batch_size, **options)
 
     @classmethod
     def for_run(
