@@ -26,29 +26,64 @@ jobs:
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The PR checkout is a merge commit, so HEAD^1 is the base for the diff below.
+          fetch-depth: 2
+      - name: Detect documentation-only pull requests
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Documentation means docs/, mkdocs.yml and Markdown files at the repository root. Other
+          # Markdown (test goldens, results archives) is read by tests, so it still runs the gauntlet,
+          # and so does an empty diff.
+          changed="$(git diff --no-renames --name-only HEAD^1 HEAD)"
+          docs_only='^(docs/|mkdocs\.ya?ml$|[^/]+\.md$)'
+          if [ -n "$changed" ] && ! grep -Evq "$docs_only" <<< "$changed"; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Documentation-only pull request; skipping the Python gauntlet."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        if: steps.scope.outputs.run == 'true'
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       # gliner2 conflicts with inference (Transformers 4 vs 5); it is tested in isolation on G5K.
       - run: uv sync --extra inference --extra scoring --extra publish
+        if: steps.scope.outputs.run == 'true'
       - name: Lint and format
+        if: steps.scope.outputs.run == 'true'
         run: make lint
       - name: Types
+        if: steps.scope.outputs.run == 'true'
         run: make types
       - name: Unit and property tests with coverage
+        if: steps.scope.outputs.run == 'true'
         run: make test
       - name: Acceptance scenarios
+        if: steps.scope.outputs.run == 'true'
         run: make acceptance
       - name: Architecture boundaries
+        if: steps.scope.outputs.run == 'true'
         run: make architecture
       - name: Grid5000 script tests
+        if: steps.scope.outputs.run == 'true'
         run: make scripts
       - name: Built wheel ships py.typed
+        if: steps.scope.outputs.run == 'true'
         run: make wheel
       - name: CRAP score
+        if: steps.scope.outputs.run == 'true'
         run: make crap -o test
       - name: CLI smoke test
+        if: steps.scope.outputs.run == 'true'
         run: make smoke
 
   mutation:
