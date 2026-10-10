@@ -42,12 +42,12 @@ from landuse_relevance_bench.domain.records import (
     outcomes_of,
 )
 from landuse_relevance_bench.domain.roster import (
-    SGLANG,
     TRANSFORMERS,
     ModelSpec,
     quantization_of,
     spec_for,
 )
+from landuse_relevance_bench.domain.run_modes import check_modes, resolve_batch_size, run_id_for
 from landuse_relevance_bench.domain.scorers import scorer_for, scorer_ids
 
 DEFAULT_MAX_NEW_TOKENS = 4096
@@ -123,22 +123,19 @@ class RunRequest:
                 TRANSFORMERS,
             )
             spec = ModelSpec(name, 0, "unlisted")
-        resolved_batch_size = (
-            DEFAULT_BATCH_SIZE
-            if throughput_mode and batch_size is None
-            else _first_set(batch_size, spec.batch_size, DEFAULT_BATCH_SIZE)
+        resolved_batch_size = resolve_batch_size(spec, batch_size, throughput_mode=throughput_mode)
+        check_modes(
+            spec,
+            resolved_batch_size,
+            continuous_batching=continuous_batching,
+            throughput_mode=throughput_mode,
         )
-        if continuous_batching and (spec.runtime != TRANSFORMERS or spec.vision):
-            raise ValueError("continuous batching requires the Transformers runtime")
-        if throughput_mode and spec.runtime != SGLANG:
-            raise ValueError("throughput mode requires the SGLang runtime")
-        if throughput_mode and resolved_batch_size <= 1:
-            raise ValueError("throughput mode requires batch_size > 1")
-        run_id = spec.run_id
-        if continuous_batching:
-            run_id = f"{spec.name}@continuous-b{resolved_batch_size}"
-        elif throughput_mode:
-            run_id = f"{spec.name}-throughput-b{resolved_batch_size}"
+        run_id = run_id_for(
+            spec,
+            resolved_batch_size,
+            continuous_batching=continuous_batching,
+            throughput_mode=throughput_mode,
+        )
         return cls(
             model_id=spec.model_id,
             run_id=run_id,
@@ -153,10 +150,6 @@ class RunRequest:
             throughput_mode=throughput_mode,
             **common,
         )
-
-
-def _first_set(*values: int | None) -> int:
-    return next(value for value in values if value is not None)
 
 
 def _close_generator(generator: TextGenerator) -> None:

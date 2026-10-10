@@ -1,6 +1,1 @@
-{
-  "src/landuse_relevance_bench/adapters/pipeline.py:for_run": {
-    "reason": "The roster request factory validates mutually exclusive runtime modes and maps roster metadata to persisted run identities; its minimum CRAP score is the function cyclomatic complexity, so coverage alone cannot bring it below 15.",
-    "tests": "tests/unit/test_cli.py; tests/unit/test_sglang_generator.py"
-  }
-}
+{}
