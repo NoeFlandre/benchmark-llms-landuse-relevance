@@ -10,7 +10,7 @@ import logging
 import multiprocessing
 import os
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from typing import Any, Protocol
@@ -121,7 +121,7 @@ CHILD_EXIT_TIMEOUT = 120.0
 
 
 @contextmanager
-def _shim_on_pythonpath() -> Iterator[None]:
+def _shim_on_pythonpath() -> Generator[None, None, None]:
     """Put the shim directory first on ``PYTHONPATH`` only while the engine is constructed.
 
     SGLang's scheduler processes inherit the environment when they are spawned, so the

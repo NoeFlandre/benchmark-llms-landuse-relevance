@@ -496,7 +496,7 @@ class GliClassScorer(_PipelineScorer):
         transformers = _load_transformers()
 
         model = GLiClassModel.from_pretrained(
-            model_id, revision=revision, dtype=getattr(torch, settings.dtype)
+            model_id, revision=revision or "main", dtype=getattr(torch, settings.dtype)
         )
         tokenizer = transformers.AutoTokenizer.from_pretrained(model_id, revision=revision)
         # multi-label scores each label independently, so one label keeps its own
