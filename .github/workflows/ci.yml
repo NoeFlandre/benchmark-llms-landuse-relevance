@@ -73,7 +73,7 @@ jobs:
           # Inputs: the paths listed below (mutmut copies them), plus check_mutants.py and
           # the Makefile. Anything else, such as docs/ and other *.md files, skips the run.
           changed="$(git diff --no-renames --name-only HEAD^1 HEAD)"
-          if grep -Eq '^(src|tests|scripts|data|results)/|^(README\.md|pyproject\.toml|uv\.lock|Makefile|mutation-allowlist\.txt|\.github/workflows/ci\.yml)$' <<< "$changed"; then
+          if grep -Eq '^(src|tests|scripts|data|results)/|^(README\.md|CITATION\.cff|pyproject\.toml|uv\.lock|Makefile|mutation-allowlist\.txt|\.github/workflows/ci\.yml)$' <<< "$changed"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
