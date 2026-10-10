@@ -14,7 +14,7 @@ from tests.unit.test_hf_publish import (
     _scoring_result,
 )
 
-from landuse_relevance_bench.adapters.hf_publish import dataset_card
+from landuse_relevance_bench.adapters.hf_publish import CardOptions, dataset_card
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
 from landuse_relevance_bench.adapters.results_store import read_runs
 from landuse_relevance_bench.domain.labels import Label
@@ -53,8 +53,7 @@ def _mixed_card() -> str:
         ],
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
-        viewer_file="data/viewer.csv",
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT, viewer_file="data/viewer.csv"),
     )
 
 
@@ -137,9 +136,9 @@ def _full_card() -> str:
         results,
         benchmark_name="benchmark.csv",
         prompt_text=PROMPT,
-        scorer_prompt_text=SCORER_PROMPT,
-        timing_results=timing,
-        viewer_file="data/viewer.csv",
+        options=CardOptions(
+            scorer_prompt_text=SCORER_PROMPT, timing_results=timing, viewer_file="data/viewer.csv"
+        ),
     )
 
 

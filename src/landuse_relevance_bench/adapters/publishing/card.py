@@ -1,6 +1,7 @@
 """Compose the Hugging Face dataset card from validated runs."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from landuse_relevance_bench.adapters.publishing.card_agreement import agreement_section
@@ -20,28 +21,40 @@ from landuse_relevance_bench.adapters.publishing.card_validation import validate
 from landuse_relevance_bench.domain.records import RunResult
 
 
+@dataclass(frozen=True, slots=True)
+class CardOptions:
+    """The optional card inputs. An empty value leaves its section or link out."""
+
+    scorer_prompt_text: str = ""
+    extra_scorer_prompt_texts: Sequence[str] = ()
+    timing_results: Sequence[RunResult] = ()
+    viewer_file: str = ""
+
+
 def dataset_card(
     results: Sequence[RunResult],
     *,
     benchmark_name: str,
     prompt_text: str,
-    scorer_prompt_text: str = "",
-    extra_scorer_prompt_texts: Sequence[str] = (),
-    timing_results: Sequence[RunResult] = (),
-    viewer_file: str = "",
+    options: CardOptions | None = None,
 ) -> str:
     """Build a terse card whose scores are recomputed from every prediction."""
+    section_options = CardOptions() if options is None else options
     validated = validate_for_card(results, prompt_text)
     generative, scoring = validated.generative, validated.scoring
     prompt_blocks = scoring_prompt_blocks(
-        scoring, prompt_text, (scorer_prompt_text, *extra_scorer_prompt_texts)
+        scoring,
+        prompt_text,
+        (section_options.scorer_prompt_text, *section_options.extra_scorer_prompt_texts),
     )
     version_section = package_version_section(results)
     settings = generation_settings(generative)
     scale = scale_line(results, benchmark_name)
-    viewer_path = Path(viewer_file or "data/train.csv")
+    viewer_path = Path(section_options.viewer_file or "data/train.csv")
     table = aggregate_table(generative)
-    sections_block = _optional_sections(results, scoring, prompt_blocks, timing_results)
+    sections_block = _optional_sections(
+        results, scoring, prompt_blocks, section_options.timing_results
+    )
     return f"""---
 license: mit
 configs:

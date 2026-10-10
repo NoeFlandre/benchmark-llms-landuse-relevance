@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from landuse_relevance_bench.adapters.publishing.card import dataset_card
+from landuse_relevance_bench.adapters.publishing.card import CardOptions, dataset_card
 from landuse_relevance_bench.adapters.publishing.card_agreement import DSPARK_COLUMNS
 from landuse_relevance_bench.adapters.publishing.card_overview import CARD_COLUMNS
 from landuse_relevance_bench.adapters.publishing.card_scoring import (
@@ -30,6 +30,7 @@ __all__ = [
     "EXPECTED_FULL_SWEEP_LANGUAGE_COUNT",
     "SCORING_SUMMARY_CARD_COLUMNS",
     "SPEED_COLUMNS",
+    "CardOptions",
     "DatasetHub",
     "dataset_card",
     "publish_results",
@@ -88,10 +89,12 @@ def publish_results(
             results,
             benchmark_name=benchmark_name,
             prompt_text=prompt_text,
-            scorer_prompt_text=scorer_prompt_text,
-            extra_scorer_prompt_texts=extra_scorer_prompt_texts,
-            timing_results=timing_results,
-            viewer_file=viewer_file,
+            options=CardOptions(
+                scorer_prompt_text=scorer_prompt_text,
+                extra_scorer_prompt_texts=extra_scorer_prompt_texts,
+                timing_results=timing_results,
+                viewer_file=viewer_file,
+            ),
         ),
         encoding="utf-8",
     )
