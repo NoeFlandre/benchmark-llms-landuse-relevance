@@ -329,9 +329,12 @@ def test_models_lists_every_rostered_model() -> None:
 def test_languages_lists_the_active_language_inventory() -> None:
     result = runner.invoke(cli.app, ["languages", "--data-root", "data/translations"])
 
+    manifest = load_manifest(Path("data/translations"))
     assert result.exit_code == 0, result.stdout
     assert "en\t300" in result.stdout
-    assert len(result.stdout.strip().splitlines()) == 85
+    assert result.stdout.splitlines() == [
+        f"{language}\t{manifest.files[language].rows}" for language in manifest.languages
+    ]
 
 
 def test_run_writes_a_result_file(
@@ -451,10 +454,8 @@ def test_run_defaults_to_every_language(monkeypatch, tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0, result.stdout
-    assert [request.language for request in requests] == sorted(
-        request.language for request in requests
-    )
-    assert len(requests) == 85
+    manifest = load_manifest(Path("data/translations"))
+    assert [request.language for request in requests] == sorted(manifest.languages)
 
 
 def test_run_accepts_repeated_and_comma_separated_language_filters(
@@ -505,11 +506,9 @@ def test_run_all_shard_selects_a_deterministic_subset(monkeypatch) -> None:
     )
 
     assert result.exit_code == 0, result.stdout
-    pairs = len(model_ids()) * len(load_manifest(Path("data/translations")).languages)
-    assert len(requests) == len(range(1, pairs, 3))
-    assert [(request.name, request.language) for request in requests] == sorted(
-        (request.name, request.language) for request in requests
-    )
+    languages = load_manifest(Path("data/translations")).languages
+    canonical = sorted((model_id, language) for model_id in model_ids() for language in languages)
+    assert [(request.name, request.language) for request in requests] == canonical[1::3]
 
 
 def test_run_all_records_sglang_throughput_variant(monkeypatch) -> None:
@@ -586,8 +585,8 @@ def test_status_reports_pending_pairs_for_a_selected_language() -> None:
     )
 
     assert result.exit_code == 0, result.stdout
-    assert len(result.stdout.strip().splitlines()) == len(model_ids())
-    assert all(line.endswith("\tpending") for line in result.stdout.strip().splitlines())
+    rows = [tuple(line.split("\t")) for line in result.stdout.strip().splitlines()]
+    assert sorted(rows) == sorted((model_id, "en", "pending") for model_id in model_ids())
 
 
 def test_status_marks_a_valid_rostered_pair_complete(
@@ -698,8 +697,12 @@ def test_report_builds_a_leaderboard_from_stored_runs(
         )
     report = runner.invoke(cli.app, ["report", "--results-dir", str(results_dir)])
     assert report.exit_code == 0, report.stdout
-    lines = (results_dir / "leaderboard.csv").read_text(encoding="utf-8").strip().splitlines()
-    assert len(lines) == 3
+    with (results_dir / "leaderboard.csv").open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert sorted((row["model_id"], row["language"]) for row in rows) == [
+        ("a/one", "en"),
+        ("b/two", "en"),
+    ]
     assert "a/one" in report.stdout
     assert (results_dir / "aggregates.csv").exists()
     assert (results_dir / "threshold_sweep.csv").exists()
@@ -736,8 +739,12 @@ def test_report_filters_languages_and_writes_both_csvs(
     )
 
     assert report.exit_code == 0, report.stdout
-    assert len((results_dir / "leaderboard.csv").read_text(encoding="utf-8").splitlines()) == 2
-    assert len((results_dir / "aggregates.csv").read_text(encoding="utf-8").splitlines()) == 2
+    with (results_dir / "leaderboard.csv").open(encoding="utf-8", newline="") as stream:
+        leaderboard = list(csv.DictReader(stream))
+    assert [(row["model_id"], row["language"]) for row in leaderboard] == [("a/one", "fr")]
+    with (results_dir / "aggregates.csv").open(encoding="utf-8", newline="") as stream:
+        aggregates = list(csv.DictReader(stream))
+    assert [(row["model_id"], row["language_count"]) for row in aggregates] == [("a/one", "1")]
     assert (results_dir / "threshold_sweep.csv").exists()
     assert (results_dir / "scoring_summary.csv").exists()
 
@@ -1117,8 +1124,9 @@ def test_run_all_keep_going_logs_the_traceback_of_unexpected_errors(
     assert result.exit_code == 1
     errors = [record for record in caplog.records if record.levelno == logging.ERROR]
     assert errors
-    assert errors[0].exc_info is not None
-    assert errors[0].exc_info[0] is RuntimeError
+    exc_type, exc_value, _ = errors[0].exc_info
+    assert exc_type is RuntimeError
+    assert str(exc_value) == "simulated model failure"
 
 
 def test_run_all_keep_going_reports_usage_errors_as_rejected_not_failed(
