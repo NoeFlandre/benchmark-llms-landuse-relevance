@@ -148,15 +148,20 @@ def _request_fields(
 def _run_pairs(
     provider: CachedProvider[Any],
     pairs: Iterable[tuple[str, str]],
-    build: Callable[..., RunRequest],
     perform: Callable[..., None],
     *,
     manifest: TranslationManifest,
     data_root: Path,
     prompt: Path,
     out: Path,
+    revision: str | None = None,
+    batch_size: int | None = None,
+    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+    seed: int = 0,
+    dtype: str = DEFAULT_DTYPE,
+    continuous_batching: bool = False,
+    throughput_mode: bool = False,
     keep_going: bool = False,
-    **options: object,
 ) -> list[str]:
     """Build and perform one request per model-language pair through one provider.
 
@@ -169,11 +174,17 @@ def _run_pairs(
         for model_id, language in pairs:
             pair = f"{model_id} [{language}]"
             try:
-                request = build(
+                request = RunRequest.for_model(
                     model_id,
                     **_request_fields(manifest, data_root, language, prompt, out),
                     close_generator=False,
-                    **options,
+                    revision=revision,
+                    batch_size=batch_size,
+                    max_new_tokens=max_new_tokens,
+                    seed=seed,
+                    dtype=dtype,
+                    continuous_batching=continuous_batching,
+                    throughput_mode=throughput_mode,
                 )
                 perform(request, cached)
             except typer.BadParameter as exc:
@@ -256,7 +267,6 @@ def run(
     _run_pairs(
         cached_generator_provider(),
         pairs,
-        RunRequest.for_run,
         benchmark_one,
         manifest=manifest,
         data_root=data_root,
@@ -302,7 +312,6 @@ def score(
     _run_pairs(
         cached_scorer_provider(),
         pairs,
-        RunRequest,
         score_one,
         manifest=manifest,
         data_root=data_root,
@@ -360,7 +369,6 @@ def run_all(
         failed_pairs += _run_pairs(
             cached_generator_provider(),
             [(model, selected_language) for selected_language in languages_for_model],
-            RunRequest.for_run,
             perform,
             manifest=manifest,
             data_root=data_root,
