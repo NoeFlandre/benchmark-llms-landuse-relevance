@@ -7,16 +7,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from landuse_relevance_bench.adapters import hf_publish, translations
+from landuse_relevance_bench.adapters import translations
 from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.hf_publish import (
     _default_api,
-    _same_gpu_row,
     dataset_card,
     publish_results,
     read_published_runs,
     write_viewer_dataset,
 )
+from landuse_relevance_bench.adapters.publishing import card_validation
+from landuse_relevance_bench.adapters.publishing.card_logprob import _same_gpu_row
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
@@ -359,7 +360,7 @@ def test_viewer_export_is_one_neat_multilingual_csv(tmp_path: Path, monkeypatch)
 def test_card_rejects_metrics_that_are_not_derived_from_predictions(monkeypatch) -> None:
     result = _result()
     monkeypatch.setattr(
-        hf_publish,
+        card_validation,
         "evaluate",
         lambda _outcomes: replace(result.metrics, accuracy=0.0),
     )

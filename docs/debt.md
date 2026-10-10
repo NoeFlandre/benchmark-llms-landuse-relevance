@@ -31,9 +31,10 @@ instruction-following. Refer to [ADR-0001](adr/0001-greedy-generation.md).
 step does not mutate them. Mutants of filesystem code and model-runtime code are mostly
 equivalent mutants.
 
-The adapters are not thin now. `hf_scorer.py` (~730 lines, eight scorer families) and
-`hf_publish.py` (~870 lines) are the largest modules. Unit tests with fake runtimes
-cover their branches. Mutation does not cover them.
+The adapters are not thin now. `hf_scorer.py` (~730 lines, eight scorer families) is the
+largest module. The dataset card is built in `adapters/publishing/`, one module per section,
+and `hf_publish.py` keeps the Hub upload. Unit tests with fake runtimes cover their
+branches. Mutation does not cover them.
 
 **No mutant survives, and no mutant is permitted to survive.** Until the 2026-09 uplift,
 the gate was broken and did not show it. The copied workspace of mutmut did not have the

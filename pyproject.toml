@@ -133,6 +133,8 @@ ban-relative-imports = "all"
     "PLC0415", "PLR0913", "PLR0917", "FBT001", "FBT002",
 ]
 "src/landuse_relevance_bench/adapters/hf_publish.py" = ["PLC0415", "PLR0913"]
+# The card composer takes the runs and every rendering option by keyword.
+"src/landuse_relevance_bench/adapters/publishing/card.py" = ["PLR0913"]
 "src/landuse_relevance_bench/adapters/sglang_generator.py" = ["PLC0415"]
 "src/landuse_relevance_bench/adapters/revision.py" = ["PLC0415"]
 
