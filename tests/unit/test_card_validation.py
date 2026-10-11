@@ -103,3 +103,16 @@ def test_validate_joins_every_incompatibility_into_one_refusal() -> None:
         "runs are not comparable: benchmark_sha256 differs for language en; "
         "runs are not comparable: b/two.max_new_tokens=32 (expected 8 from a/one)"
     )
+
+
+def test_the_prompt_digest_check_names_the_digests_when_generative_runs_disagree() -> None:
+    # Unreachable through validate_for_card, which refuses differing prompt digests first;
+    # pinned on the helper so the name in its message is a checked contract.
+    generative = [_generative("a/one"), _generative("b/two", prompt_sha256="0" * 64)]
+
+    with pytest.raises(ValueError) as refusal:
+        card_invariants._refuse_prompt_mismatch(generative, PROMPT)
+
+    assert str(refusal.value) == (
+        f"runs disagree on prompt digest: {sorted(['0' * 64, PROMPT_SHA256])}"
+    )

@@ -18,3 +18,4 @@ landuse_relevance_bench.domain.orchestration.x_predict_all__mutmut_32: the outpu
 landuse_relevance_bench.domain.orchestration.x_predict_all__mutmut_35: the output count is checked before the zip, so the strict flag never sees unequal lengths
 landuse_relevance_bench.domain.orchestration.x_predict_all__mutmut_36: the output count is checked before the zip, so the strict flag never sees unequal lengths
 landuse_relevance_bench.domain.uncertainty.x_exact_mcnemar_p_value__mutmut_12: for one discordant pair the computed two-sided tail is exactly 1.0, the value the zero-discordance guard returns
+landuse_relevance_bench.domain.digests.x_sha256_of_text__mutmut_4: Python codec names are case-insensitive, so "UTF-8" encodes exactly the bytes that "utf-8" does
