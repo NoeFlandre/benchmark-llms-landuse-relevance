@@ -17,7 +17,7 @@ from landuse_relevance_bench.adapters.publishing.card_scoring import (
     scoring_section,
 )
 from landuse_relevance_bench.adapters.publishing.card_speed import speed_section
-from landuse_relevance_bench.adapters.publishing.card_validation import validate_for_card
+from landuse_relevance_bench.domain.card_invariants import validate_for_card
 from landuse_relevance_bench.domain.records import RunResult
 
 

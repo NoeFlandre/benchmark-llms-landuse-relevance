@@ -3,8 +3,8 @@
 from collections.abc import Sequence
 
 from landuse_relevance_bench.adapters.publishing.card_format import metric_rankings, ranked_cell
-from landuse_relevance_bench.adapters.publishing.card_validation import uniform
 from landuse_relevance_bench.adapters.results_store import aggregate_rows
+from landuse_relevance_bench.domain.card_invariants import uniform
 from landuse_relevance_bench.domain.records import RunResult
 
 CARD_COLUMNS = (
