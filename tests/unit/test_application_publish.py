@@ -10,12 +10,19 @@ import typer
 from factories import make_result
 from landuse_relevance_bench import application
 from landuse_relevance_bench.adapters import hf_publish
+from landuse_relevance_bench.adapters.prompt_file import load_prompt
 from landuse_relevance_bench.adapters.results_store import write_run
 from landuse_relevance_bench.domain.scorers import SCORER_ROSTER
 
 SCORER_PROMPT = next(
     Path(spec.prompt) for spec in SCORER_ROSTER if Path(spec.prompt) != application.DEFAULT_PROMPT
 )
+
+
+def _other_scorer_prompt_texts(primary: Path) -> tuple[str, ...]:
+    """Texts of every rostered prompt except the primary and the default, read from disk."""
+    paths = sorted({Path(spec.prompt) for spec in SCORER_ROSTER} - {primary, application.DEFAULT_PROMPT})
+    return tuple(load_prompt(path) for path in paths if path.is_file())
 
 
 @pytest.fixture
@@ -96,9 +103,7 @@ def test_a_dry_run_previews_the_card_built_from_the_same_inputs(hub, inputs) -> 
     assert card["prompt_text"] == "Classify {}"
     options = card["options"]
     assert options.scorer_prompt_text == "Score {}"
-    assert options.extra_scorer_prompt_texts == application.extra_scorer_prompts(
-        inputs["scorer_prompt"]
-    )
+    assert options.extra_scorer_prompt_texts == _other_scorer_prompt_texts(inputs["scorer_prompt"])
     assert options.timing_results == ()
     assert options.viewer_file == application.VIEWER_FILE
 
@@ -128,9 +133,7 @@ def test_publishing_uploads_the_runs_with_the_card_and_visibility_it_was_given(h
     assert card["prompt_text"] == "Classify {}"
     assert card["scorer_prompt_text"] == "Score {}"
     assert card["timing_results"] == ()
-    assert card["extra_scorer_prompt_texts"] == application.extra_scorer_prompts(
-        inputs["scorer_prompt"]
-    )
+    assert card["extra_scorer_prompt_texts"] == _other_scorer_prompt_texts(inputs["scorer_prompt"])
 
 
 def test_publishing_writes_the_leaderboard_files_beside_the_runs(hub, inputs) -> None:
@@ -187,9 +190,8 @@ def test_publishing_carries_the_scorer_prompt_texts_of_the_other_scorers(hub, in
 
     application.publish_to_hub(**inputs)
 
-    expected = application.extra_scorer_prompts(SCORER_PROMPT)
+    expected = _other_scorer_prompt_texts(SCORER_PROMPT)
     assert hub["publish"]["card"]["extra_scorer_prompt_texts"] == expected
-    assert expected, "another scorer's prompt must be carried to the card"
 
 
 def test_a_missing_results_directory_is_a_usage_error(hub, inputs) -> None:

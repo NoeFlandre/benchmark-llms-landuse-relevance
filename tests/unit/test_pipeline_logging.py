@@ -181,7 +181,9 @@ def test_a_failed_cleanup_is_logged_at_error_level_with_its_traceback(
 
     (record,) = [r for r in caplog.records if "generator cleanup failed" in r.getMessage()]
     assert record.levelno == logging.ERROR
-    assert record.exc_info is not None
+    exc_type, exc_value, _ = record.exc_info or (None, None, None)
+    assert exc_type is OSError
+    assert str(exc_value) == "cleanup failed"
 
 
 def test_scoring_loads_the_benchmark_in_the_request_language(request_for) -> None:
