@@ -205,6 +205,8 @@ layers = [
 source_paths = [
     "src/landuse_relevance_bench/domain/",
     "src/landuse_relevance_bench/adapters/results_store.py",
+    "src/landuse_relevance_bench/application.py",
+    "src/landuse_relevance_bench/adapters/pipeline.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/unit/", "tests/property/", "tests/acceptance/"]
 also_copy = [

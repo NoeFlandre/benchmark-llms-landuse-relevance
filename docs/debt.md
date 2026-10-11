@@ -27,9 +27,10 @@ raw generations. Therefore, you can see each such case.
 Constrained decoding removes the heuristic fully. But then the benchmark does not measure
 instruction-following. Refer to [ADR-0001](adr/0001-greedy-generation.md).
 
-**Mutation testing covers only the domain.** Tests cover the adapters, but the mutation
-step does not mutate them. Mutants of filesystem code and model-runtime code are mostly
-equivalent mutants.
+**Mutation testing covers the domain, the results store, the use cases and the pipeline.**
+`application.py` and `adapters/pipeline.py` are mutated with the domain and
+`adapters/results_store.py`. The other adapters are not mutated. Their mutants are mostly
+filesystem and model-runtime code with equivalent mutants.
 
 The adapters are not thin now. `hf_scorer.py` (~730 lines, eight scorer families) is the
 largest module. The dataset card is built in `adapters/publishing/`, one module per section,
