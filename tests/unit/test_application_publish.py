@@ -21,7 +21,9 @@ SCORER_PROMPT = next(
 
 def _other_scorer_prompt_texts(primary: Path) -> tuple[str, ...]:
     """Texts of every rostered prompt except the primary and the default, read from disk."""
-    paths = sorted({Path(spec.prompt) for spec in SCORER_ROSTER} - {primary, application.DEFAULT_PROMPT})
+    paths = sorted(
+        {Path(spec.prompt) for spec in SCORER_ROSTER} - {primary, application.DEFAULT_PROMPT}
+    )
     return tuple(load_prompt(path) for path in paths if path.is_file())
 
 

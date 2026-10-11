@@ -13,7 +13,7 @@ landuse_relevance_bench.adapters.results_store.x_scoring_summary_rows__mutmut_16
 landuse_relevance_bench.adapters.results_store.x_threshold_sweep_rows__mutmut_47: unparsed_rate is the last CLASSIFICATION_METRICS entry, so break and continue end the metric loop identically
 landuse_relevance_bench.adapters.results_store.x_write_reports__mutmut_38: recomputing threshold_sweep_rows(results) yields the same rows as the sweep already computed from the same results
 landuse_relevance_bench.adapters.results_store.x_write_reports__mutmut_40: recomputing threshold_sweep_rows(results) yields the same rows as the sweep already computed from the same results
-landuse_relevance_bench.domain.agreement.x__complete_coverage__mutmut_1: pairs are the intersection of unique item ids, so equal lengths already imply equal id sets and the set comparison adds nothing
+landuse_relevance_bench.domain.agreement.x__complete_coverage__mutmut_1: RunResult rejects duplicate item ids, so equal lengths already imply equal id sets and the set comparison adds nothing
 landuse_relevance_bench.domain.orchestration.x_predict_all__mutmut_32: the output count is checked before the zip, so the strict flag never sees unequal lengths
 landuse_relevance_bench.domain.orchestration.x_predict_all__mutmut_35: the output count is checked before the zip, so the strict flag never sees unequal lengths
 landuse_relevance_bench.domain.orchestration.x_predict_all__mutmut_36: the output count is checked before the zip, so the strict flag never sees unequal lengths
