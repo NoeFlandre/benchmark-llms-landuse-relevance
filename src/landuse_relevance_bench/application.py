@@ -35,9 +35,9 @@ from landuse_relevance_bench.adapters.translations import (
     load_manifest,
 )
 from landuse_relevance_bench.domain.agreement import speculative_agreements
-from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
 from landuse_relevance_bench.domain.records import RunResult
-from landuse_relevance_bench.domain.roster import SGLANG, TRANSFORMERS, model_ids, spec_for
+from landuse_relevance_bench.domain.roster import model_ids
+from landuse_relevance_bench.domain.run_modes import resolve_mode_options, spec_or_none
 from landuse_relevance_bench.domain.scorers import SCORER_ROSTER, ScorerSpec
 from landuse_relevance_bench.domain.selection import (
     collection_comparability_errors,
@@ -137,18 +137,11 @@ def mode_options(
     throughput: bool,
 ) -> tuple[int | None, bool, bool]:
     """Resolve mode flags per model, leaving unsupported vision runs unmodified."""
-    try:
-        spec = spec_for(model)
-    except KeyError:
-        spec = None
-    runtime = TRANSFORMERS if spec is None else spec.runtime
-    resolved_batch_size = batch_size
-    if throughput and runtime == SGLANG and resolved_batch_size is None:
-        resolved_batch_size = DEFAULT_BATCH_SIZE
-    return (
-        resolved_batch_size,
-        continuous_batching and runtime == TRANSFORMERS and not (spec and spec.vision),
-        throughput and runtime == SGLANG,
+    return resolve_mode_options(
+        spec_or_none(model),
+        batch_size,
+        continuous_batching=continuous_batching,
+        throughput=throughput,
     )
 
 
