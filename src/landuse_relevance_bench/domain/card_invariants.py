@@ -1,9 +1,12 @@
-"""Integrity checks that a dataset card must pass before it describes any run."""
+"""Integrity checks that a dataset card must pass before it describes any run.
 
-from collections.abc import Sequence
-from typing import Any, NamedTuple
+Pure: the caller supplies the runs and the prompt text the card would publish.
+"""
 
-from landuse_relevance_bench.adapters.hashing import sha256_of_text
+from collections.abc import Callable, Sequence
+from typing import NamedTuple, TypeVar
+
+from landuse_relevance_bench.domain.digests import sha256_of_text
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import RunResult, outcomes_of
 from landuse_relevance_bench.domain.selection import collection_comparability_errors
@@ -16,7 +19,10 @@ class ValidatedRuns(NamedTuple):
     scoring: list[RunResult]
 
 
-def uniform(results: Sequence[RunResult], name: str, value_of: Any) -> Any:
+_T = TypeVar("_T")
+
+
+def uniform(results: Sequence[RunResult], name: str, value_of: Callable[[RunResult], _T]) -> _T:
     """Return the single value every run agrees on, or refuse to describe the sweep."""
     values = {value_of(result) for result in results}
     if len(values) != 1:

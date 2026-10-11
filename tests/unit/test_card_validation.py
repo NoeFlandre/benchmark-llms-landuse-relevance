@@ -6,12 +6,8 @@ import pytest
 
 from factories import make_result
 from landuse_relevance_bench.adapters.hashing import sha256_of_text
-from landuse_relevance_bench.adapters.publishing import card_validation
-from landuse_relevance_bench.adapters.publishing.card_validation import (
-    ValidatedRuns,
-    uniform,
-    validate_for_card,
-)
+from landuse_relevance_bench.domain import card_invariants
+from landuse_relevance_bench.domain.card_invariants import ValidatedRuns, uniform, validate_for_card
 from landuse_relevance_bench.domain.records import SCORING, RunResult
 
 PROMPT = "Classify the sentence.\n\nTARGET SENTENCE: {}\n"
@@ -58,7 +54,7 @@ def test_validate_refuses_metrics_that_are_not_derived_from_the_predictions(
 ) -> None:
     result = _generative()
     monkeypatch.setattr(
-        card_validation,
+        card_invariants,
         "evaluate",
         lambda _outcomes: replace(result.metrics, accuracy=0.0),
     )

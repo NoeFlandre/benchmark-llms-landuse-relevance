@@ -17,8 +17,8 @@ from landuse_relevance_bench.adapters.hf_publish import (
     read_published_runs,
     write_viewer_dataset,
 )
-from landuse_relevance_bench.adapters.publishing import card_validation
 from landuse_relevance_bench.adapters.publishing.card_logprob import _same_gpu_row
+from landuse_relevance_bench.domain import card_invariants
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
@@ -363,7 +363,7 @@ def test_viewer_export_is_one_neat_multilingual_csv(tmp_path: Path, monkeypatch)
 def test_card_rejects_metrics_that_are_not_derived_from_predictions(monkeypatch) -> None:
     result = _result()
     monkeypatch.setattr(
-        card_validation,
+        card_invariants,
         "evaluate",
         lambda _outcomes: replace(result.metrics, accuracy=0.0),
     )
