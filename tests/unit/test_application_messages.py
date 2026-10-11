@@ -477,6 +477,100 @@ def test_mode_options_resolve_the_batch_size_and_the_modes_each_runtime_supports
     assert options == expected
 
 
+# Pinned before the mode rules moved into the domain: every roster runtime and vision pair,
+# plus an unlisted model, against each batch size and mode flag.
+_MODE_MODELS = {
+    "transformers": _named(TRANSFORMERS),
+    "transformers-vision": _named(TRANSFORMERS, vision=True),
+    "sglang": _named(SGLANG),
+    "sglang-vision": _named(SGLANG, vision=True),
+    "unlisted": "org/unlisted-model",
+}
+
+
+@pytest.mark.parametrize(
+    ("model", "batch_size", "continuous", "throughput", "expected"),
+    [
+        ("transformers", None, False, False, (None, False, False)),
+        ("transformers", None, False, True, (None, False, False)),
+        ("transformers", None, True, False, (None, True, False)),
+        ("transformers", None, True, True, (None, True, False)),
+        ("transformers", 1, False, False, (1, False, False)),
+        ("transformers", 1, False, True, (1, False, False)),
+        ("transformers", 1, True, False, (1, True, False)),
+        ("transformers", 1, True, True, (1, True, False)),
+        ("transformers", 4, False, False, (4, False, False)),
+        ("transformers", 4, False, True, (4, False, False)),
+        ("transformers", 4, True, False, (4, True, False)),
+        ("transformers", 4, True, True, (4, True, False)),
+        ("transformers-vision", None, False, False, (None, False, False)),
+        ("transformers-vision", None, False, True, (None, False, False)),
+        ("transformers-vision", None, True, False, (None, False, False)),
+        ("transformers-vision", None, True, True, (None, False, False)),
+        ("transformers-vision", 1, False, False, (1, False, False)),
+        ("transformers-vision", 1, False, True, (1, False, False)),
+        ("transformers-vision", 1, True, False, (1, False, False)),
+        ("transformers-vision", 1, True, True, (1, False, False)),
+        ("transformers-vision", 4, False, False, (4, False, False)),
+        ("transformers-vision", 4, False, True, (4, False, False)),
+        ("transformers-vision", 4, True, False, (4, False, False)),
+        ("transformers-vision", 4, True, True, (4, False, False)),
+        ("sglang", None, False, False, (None, False, False)),
+        ("sglang", None, False, True, (16, False, True)),
+        ("sglang", None, True, False, (None, False, False)),
+        ("sglang", None, True, True, (16, False, True)),
+        ("sglang", 1, False, False, (1, False, False)),
+        ("sglang", 1, False, True, (1, False, True)),
+        ("sglang", 1, True, False, (1, False, False)),
+        ("sglang", 1, True, True, (1, False, True)),
+        ("sglang", 4, False, False, (4, False, False)),
+        ("sglang", 4, False, True, (4, False, True)),
+        ("sglang", 4, True, False, (4, False, False)),
+        ("sglang", 4, True, True, (4, False, True)),
+        ("sglang-vision", None, False, False, (None, False, False)),
+        ("sglang-vision", None, False, True, (16, False, True)),
+        ("sglang-vision", None, True, False, (None, False, False)),
+        ("sglang-vision", None, True, True, (16, False, True)),
+        ("sglang-vision", 1, False, False, (1, False, False)),
+        ("sglang-vision", 1, False, True, (1, False, True)),
+        ("sglang-vision", 1, True, False, (1, False, False)),
+        ("sglang-vision", 1, True, True, (1, False, True)),
+        ("sglang-vision", 4, False, False, (4, False, False)),
+        ("sglang-vision", 4, False, True, (4, False, True)),
+        ("sglang-vision", 4, True, False, (4, False, False)),
+        ("sglang-vision", 4, True, True, (4, False, True)),
+        ("unlisted", None, False, False, (None, False, False)),
+        ("unlisted", None, False, True, (None, False, False)),
+        ("unlisted", None, True, False, (None, True, False)),
+        ("unlisted", None, True, True, (None, True, False)),
+        ("unlisted", 1, False, False, (1, False, False)),
+        ("unlisted", 1, False, True, (1, False, False)),
+        ("unlisted", 1, True, False, (1, True, False)),
+        ("unlisted", 1, True, True, (1, True, False)),
+        ("unlisted", 4, False, False, (4, False, False)),
+        ("unlisted", 4, False, True, (4, False, False)),
+        ("unlisted", 4, True, False, (4, True, False)),
+        ("unlisted", 4, True, True, (4, True, False)),
+    ],
+)
+def test_mode_options_pins_every_runtime_vision_and_flag_combination(
+    model: str,
+    batch_size: int | None,
+    *,
+    continuous: bool,
+    throughput: bool,
+    expected: tuple[int | None, bool, bool],
+) -> None:
+    options = application.mode_options(
+        _MODE_MODELS[model],
+        batch_size,
+        continuous_batching=continuous,
+        throughput=throughput,
+    )
+
+    assert options == expected
+
+
 def test_report_lines_prints_each_speculative_agreement_with_its_verdict_and_coverage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
