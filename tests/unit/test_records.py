@@ -75,8 +75,10 @@ def test_a_prediction_rejects_non_object_label_scores() -> None:
         "label_scores": [],
     }
 
-    with pytest.raises(ValueError, match="label_scores must be an object"):
+    with pytest.raises(ValueError) as exc_info:
         Prediction.from_dict(malformed)
+
+    assert str(exc_info.value) == "label_scores must be an object"
 
 
 def test_a_null_prediction_round_trips() -> None:

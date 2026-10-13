@@ -44,6 +44,18 @@ def test_threshold_sweeps_use_full_precision_scores_when_a_scoring_record_has_th
     assert decide_at([prediction], 0.5).confusion.false_positive == 1
 
 
+def test_a_missing_yes_score_in_a_saved_mapping_defaults_to_zero() -> None:
+    prediction = Prediction(
+        item_id="missing-yes",
+        expected=Label.NO,
+        predicted=Label.NO,
+        raw_output="no=1.000000 yes=0.900000",
+        label_scores={Label.NO: 1.0},
+    )
+
+    assert yes_scores([prediction]) == (0.0,)
+
+
 def test_threshold_sweeps_fall_back_to_rounded_text_for_legacy_records() -> None:
     legacy = Prediction.from_dict(
         {
