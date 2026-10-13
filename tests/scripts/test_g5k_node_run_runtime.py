@@ -35,7 +35,8 @@ set -euo pipefail
 printf '%s\\t%s\\tCUDA=%s\\tLD=%s\\tCMAKE=%s\\tSGLANG_CONTEXT=%s\\n' \\
   "${UV_PROJECT_ENVIRONMENT:-default}" "$*" "${CUDA_HOME:-}" \\
   "${LD_LIBRARY_PATH:-}" "${CMAKE_ARGS:-}" \\
-  "${SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN:-}" >> "$TEST_UV_LOG"
+  "${SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN:-}" \\
+  "UV_CACHE_DIR=${UV_CACHE_DIR:-}" >> "$TEST_UV_LOG"
 if [[ "$1" == sync ]]; then
   if [[ -n "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
     mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"
@@ -137,11 +138,13 @@ def _run_node_script(  # noqa: PLR0913 - one keyword per scenario knob
     # Never source the host's real Lmod: it would replace the fake `module` below.
     environment["LRB_LMOD_INIT"] = "/dev/null"
     environment.pop("UV_PROJECT_ENVIRONMENT", None)
+    environment.pop("UV_CACHE_DIR", None)
     environment.pop("LD_LIBRARY_PATH", None)
     environment.update(
         {
             "PATH": os.pathsep.join(path_entries),
             "HOME": str(home),
+            "TMPDIR": str(tmp_path / "node-scratch"),
             "USER": "benchmark-test",
             "HF_HOME": str(tmp_path / "hf-cache"),
             "LRB_ROOT": str(root),
@@ -195,6 +198,40 @@ def test_d1_uses_its_isolated_transformers_517_runtime(tmp_path: Path) -> None:
     assert "sync --extra inference --frozen --no-dev" in run.uv_log
     assert "transformers==5.17.0" in run.uv_log
     assert "== runtime: Transformers 5.17.0 (d1 compatibility)" in run.completed.stdout
+
+
+def test_d1_places_its_environment_and_uv_cache_in_per_job_scratch(tmp_path: Path) -> None:
+    run = _run_node_script(
+        tmp_path,
+        D1_MODEL_ID,
+        extra_environment={"TEST_TRANSFORMERS_VERSION": "5.17.0"},
+    )
+
+    scratch = tmp_path / "node-scratch" / "benchmark-test"
+    expected_environment = scratch / ".venv-d1-job-42"
+    expected_cache = scratch / "uv-cache-job-42"
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    assert run.environment_path == str(expected_environment)
+    assert f"UV_CACHE_DIR={expected_cache}" in run.uv_log
+    assert expected_cache.is_dir()
+    assert not expected_environment.exists()
+
+
+def test_d1_preserves_an_explicit_uv_cache_dir(tmp_path: Path) -> None:
+    explicit_cache = tmp_path / "wrapper-cache"
+    run = _run_node_script(
+        tmp_path,
+        D1_MODEL_ID,
+        extra_environment={
+            "TEST_TRANSFORMERS_VERSION": "5.17.0",
+            "UV_CACHE_DIR": str(explicit_cache),
+        },
+    )
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    assert f"UV_CACHE_DIR={explicit_cache}" in run.uv_log
+    assert explicit_cache.is_dir()
 
 
 def test_d1_runtime_rejects_a_transformers_version_other_than_the_pin(tmp_path: Path) -> None:
