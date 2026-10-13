@@ -97,6 +97,7 @@ def _run_node_script(  # noqa: PLR0913 - one keyword per scenario knob
     roster: str = "scorers",
     with_nvcc: bool = True,
     rows: str = "300",
+    dry_run: bool = True,
     extra_environment: dict[str, str] | None = None,
 ) -> NodeRun:
     root = tmp_path / "remote-repository"
@@ -161,8 +162,11 @@ def _run_node_script(  # noqa: PLR0913 - one keyword per scenario knob
         }
     )
     environment.update(extra_environment or {})
+    command = [_BASH, str(scripts / "g5k_node_run.sh")]
+    if dry_run:
+        command.append("--dry-run")
     completed = subprocess.run(  # noqa: S603 -- executes only the copied test fixture script.
-        [_BASH, str(scripts / "g5k_node_run.sh"), "--dry-run"],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -301,6 +305,20 @@ def test_sglang_run_ids_use_the_sglang_environment_not_gguf(tmp_path: Path) -> N
     assert ".venv-sglang-job-42" in sync
     assert "--extra speculative" in sync
     assert "gguf" not in run.uv_log
+
+
+def test_full_roster_sglang_uses_per_job_scratch_environment(tmp_path: Path) -> None:
+    run = _run_node_script(tmp_path, "", roster="models", dry_run=False)
+
+    scratch = tmp_path / "node-scratch" / "benchmark-test"
+    expected_environment = scratch / ".venv-sglang-job-42"
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    sglang_syncs = [line for line in run.uv_lines("\tsync ") if "--extra speculative" in line]
+    assert len(sglang_syncs) == 1
+    assert str(expected_environment) in sglang_syncs[0]
+    assert run.environment_path == str(expected_environment)
+    assert not expected_environment.exists()
 
 
 def test_gliclass_syncs_the_scoring_extra_in_its_own_environment(tmp_path: Path) -> None:

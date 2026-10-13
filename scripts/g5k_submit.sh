@@ -2,7 +2,7 @@
 # Submits one deterministic shard to one GPU on a Grid'5000 site frontend.
 # Usage: scripts/g5k_submit.sh [walltime] [--dry-run]
 #
-# Every LRB_* setting listed in scripts/g5k_forward_env.sh is written into the job
+# Every node setting listed in scripts/g5k_forward_env.sh is written into the job
 # command. LRB_JOB_TYPES (space-separated, default "night") becomes repeated -t
 # flags; LRB_QUEUE adds -q; LRB_GPU_FILTER overrides the resource filter.
 set -euo pipefail

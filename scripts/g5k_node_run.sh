@@ -353,7 +353,7 @@ else
   uv run --no-sync lrb run-all "${run_all_args[@]}" --runtime transformers --skip-existing --keep-going "${transformer_mode_args[@]}"
   # SGLang pins incompatible Torch/Transformers versions; use a job-private environment
   # for its runs so concurrent OAR jobs cannot replace one another's dependencies.
-  export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-sglang-${OAR_JOB_ID:-manual}"
+  export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-sglang-$JOB_ID_SUFFIX"
   trap 'rm -rf "$UV_PROJECT_ENVIRONMENT"' EXIT
   uv sync --extra speculative --frozen --no-dev
   sglang_mode_args=()
