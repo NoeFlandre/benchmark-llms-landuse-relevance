@@ -66,6 +66,21 @@ def test_a_result_file_written_before_truncation_was_tracked_still_loads() -> No
     assert Prediction.from_dict(legacy).truncated is False
 
 
+def test_a_prediction_rejects_non_object_label_scores() -> None:
+    malformed = {
+        "item_id": "0" * 16,
+        "expected": "yes",
+        "predicted": "no",
+        "raw_output": "no",
+        "label_scores": [],
+    }
+
+    with pytest.raises(ValueError) as exc_info:
+        Prediction.from_dict(malformed)
+
+    assert str(exc_info.value) == "label_scores must be an object"
+
+
 def test_a_null_prediction_round_trips() -> None:
     prediction = _prediction(None)
     assert prediction.to_dict()["predicted"] is None

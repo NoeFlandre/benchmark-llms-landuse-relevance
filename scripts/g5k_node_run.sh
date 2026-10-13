@@ -23,9 +23,13 @@
 #   LRB_LMOD_INIT   Lmod init script sourced before `module` (default: /etc/profile.d/lmod.sh)
 #   LRB_DRY_RUN     print sizing information and exit     (default: 0)
 #   HF_HOME         Hugging Face cache                  (default: node-local /tmp scratch)
+#   UV_CACHE_DIR    uv download cache                    (default: node-local /tmp, per job)
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:$PATH"   # oarsub runs a non-login shell
+NODE_SCRATCH_ROOT="${TMPDIR:-/tmp}/${USER:-$(id -un)}"
+JOB_ID_SUFFIX="${OAR_JOB_ID:-manual}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-$NODE_SCRATCH_ROOT/uv-cache-$JOB_ID_SUFFIX}"
 LRB_ROOT="${LRB_ROOT:-$HOME/benchmark-llms-landuse-relevance}"
 LRB_DATA_ROOT="${LRB_DATA_ROOT:-$LRB_ROOT/data/translations}"
 LRB_RESULTS="${LRB_RESULTS:-$LRB_ROOT/results}"
@@ -54,6 +58,8 @@ LRB_EXPECTED_ROWS="${LRB_EXPECTED_ROWS-300}"
 LRB_CUDA_MODULE="${LRB_CUDA_MODULE:-cuda-toolkit/12.9.1}"
 GTE_MODEL_ID="Alibaba-NLP/gte-multilingual-reranker-base"
 GTE_TRANSFORMERS_VERSION="5.11.0"
+D1_MODEL_ID="LiquidAI/d1-3B"
+D1_TRANSFORMERS_VERSION="5.17.0"
 GLINER2_MODEL_ID="fastino/gliner2.5-multi-v1"
 GLICLASS_MODEL_ID="knowledgator/gliclass-multilang-mini"
 
@@ -86,7 +92,7 @@ export TOKENIZERS_PARALLELISM=false
 export USE_TF=0
 
 cd "$LRB_ROOT"
-mkdir -p "$LRB_RESULTS" "$HF_HOME"
+mkdir -p "$LRB_RESULTS" "$HF_HOME" "$NODE_SCRATCH_ROOT" "$UV_CACHE_DIR"
 
 # Quantized (GGUF) roster ids follow the convention `repo-GGUF@QUANT`, e.g.
 # `unsloth/Qwen3.8-27B-GGUF@UD-IQ2_XXS`. SGLang run ids such as `model@sglang` also
@@ -103,14 +109,15 @@ fi
 # gliner2 pins Transformers<5 and llama.cpp needs a CUDA build: both get their own
 # environment so the locked runtime every other model uses is never touched.
 case "$LRB_MODEL_ID" in
-  "$GTE_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gte-${OAR_JOB_ID:-manual}" ;;
+  "$GTE_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-gte-$JOB_ID_SUFFIX" ;;
+  "$D1_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-d1-$JOB_ID_SUFFIX" ;;
   # gliclass is an extra the default sync removes, so a concurrent job on the shared
   # environment would uninstall it mid-run.
-  "$GLICLASS_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gliclass-${OAR_JOB_ID:-manual}" ;;
-  "$GLINER2_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gliner2-${OAR_JOB_ID:-manual}" ;;
+  "$GLICLASS_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-gliclass-$JOB_ID_SUFFIX" ;;
+  "$GLINER2_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-gliner2-$JOB_ID_SUFFIX" ;;
 esac
 if (( is_quantized == 1 )); then
-  export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gguf-${OAR_JOB_ID:-manual}"
+  export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-gguf-$JOB_ID_SUFFIX"
 fi
 if [[ -z "$LRB_RUNTIME" && -n "$LRB_MODEL_ID" ]]; then
   if [[ "$LRB_MODEL_ID" == *@sglang || "$LRB_MODEL_ID" == *+DSpark* ]]; then
@@ -120,7 +127,7 @@ if [[ -z "$LRB_RUNTIME" && -n "$LRB_MODEL_ID" ]]; then
   fi
 fi
 if [[ "$LRB_RUNTIME" == "sglang" && -z "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
-  export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-sglang-${OAR_JOB_ID:-manual}"
+  export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-sglang-$JOB_ID_SUFFIX"
 fi
 if [[ -n "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
   # $HOME is quota-limited; a per-job environment is rebuilt from the uv cache anyway.
@@ -206,6 +213,19 @@ if [[ "$LRB_MODEL_ID" == "$GTE_MODEL_ID" ]]; then
     exit 1
   fi
   echo "== runtime: Transformers $installed_transformers_version (GTE compatibility)"
+fi
+if [[ "$LRB_MODEL_ID" == "$D1_MODEL_ID" ]]; then
+  uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    "transformers==$D1_TRANSFORMERS_VERSION"
+  installed_transformers_version="$(
+    "$UV_PROJECT_ENVIRONMENT/bin/python" -c \
+      'from importlib.metadata import version; print(version("transformers"))'
+  )"
+  if [[ "$installed_transformers_version" != "$D1_TRANSFORMERS_VERSION" ]]; then
+    echo "expected Transformers $D1_TRANSFORMERS_VERSION, found $installed_transformers_version" >&2
+    exit 1
+  fi
+  echo "== runtime: Transformers $installed_transformers_version (d1 compatibility)"
 fi
 
 mapfile -t language_rows < <(uv run --no-sync lrb languages --data-root "$LRB_DATA_ROOT")
@@ -333,7 +353,7 @@ else
   uv run --no-sync lrb run-all "${run_all_args[@]}" --runtime transformers --skip-existing --keep-going "${transformer_mode_args[@]}"
   # SGLang pins incompatible Torch/Transformers versions; use a job-private environment
   # for its runs so concurrent OAR jobs cannot replace one another's dependencies.
-  export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-sglang-${OAR_JOB_ID:-manual}"
+  export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-sglang-$JOB_ID_SUFFIX"
   trap 'rm -rf "$UV_PROJECT_ENVIRONMENT"' EXIT
   uv sync --extra speculative --frozen --no-dev
   sglang_mode_args=()

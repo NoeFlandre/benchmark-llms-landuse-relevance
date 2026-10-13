@@ -19,3 +19,5 @@ landuse_relevance_bench.domain.orchestration.x_predict_all__mutmut_35: the outpu
 landuse_relevance_bench.domain.orchestration.x_predict_all__mutmut_36: the output count is checked before the zip, so the strict flag never sees unequal lengths
 landuse_relevance_bench.domain.uncertainty.x_exact_mcnemar_p_value__mutmut_12: for one discordant pair the computed two-sided tail is exactly 1.0, the value the zero-discordance guard returns
 landuse_relevance_bench.domain.digests.x_sha256_of_text__mutmut_4: Python codec names are case-insensitive, so "UTF-8" encodes exactly the bytes that "utf-8" does
+landuse_relevance_bench.domain.records.xǁPredictionǁto_dict__mutmut_33: Label is a StrEnum ordered by the same string value used by the explicit sort key; either form emits the same score mapping, and JSON report serialization sorts keys
+landuse_relevance_bench.domain.records.xǁPredictionǁto_dict__mutmut_35: Label is a StrEnum ordered by the same string value used by the explicit sort key; either form emits the same score mapping, and JSON report serialization sorts keys

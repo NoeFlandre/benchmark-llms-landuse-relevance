@@ -13,7 +13,10 @@ import pytest
 import landuse_relevance_bench
 from factories import ScriptedGenerator
 from landuse_relevance_bench.adapters import pipeline
+from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.pipeline import RunRequest, execute, execute_scoring
+from landuse_relevance_bench.adapters.results_store import read_run, run_filename
+from landuse_relevance_bench.application import score_one
 from landuse_relevance_bench.domain.engine import LabelScores
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.orchestration import DEFAULT_BATCH_SIZE
@@ -303,6 +306,49 @@ def test_scoring_uses_the_default_batch_size_when_none_is_given(request_for) -> 
     execute_scoring(request_for(model_id=spec.model_id), lambda _request: (Scorer(), "rev"))
 
     assert sizes == [2]
+
+
+def test_d1_records_its_pin_and_resumes_without_loading_a_complete_checkpoint(
+    tmp_path: Path, benchmark_path: Path, prompt_path: Path
+) -> None:
+    model_id = "LiquidAI/d1-3B"
+    revision = "051bcc464b01b9f92942b364d9586b0ef5912432"
+    output_dir = tmp_path / "results"
+    request = RunRequest.for_model(
+        model_id,
+        language="en",
+        benchmark_path=benchmark_path,
+        prompt_path=prompt_path,
+        output_dir=output_dir,
+        batch_size=2,
+    )
+    provider_calls = 0
+
+    class Scorer:
+        def score(self, inputs):
+            return [LabelScores({Label.YES: 0.7, Label.NO: 0.3}) for _ in inputs]
+
+    def provide(_request):
+        nonlocal provider_calls
+        provider_calls += 1
+        return Scorer(), revision
+
+    score_one(request, provide)
+
+    result_path = output_dir / run_filename(model_id, "en")
+    result = read_run(result_path)
+    assert result.metadata.model_revision == revision
+    assert result.metadata.prompt_sha256 == sha256_of_text(prompt_path.read_text(encoding="utf-8"))
+    assert result.metadata.inference == "scoring"
+    assert result.metadata.decision_rule == scorer_for(model_id).decision_rule
+    assert result.metrics.n_items == 2
+
+    def must_not_load(_request):
+        raise AssertionError("a complete d1 checkpoint should be reused")
+
+    score_one(request, must_not_load)
+
+    assert provider_calls == 1
 
 
 def test_for_run_warns_about_an_unlisted_model_and_runs_it_plainly(caplog) -> None:

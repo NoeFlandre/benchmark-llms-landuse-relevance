@@ -29,13 +29,16 @@ class Prediction:
     verify_steps: int | None = None
     accepted_drafts: int | None = None
     proposed_drafts: int | None = None
+    # Full-precision normalized scores from a non-generative scorer. Older run files
+    # contain only six-decimal ``raw_output`` text, so this stays optional on read.
+    label_scores: Mapping[Label, float] | None = None
 
     @property
     def outcome(self) -> Outcome:
         return (self.expected, self.predicted)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "item_id": self.item_id,
             "expected": self.expected.value,
             "predicted": None if self.predicted is None else self.predicted.value,
@@ -48,10 +51,21 @@ class Prediction:
             "accepted_drafts": self.accepted_drafts,
             "proposed_drafts": self.proposed_drafts,
         }
+        if self.label_scores is not None:
+            payload["label_scores"] = {
+                label.value: float(score)
+                for label, score in sorted(
+                    self.label_scores.items(), key=lambda item: item[0].value
+                )
+            }
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "Prediction":
         predicted = payload["predicted"]
+        raw_label_scores = payload.get("label_scores")
+        if raw_label_scores is not None and not isinstance(raw_label_scores, Mapping):
+            raise ValueError("label_scores must be an object")
         return cls(
             item_id=payload["item_id"],
             expected=Label(payload["expected"]),
@@ -64,6 +78,11 @@ class Prediction:
             verify_steps=payload.get("verify_steps"),
             accepted_drafts=payload.get("accepted_drafts"),
             proposed_drafts=payload.get("proposed_drafts"),
+            label_scores=(
+                None
+                if raw_label_scores is None
+                else {Label(label): float(score) for label, score in raw_label_scores.items()}
+            ),
         )
 
 

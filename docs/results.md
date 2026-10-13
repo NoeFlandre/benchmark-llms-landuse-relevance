@@ -23,6 +23,11 @@ A run file holds the metadata that you need to audit it:
 Then it holds every prediction with its raw generation or its relevance scores. At the
 end, it holds the metrics. The code computes the metrics from exactly these predictions.
 
+New scoring predictions also have a `label_scores` object that keeps the normalized
+yes/no values at full JSON float precision. The readable `raw_output` stays rounded to six
+decimals. Threshold sweeps use `label_scores` when present and fall back to `raw_output`
+for older checkpoints.
+
 Each prediction has the flag `truncated`. The benchmark scores a truncated generation as
 unparsed, for all the verdict words in it. The model used its complete budget in the
 middle of its reasoning and did not commit to an answer.

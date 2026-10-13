@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Shared by g5k_submit.sh and g5k_submit_multisite.sh. oarsub does not export the
-# submitting shell's environment, so every setting g5k_node_run.sh reads must be
-# written into the job command itself.
+# submitting shell's environment, so every allowlisted setting g5k_node_run.sh reads
+# must be written into the job command itself.
 
 LRB_FORWARDED_VARIABLES=(
   LRB_ROOT
@@ -19,6 +19,7 @@ LRB_FORWARDED_VARIABLES=(
   LRB_SCORER_PROMPT
   LRB_EXPECTED_ROWS
   LRB_CUDA_MODULE
+  UV_CACHE_DIR
 )
 
 # Prints `NAME=value ` for every forwarded variable that is set and non-empty, each value quoted

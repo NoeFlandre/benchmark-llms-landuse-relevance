@@ -30,6 +30,45 @@ def test_scores_round_trip_out_of_a_stored_prediction() -> None:
     assert parse_scores("no=0.270000 yes=0.730000") == {Label.NO: 0.27, Label.YES: 0.73}
 
 
+def test_threshold_sweeps_use_full_precision_scores_when_a_scoring_record_has_them() -> None:
+    yes_score = 0.5000001
+    prediction = Prediction(
+        item_id="precise",
+        expected=Label.NO,
+        predicted=Label.YES,
+        raw_output="no=0.500000 yes=0.500000",
+        label_scores={Label.NO: 1.0 - yes_score, Label.YES: yes_score},
+    )
+
+    assert yes_scores([prediction]) == (yes_score,)
+    assert decide_at([prediction], 0.5).confusion.false_positive == 1
+
+
+def test_a_missing_yes_score_in_a_saved_mapping_defaults_to_zero() -> None:
+    prediction = Prediction(
+        item_id="missing-yes",
+        expected=Label.NO,
+        predicted=Label.NO,
+        raw_output="no=1.000000 yes=0.900000",
+        label_scores={Label.NO: 1.0},
+    )
+
+    assert yes_scores([prediction]) == (0.0,)
+
+
+def test_threshold_sweeps_fall_back_to_rounded_text_for_legacy_records() -> None:
+    legacy = Prediction.from_dict(
+        {
+            "item_id": "legacy",
+            "expected": "no",
+            "predicted": "no",
+            "raw_output": "no=0.500000 yes=0.500000",
+        }
+    )
+
+    assert yes_scores([legacy]) == (0.5,)
+
+
 def test_parse_scores_ignores_the_optional_native_relevance_score() -> None:
     assert parse_scores("no=0.270000 yes=0.730000 native=1.250000") == {
         Label.NO: 0.27,

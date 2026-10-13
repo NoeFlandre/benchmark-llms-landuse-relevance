@@ -494,12 +494,89 @@ def test_remote_code_is_off_by_default_and_no_roster_entry_opts_in(monkeypatch) 
         False,
         False,
     ]
-    # The real roster: no entry opts in until its auto_map targets are pinned (issue #120).
-    assert not any(spec.trust_remote_code for spec in SCORER_ROSTER)
+    # d1's reviewed auto_map names code in its own pinned snapshot. Other scorers stay off.
+    assert {spec.model_id for spec in SCORER_ROSTER if spec.trust_remote_code} == {"LiquidAI/d1-3B"}
 
 
 GTE_SHA = "a" * 40
 MASKED_SHA = "b" * 40
+D1_MODEL_ID = "LiquidAI/d1-3B"
+D1_SHA = "051bcc464b01b9f92942b364d9586b0ef5912432"
+
+
+def _d1_runtime(monkeypatch, version: str = "5.17.0"):
+    model_calls: list[tuple[str, dict[str, Any]]] = []
+    snapshot_calls: list[tuple[str, str]] = []
+    model = Model()
+
+    class AutoModel:
+        @staticmethod
+        def from_pretrained(model_id: str, **kwargs: Any) -> Model:
+            model_calls.append((model_id, kwargs))
+            return model
+
+    transformers = SimpleNamespace(__version__=version, AutoModel=AutoModel)
+    monkeypatch.setattr(hf_scorer, "_load_transformers", lambda: transformers)
+
+    torch = ModuleType("torch")
+    torch.bfloat16 = object()
+    monkeypatch.setitem(sys.modules, "torch", torch)
+
+    hub = ModuleType("huggingface_hub")
+
+    def snapshot_download(model_id: str, *, revision: str) -> str:
+        snapshot_calls.append((model_id, revision))
+        return f"/cache/{revision}"
+
+    hub.snapshot_download = snapshot_download
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+    return model_calls, snapshot_calls, model, torch
+
+
+def test_d1_loads_custom_code_and_tokenizer_from_its_pinned_local_snapshot(monkeypatch) -> None:
+    model_calls, snapshot_calls, model, torch = _d1_runtime(monkeypatch)
+    scorer_class = getattr(hf_scorer, "D1Scorer", None)
+    assert scorer_class is not None, "the d1 typed scorer has not been implemented"
+    settings = hf_scorer.ScorerSettings(dtype="bfloat16", trust_remote_code=True)
+
+    scorer = scorer_class.load(D1_MODEL_ID, settings, revision=D1_SHA)
+
+    assert snapshot_calls == [(D1_MODEL_ID, D1_SHA)]
+    assert len(model_calls) == 1
+    model_path, kwargs = model_calls[0]
+    assert model_path == f"/cache/{D1_SHA}"
+    assert kwargs["revision"] == D1_SHA
+    assert kwargs["trust_remote_code"] is True
+    assert kwargs["dtype"] is torch.bfloat16
+    assert kwargs["device_map"] == "auto"
+    assert model.evaluated is True
+    assert scorer.revision == D1_SHA
+
+
+def test_d1_refuses_movable_revisions_before_downloading_custom_code(monkeypatch) -> None:
+    model_calls, snapshot_calls, _, _ = _d1_runtime(monkeypatch)
+    scorer_class = getattr(hf_scorer, "D1Scorer", None)
+    assert scorer_class is not None, "the d1 typed scorer has not been implemented"
+    settings = hf_scorer.ScorerSettings(dtype="bfloat16", trust_remote_code=True)
+
+    with pytest.raises(ValueError, match="pinned revision"):
+        scorer_class.load(D1_MODEL_ID, settings, revision="main")
+
+    assert model_calls == []
+    assert snapshot_calls == []
+
+
+def test_d1_refuses_transformers_older_than_the_model_requirement(monkeypatch) -> None:
+    model_calls, snapshot_calls, _, _ = _d1_runtime(monkeypatch, version="5.13.9")
+    scorer_class = getattr(hf_scorer, "D1Scorer", None)
+    assert scorer_class is not None, "the d1 typed scorer has not been implemented"
+    settings = hf_scorer.ScorerSettings(dtype="bfloat16", trust_remote_code=True)
+
+    with pytest.raises(RuntimeError, match=r"transformers>=5\.14"):
+        scorer_class.load(D1_MODEL_ID, settings, revision=D1_SHA)
+
+    assert model_calls == []
+    assert snapshot_calls == []
 
 
 def test_remote_code_runs_only_when_opted_in_with_a_pinned_revision(monkeypatch) -> None:

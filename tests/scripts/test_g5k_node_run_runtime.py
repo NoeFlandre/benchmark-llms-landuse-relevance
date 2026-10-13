@@ -23,6 +23,7 @@ pytestmark = pytest.mark.skipif(_BASH_MAJOR < 4, reason="g5k_node_run.sh needs b
 
 REPOSITORY = Path(__file__).parents[2]
 GTE_MODEL_ID = "Alibaba-NLP/gte-multilingual-reranker-base"
+D1_MODEL_ID = "LiquidAI/d1-3B"
 MXBAI_MODEL_ID = "mixedbread-ai/mxbai-rerank-base-v2"
 GLICLASS_MODEL_ID = "knowledgator/gliclass-multilang-mini"
 GLINER2_MODEL_ID = "fastino/gliner2.5-multi-v1"
@@ -34,11 +35,14 @@ set -euo pipefail
 printf '%s\\t%s\\tCUDA=%s\\tLD=%s\\tCMAKE=%s\\tSGLANG_CONTEXT=%s\\n' \\
   "${UV_PROJECT_ENVIRONMENT:-default}" "$*" "${CUDA_HOME:-}" \\
   "${LD_LIBRARY_PATH:-}" "${CMAKE_ARGS:-}" \\
-  "${SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN:-}" >> "$TEST_UV_LOG"
+  "${SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN:-}" \\
+  "UV_CACHE_DIR=${UV_CACHE_DIR:-}" >> "$TEST_UV_LOG"
 if [[ "$1" == sync ]]; then
   if [[ -n "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
     mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"
-    printf '%s\\n' '#!/bin/sh' 'printf "5.11.0\\n"' > "$UV_PROJECT_ENVIRONMENT/bin/python"
+    printf '%s\\n' '#!/bin/sh' \\
+      'printf "%s\\n" "${TEST_TRANSFORMERS_VERSION:-5.11.0}"' \\
+      > "$UV_PROJECT_ENVIRONMENT/bin/python"
     chmod +x "$UV_PROJECT_ENVIRONMENT/bin/python"
     [[ -z "${TEST_ENV_MARKER:-}" ]] || printf '%s\\n' "$UV_PROJECT_ENVIRONMENT" > "$TEST_ENV_MARKER"
   fi
@@ -93,6 +97,7 @@ def _run_node_script(  # noqa: PLR0913 - one keyword per scenario knob
     roster: str = "scorers",
     with_nvcc: bool = True,
     rows: str = "300",
+    dry_run: bool = True,
     extra_environment: dict[str, str] | None = None,
 ) -> NodeRun:
     root = tmp_path / "remote-repository"
@@ -134,11 +139,13 @@ def _run_node_script(  # noqa: PLR0913 - one keyword per scenario knob
     # Never source the host's real Lmod: it would replace the fake `module` below.
     environment["LRB_LMOD_INIT"] = "/dev/null"
     environment.pop("UV_PROJECT_ENVIRONMENT", None)
+    environment.pop("UV_CACHE_DIR", None)
     environment.pop("LD_LIBRARY_PATH", None)
     environment.update(
         {
             "PATH": os.pathsep.join(path_entries),
             "HOME": str(home),
+            "TMPDIR": str(tmp_path / "node-scratch"),
             "USER": "benchmark-test",
             "HF_HOME": str(tmp_path / "hf-cache"),
             "LRB_ROOT": str(root),
@@ -155,8 +162,11 @@ def _run_node_script(  # noqa: PLR0913 - one keyword per scenario knob
         }
     )
     environment.update(extra_environment or {})
+    command = [_BASH, str(scripts / "g5k_node_run.sh")]
+    if dry_run:
+        command.append("--dry-run")
     completed = subprocess.run(  # noqa: S603 -- executes only the copied test fixture script.
-        [_BASH, str(scripts / "g5k_node_run.sh"), "--dry-run"],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -178,6 +188,66 @@ def test_gte_uses_an_isolated_transformers_511_runtime(tmp_path: Path) -> None:
     assert "pip install --python" in run.uv_log
     assert "transformers==5.11.0" in run.uv_log
     assert "== runtime: Transformers 5.11.0" in run.completed.stdout
+
+
+def test_d1_uses_its_isolated_transformers_517_runtime(tmp_path: Path) -> None:
+    run = _run_node_script(
+        tmp_path,
+        D1_MODEL_ID,
+        extra_environment={"TEST_TRANSFORMERS_VERSION": "5.17.0"},
+    )
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    assert ".venv-d1-job-42" in run.uv_log
+    assert "sync --extra inference --frozen --no-dev" in run.uv_log
+    assert "transformers==5.17.0" in run.uv_log
+    assert "== runtime: Transformers 5.17.0 (d1 compatibility)" in run.completed.stdout
+
+
+def test_d1_places_its_environment_and_uv_cache_in_per_job_scratch(tmp_path: Path) -> None:
+    run = _run_node_script(
+        tmp_path,
+        D1_MODEL_ID,
+        extra_environment={"TEST_TRANSFORMERS_VERSION": "5.17.0"},
+    )
+
+    scratch = tmp_path / "node-scratch" / "benchmark-test"
+    expected_environment = scratch / ".venv-d1-job-42"
+    expected_cache = scratch / "uv-cache-job-42"
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    assert run.environment_path == str(expected_environment)
+    assert f"UV_CACHE_DIR={expected_cache}" in run.uv_log
+    assert expected_cache.is_dir()
+    assert not expected_environment.exists()
+
+
+def test_d1_preserves_an_explicit_uv_cache_dir(tmp_path: Path) -> None:
+    explicit_cache = tmp_path / "wrapper-cache"
+    run = _run_node_script(
+        tmp_path,
+        D1_MODEL_ID,
+        extra_environment={
+            "TEST_TRANSFORMERS_VERSION": "5.17.0",
+            "UV_CACHE_DIR": str(explicit_cache),
+        },
+    )
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    assert f"UV_CACHE_DIR={explicit_cache}" in run.uv_log
+    assert explicit_cache.is_dir()
+
+
+def test_d1_runtime_rejects_a_transformers_version_other_than_the_pin(tmp_path: Path) -> None:
+    run = _run_node_script(
+        tmp_path,
+        D1_MODEL_ID,
+        extra_environment={"TEST_TRANSFORMERS_VERSION": "5.18.0"},
+    )
+
+    assert run.completed.returncode == 1
+    assert "expected Transformers 5.17.0, found 5.18.0" in run.completed.stderr
+    assert "lrb languages" not in run.uv_log
 
 
 def test_other_scoring_models_keep_the_locked_runtime(tmp_path: Path) -> None:
@@ -235,6 +305,20 @@ def test_sglang_run_ids_use_the_sglang_environment_not_gguf(tmp_path: Path) -> N
     assert ".venv-sglang-job-42" in sync
     assert "--extra speculative" in sync
     assert "gguf" not in run.uv_log
+
+
+def test_full_roster_sglang_uses_per_job_scratch_environment(tmp_path: Path) -> None:
+    run = _run_node_script(tmp_path, "", roster="models", dry_run=False)
+
+    scratch = tmp_path / "node-scratch" / "benchmark-test"
+    expected_environment = scratch / ".venv-sglang-job-42"
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    sglang_syncs = [line for line in run.uv_lines("\tsync ") if "--extra speculative" in line]
+    assert len(sglang_syncs) == 1
+    assert str(expected_environment) in sglang_syncs[0]
+    assert run.environment_path == str(expected_environment)
+    assert not expected_environment.exists()
 
 
 def test_gliclass_syncs_the_scoring_extra_in_its_own_environment(tmp_path: Path) -> None:

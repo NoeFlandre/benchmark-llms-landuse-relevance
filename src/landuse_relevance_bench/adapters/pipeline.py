@@ -92,8 +92,10 @@ class RunRequest:
         alone; the default batch size applies when none is given.
         """
         if name in scorer_ids():
+            revision = options.pop("revision", None) or scorer_for(name).revision
             return cls(
                 name,
+                revision=revision,
                 batch_size=DEFAULT_BATCH_SIZE if batch_size is None else batch_size,
                 **options,
             )

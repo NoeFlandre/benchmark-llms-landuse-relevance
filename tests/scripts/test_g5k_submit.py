@@ -14,13 +14,16 @@ if BASH is None:
     raise RuntimeError("bash is required to test the Grid'5000 submitter")
 
 
-def _run_submit(*arguments: str) -> subprocess.CompletedProcess[str]:
+def _run_submit(
+    *arguments: str, extra_environment: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     environment = {
         **os.environ,
         "LRB_JOB_TYPES": "exotic",
         "LRB_QUEUE": "default",
         "LRB_GPU_FILTER": "gpu_model = 'A100-SXM4-40GB'",
     }
+    environment.update(extra_environment or {})
     return subprocess.run(  # noqa: S603 -- local script with fixed test arguments.
         [BASH, str(SUBMIT), *arguments],
         cwd=REPOSITORY,
@@ -39,6 +42,13 @@ def test_submit_array_dry_run_assigns_array_size_to_shard_count() -> None:
     assert "walltime=0:15" in result.stdout
     assert "LRB_SHARD_COUNT=4" in result.stdout
     assert "LRB_SHARD_INDEX=" not in result.stdout
+
+
+def test_submit_dry_run_forwards_an_explicit_uv_cache_dir() -> None:
+    result = _run_submit("--dry-run", extra_environment={"UV_CACHE_DIR": "/scratch/bench/uv-cache"})
+
+    assert result.returncode == 0, result.stderr
+    assert "UV_CACHE_DIR=/scratch/bench/uv-cache" in result.stdout
 
 
 @pytest.mark.parametrize("count", ("0", "-2", "four"))
