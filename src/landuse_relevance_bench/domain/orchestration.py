@@ -80,15 +80,15 @@ def _scored_prediction(item: BenchmarkItem, scores: LabelScores) -> Prediction:
         expected=item.label,
         predicted=scores.verdict,
         raw_output=format_scores(scores),
+        label_scores=scores.scores,
     )
 
 
 def format_scores(scores: LabelScores) -> str:
-    """Render native scores as stable ``label=score`` text, ordered by label.
+    """Render scores as readable six-decimal ``label=score`` text.
 
-    Kept as text rather than a serialised structure so the domain stays free of
-    serialisation libraries, and readable enough that another decision rule can be
-    recomputed from a published result without re-running the model.
+    The full-precision values are kept separately on :class:`Prediction`; this text
+    remains compact and readable in older reports and run files.
     """
     rendered = " ".join(
         f"{label.value}={scores.scores[label]:.6f}"

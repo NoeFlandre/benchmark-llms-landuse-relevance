@@ -2,7 +2,7 @@
 # Submit deterministic weighted shards to explicitly configured Grid'5000 sites.
 # Example: scripts/g5k_submit_multisite.sh --sites-config scripts/g5k_sites.json --dry-run
 #
-# Every LRB_* setting listed in scripts/g5k_forward_env.sh is written into each job
+# Every node setting listed in scripts/g5k_forward_env.sh is written into each job
 # command (LRB_ROOT/LRB_RESULTS come from LRB_REMOTE_ROOT/LRB_REMOTE_RESULTS and the
 # shard variables are computed). LRB_JOB_TYPES (space-separated, default "night")
 # becomes repeated -t flags and LRB_QUEUE adds -q. A site entry in the config may

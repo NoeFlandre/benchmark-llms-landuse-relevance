@@ -29,6 +29,7 @@ uv run lrb run-all                     # every model
 uv run lrb scorers                     # non-generative scoring roster
 uv run lrb score Alibaba-NLP/gte-multilingual-reranker-base --out benchmark-runs/gte
 uv run lrb score convaiinnovations/laya-multilingual --out benchmark-runs/laya
+uv run lrb score LiquidAI/d1-3B --out benchmark-runs/d1
 uv run lrb report                      # detailed and aggregate leaderboards
 uv run lrb publish NoeFlandre/benchmark-llms-landuse-relevance
 ```
@@ -80,6 +81,8 @@ Each adapter keeps the interface that the checkpoint was made for:
 - mxbai receives its official binary query/document turn.
 - Laya receives four JSON sentence fields. It receives one typed `noul` question for
   each field.
+- d1 receives the sentence as its state and the same land-use rubric as one typed
+  `noul` question. It returns `P(yes)` in one forward pass and generates no text.
 - `LFM2.5-2.6B@logprob` reads `P(yes)` against `P(no)` from one forward pass. The
   forward pass uses the generative turn with an empty think block at the end.
 - The NLI models, GLiClass, and GLiNER2 score the hypothesis in `data/prompt_zeroshot.txt`.
@@ -178,6 +181,7 @@ the code writes runs and from which it reads them. The explicit options `--data-
 | `Alibaba-NLP/gte-multilingual-reranker-base` | ~0.306B | sigmoid sequence-classification relevance logit |
 | `mixedbread-ai/mxbai-rerank-base-v2` | ~0.5B | official binary 1/0 logit-difference normalisation |
 | `convaiinnovations/laya-multilingual` | ~0.322B | typed `noul` yes probability |
+| `LiquidAI/d1-3B` | 3.12B | single-pass typed `noul` yes probability |
 | `Qwen/Qwen3-Reranker-0.6B` | ~0.596B | yes/no next-token argmax |
 | `Qwen/Qwen3-Reranker-4B` | ~4.022B | yes/no next-token argmax |
 | `LiquidAI/LFM2.5-2.6B@logprob` | ~2.7B | first-token yes/no log-probs, one forward pass |
@@ -203,6 +207,22 @@ greedy decoding, and the budget. It records its quant label in `quantization`, n
 `LiquidAI/LFM2.5-Encoder-350M` is a bidirectional masked-LM. The benchmark scores it
 separately. Its single `[MASK]` position ranks the `yes` and `no` tokens. The results
 cover only the 15 languages that the model card supports.
+
+`LiquidAI/d1-3B` uses the official `AutoModel`/`system_one_batch` interface at pinned
+revision `051bcc464b01b9f92942b364d9586b0ef5912432`. The benchmark passes the rendered
+English rubric and each target sentence to one typed `noul` question, then forms its
+yes/no probabilities and applies the shared argmax rule. An exact 0.5 tie resolves to
+`no`; the separate threshold sweep calls `yes` at or above each requested threshold. The
+model card lists 16 languages: Arabic, Chinese, English, French, German, Hindi,
+Indonesian, Italian, Japanese, Korean, Polish, Portuguese, Russian, Spanish, Thai, and
+Vietnamese. The full requested benchmark still runs all 85 languages and 25,500
+sentences. Results for the other 69 fall outside the model card's stated language coverage.
+
+The official implementation requires `transformers>=5.14` and custom Hub code. The
+benchmark uses the locked Transformers 5.17.0 runtime and downloads the model snapshot
+locally before loading it, so the custom code and its internal tokenizer lookup use the
+same pinned files. The model is under the [LFM Open License](https://huggingface.co/LiquidAI/d1-3B/blob/051bcc464b01b9f92942b364d9586b0ef5912432/LICENSE),
+which sets a commercial-use threshold. Review that license before other uses.
 
 For each `+DSpark` run, `lrb report` compares the generated text and the verdicts with
 the `@sglang` baseline of the same target. The comparison must show identical text and

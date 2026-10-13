@@ -13,6 +13,7 @@ from landuse_relevance_bench.domain.variants import repository_of
 #: How a scoring model's native scores become a verdict. Recorded on every scoring
 #: run, because without it a scoring row cannot be compared to a generative one.
 ARGMAX = "argmax over the native yes/no scores"
+D1_ARGMAX = f"{ARGMAX}; exact ties resolve to no"
 RELEVANCE_THRESHOLD = "sigmoid of the native relevance logit at 0.5"
 #: mxbai-rerank-v2's published estimate of its maximum logit difference; the official
 #: normaliser subtracts it before the sigmoid.
@@ -102,6 +103,8 @@ class ScorerSpec:
     #: model whose ``auto_map`` names another Hub repo is not safe to opt in until that repo
     #: is pinned too.
     trust_remote_code: bool = False
+    #: Optional immutable model snapshot used when a run is created.
+    revision: str | None = None
 
     @property
     def repository(self) -> str:
@@ -144,6 +147,24 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
             "JSON state + 4 `noul` questions/call",
             "Laya `noul` yes probability",
         ),
+    ),
+    # The pinned config maps AutoModel to modeling_d1.D1Model in this same repository.
+    # Its reviewed System One code loads the tokenizer from name_or_path, so the adapter
+    # first materializes this exact snapshot and passes that local path to Transformers.
+    ScorerSpec(
+        "LiquidAI/d1-3B",
+        3_123_483_888,
+        "typed-decision-model",
+        D1_ARGMAX,
+        "Single-pass typed yes/no decision model; official documentation lists 16 languages.",
+        GENERATIVE_PROMPT,
+        card=(
+            "typed decision model",
+            "sentence state + one `noul` question/request",
+            "d1 `noul` P(yes)",
+        ),
+        trust_remote_code=True,
+        revision="051bcc464b01b9f92942b364d9586b0ef5912432",
     ),
     ScorerSpec(
         "Qwen/Qwen3-Reranker-0.6B",
