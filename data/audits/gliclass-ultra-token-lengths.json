@@ -1,0 +1,23 @@
+{
+  "model_id": "knowledgator/gliclass-multilang-ultra",
+  "model_revision": "33c3ffec64056b0d37173d2dd90b885ac29b72c3",
+  "tokenizer_revision": "33c3ffec64056b0d37173d2dd90b885ac29b72c3",
+  "manifest_dataset": "NoeFlandre/landuse-sentence-relevance-golden-human-set",
+  "manifest_revision": "d431a6c522b3c3a616e4f3d2814906c3011843e7",
+  "manifest_whole_set_sha256": "7ab151eb5515a46f3a1c10b4f7df06bd53166db503790747f0f753cff43ee5f0",
+  "language_count": 85,
+  "rows_per_language": 300,
+  "tokenizer_class": "T5Tokenizer",
+  "architecture_type": "uni-encoder",
+  "prompt_first": true,
+  "prompt_path": "data/prompt_zeroshot.txt",
+  "prompt_sha256": "49764c11da72cf1c8a72e1b7ba4824516004cc2e4f9413c2f03f9bfd31dae209",
+  "hypothesis": "This sentence contains information useful for inferring the land use or land cover of the associated geographic place.",
+  "max_sequence_length": 512,
+  "row_count": 25500,
+  "minimum_token_count": 29,
+  "maximum_token_count": 212,
+  "over_limit_count": 0,
+  "token_lengths_csv": "gliclass-ultra-token-lengths.csv",
+  "token_lengths_csv_sha256": "b424f9d260c30fcc73b1ba8dc0034bba470041013b64c87fa130c7ef34e8e0b4"
+}

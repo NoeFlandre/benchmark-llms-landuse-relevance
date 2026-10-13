@@ -153,7 +153,13 @@ def test_published_summary_keeps_macro_mcc_and_links_the_methods_supplement() ->
     assert "No threshold was tuned on gold labels for these native results." in " ".join(
         card.split()
     )
-    assert card.startswith("---\nlicense: mit\n")
+    frontmatter = card.split("---\n", 2)[1]
+    assert "license: mit" in frontmatter
+    assert "config_name: default" in frontmatter
+    assert "split: train" in frontmatter
+    assert "path: data/train.csv" in frontmatter
+    assert "task_categories:\n- text-classification" in frontmatter
+    assert "tags:\n- land-use\n- land-cover\n- remote-sensing\n- llm-benchmark" in frontmatter
 
 
 def test_publication_uploads_historical_supplement_and_adds_ultra_provenance(
@@ -184,6 +190,8 @@ def test_publication_uploads_historical_supplement_and_adds_ultra_provenance(
     assert "Native macro MCC" in card
     assert "d1-3B precision caveat" in supplement
     assert "The original full-precision per-item probabilities were not stored" in supplement
+    assert "| knowledgator/gliclass-multilang-mini | 85 | 0.1987" in supplement
+    assert "| method | F1 | MCC | unparsed |" in supplement
     assert "unrounded label scores in the JSON `label_scores` field" in supplement
     assert "## Current additions to the historical appendix" in supplement
     assert "knowledgator/gliclass-multilang-ultra" in supplement

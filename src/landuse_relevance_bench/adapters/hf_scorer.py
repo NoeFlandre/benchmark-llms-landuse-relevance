@@ -634,6 +634,36 @@ def _label_probability(result: Any, label: str) -> LabelScores:
     raise ValueError(f"GLiClass returned no score for the label {label!r}")
 
 
+def _check_gliclass_input_lengths(
+    pipeline: Any, inputs: Sequence[ScoringInput], hypothesis: str, max_length: int
+) -> None:
+    """Fail before GLiClass silently truncates any formatted input sequence."""
+    runtime_pipeline = getattr(pipeline, "pipe", None)
+    prepare_input = getattr(runtime_pipeline, "prepare_input", None)
+    tokenizer = getattr(runtime_pipeline, "tokenizer", None)
+    if not callable(prepare_input) or not callable(tokenizer):
+        raise TypeError(
+            "GLiClass Ultra needs the pipeline's input formatter and tokenizer to verify "
+            "sequence lengths; refusing to score unverified inputs"
+        )
+
+    formatted = [prepare_input(item.sentence, [hypothesis]) for item in inputs]
+    encoded = tokenizer(formatted, truncation=False, padding=False)
+    token_sequences = encoded["input_ids"]
+    if len(token_sequences) != len(inputs):
+        raise ValueError("GLiClass Ultra tokenizer returned an unexpected number of input rows")
+    lengths = [len(sequence) for sequence in token_sequences]
+    overflowing = [(index, length) for index, length in enumerate(lengths) if length > max_length]
+    if overflowing:
+        examples = ", ".join(
+            f"batch index {index}: {length} tokens" for index, length in overflowing[:5]
+        )
+        raise ValueError(
+            f"GLiClass Ultra input would be truncated at max_length={max_length}; "
+            f"refusing to score {len(overflowing)} overlength input(s) ({examples})"
+        )
+
+
 class _ThresholdLabelScores(LabelScores):
     """A label-score pair with the upstream multi-label decision kept explicit."""
 
@@ -658,6 +688,8 @@ class GliClassUltraScorer(GliClassScorer):
     """
 
     def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        hypothesis = batch_hypothesis(inputs)
+        _check_gliclass_input_lengths(self._pipeline, inputs, hypothesis, ZEROSHOT_SEQUENCE_LENGTH)
         scored = super()._score_nonempty(inputs)
         return [
             _ThresholdLabelScores(

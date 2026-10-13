@@ -1,7 +1,10 @@
 """The GLiClass Ultra adapter follows the pinned upstream score contract."""
 
+import csv
+import hashlib
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -32,6 +35,19 @@ HYPOTHESIS = (
     "of the associated geographic place."
 )
 PROMPT = f"TARGET SENTENCE: forest\n\nHYPOTHESIS: {HYPOTHESIS}\n"
+
+
+def _with_tokenizer_guard(pipeline: Any, token_count: int = 1) -> Any:
+    def prepare_input(text: str, labels: list[str]) -> str:
+        assert labels == [HYPOTHESIS]
+        return f"<<LABEL>>{labels[0]}<<SEP>>{text}"
+
+    def tokenizer(texts: list[str], **kwargs: Any) -> dict[str, list[list[int]]]:
+        assert kwargs == {"truncation": False, "padding": False}
+        return {"input_ids": [[0] * token_count for _ in texts]}
+
+    pipeline.pipe = SimpleNamespace(prepare_input=prepare_input, tokenizer=tokenizer)
+    return pipeline
 
 
 def test_ultra_is_pinned_and_runs_all_85_languages() -> None:
@@ -79,6 +95,28 @@ def test_ultra_is_pinned_and_runs_all_85_languages() -> None:
     assert {manifest.files[language].rows for language in manifest.languages} == {300}
 
 
+def test_recorded_ultra_token_lengths_cover_the_full_frozen_set() -> None:
+    root = Path(__file__).parents[2]
+    csv_path = root / "data" / "audits" / "gliclass-ultra-token-lengths.csv"
+    metadata_path = root / "data" / "audits" / "gliclass-ultra-token-lengths.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    with csv_path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert metadata["model_revision"] == GLICLASS_ULTRA_REVISION
+    assert metadata["tokenizer_revision"] == GLICLASS_ULTRA_REVISION
+    assert metadata["manifest_revision"] == "d431a6c522b3c3a616e4f3d2814906c3011843e7"
+    assert metadata["row_count"] == len(rows) == 25_500
+    assert metadata["language_count"] == 85
+    assert metadata["rows_per_language"] == 300
+    assert len({row["language"] for row in rows}) == 85
+    assert set(Counter(row["language"] for row in rows).values()) == {300}
+    assert metadata["minimum_token_count"] == min(int(row["token_count"]) for row in rows) == 29
+    assert metadata["maximum_token_count"] == max(int(row["token_count"]) for row in rows) == 212
+    assert metadata["over_limit_count"] == sum(row["over_limit"] == "True" for row in rows) == 0
+    assert metadata["token_lengths_csv_sha256"] == hashlib.sha256(csv_path.read_bytes()).hexdigest()
+
+
 def test_ultra_uses_one_independent_label_score_and_the_inclusive_native_cutoff() -> None:
     def pipeline(texts: list[str], labels: list[str], **kwargs: Any) -> list[list[dict[str, Any]]]:
         assert labels == [HYPOTHESIS]
@@ -92,7 +130,7 @@ def test_ultra_uses_one_independent_label_score_and_the_inclusive_native_cutoff(
             )
         ]
 
-    scorer = GliClassUltraScorer(pipeline, "test-revision")
+    scorer = GliClassUltraScorer(_with_tokenizer_guard(pipeline), "test-revision")
     inputs = [
         ScoringInput(PROMPT, "exact tie"),
         ScoringInput(PROMPT, "below"),
@@ -104,6 +142,34 @@ def test_ultra_uses_one_independent_label_score_and_the_inclusive_native_cutoff(
     assert [score.verdict for score in scores] == [Label.YES, Label.NO, Label.YES]
     assert [score.scores[Label.YES] for score in scores] == [0.5, 0.499999, 0.500001]
     assert [score.native_score for score in scores] == [0.5, 0.499999, 0.500001]
+
+
+def test_ultra_rejects_inputs_that_would_be_truncated_before_scoring() -> None:
+    pipeline_calls = 0
+
+    def pipeline(texts: list[str], labels: list[str], **_kwargs: Any) -> list[list[dict[str, Any]]]:
+        nonlocal pipeline_calls
+        pipeline_calls += 1
+        return [[{"label": labels[0], "score": 0.75}] for _ in texts]
+
+    scorer = GliClassUltraScorer(_with_tokenizer_guard(pipeline, token_count=513), "test-revision")
+
+    with pytest.raises(ValueError, match=r"would be truncated.*512"):
+        scorer.score([ScoringInput(PROMPT, "a very long input")])
+
+    assert pipeline_calls == 0
+
+
+def test_ultra_allows_an_input_at_the_configured_sequence_limit() -> None:
+    def pipeline(texts: list[str], labels: list[str], **_kwargs: Any) -> list[list[dict[str, Any]]]:
+        return [[{"label": labels[0], "score": 0.75}] for _ in texts]
+
+    scorer = GliClassUltraScorer(_with_tokenizer_guard(pipeline, token_count=512), "test-revision")
+
+    (score,) = scorer.score([ScoringInput(PROMPT, "input at the configured limit")])
+
+    assert score.verdict is Label.YES
+    assert score.scores[Label.YES] == 0.75
 
 
 def test_ultra_keeps_full_precision_scores_in_saved_predictions() -> None:
@@ -120,7 +186,8 @@ def test_ultra_keeps_full_precision_scores_in_saved_predictions() -> None:
         label=Label.YES,
     )
     template = f"TARGET SENTENCE: {{}}\n\nHYPOTHESIS: {HYPOTHESIS}\n"
-    (prediction,) = score_all([item], template, GliClassUltraScorer(pipeline, "revision"))
+    scorer = GliClassUltraScorer(_with_tokenizer_guard(pipeline), "revision")
+    (prediction,) = score_all([item], template, scorer)
     restored = type(prediction).from_dict(json.loads(json.dumps(prediction.to_dict())))
 
     assert prediction.raw_output == "no=0.500000 yes=0.500000 native=0.500000"
