@@ -47,6 +47,10 @@ native score. The report sweeps thresholds and selects the best MCC, F1, balance
 accuracy, precision, recall, and ROC-AUC. The report also records the items per second
 and the peak allocated CUDA VRAM of each run.
 
+The original scoring verdict is the argmax of the model's normalized yes/no scores. When
+those scores tie, `no` wins. Threshold sweeps are separate diagnostics; they call an item
+`yes` when its saved yes score is greater than or equal to the sweep threshold.
+
 The adapters keep the native input contract of each model:
 
 - The Qwen rerankers score the yes/no continuation of their chat turn.

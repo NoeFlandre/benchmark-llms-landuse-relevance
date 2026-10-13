@@ -19,7 +19,6 @@ RELEVANCE_THRESHOLD = "sigmoid of the native relevance logit at 0.5"
 MXBAI_LOGIT_OFFSET = 4.5
 MXBAI_RELEVANCE_THRESHOLD = f"sigmoid(native yes-minus-no logit minus {MXBAI_LOGIT_OFFSET}) at 0.5"
 LAYA_RELEVANCE_THRESHOLD = "Laya noul yes probability at 0.5"
-D1_RELEVANCE_THRESHOLD = "d1 noul yes probability at 0.5"
 LOGPROB_ARGMAX = "argmax over the first-token yes/no log-probabilities"
 ENTAILMENT_THRESHOLD = "zero-shot pipeline entailment probability at 0.5"
 LABEL_THRESHOLD = "zero-shot label probability at 0.5"
@@ -125,7 +124,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "LiquidAI/d1-3B",
         3_123_483_888,
         "typed-decision-model",
-        D1_RELEVANCE_THRESHOLD,
+        ARGMAX,
         "Single-pass typed yes/no decision model; official documentation lists 16 languages.",
         GENERATIVE_PROMPT,
         card=(

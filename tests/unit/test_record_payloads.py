@@ -27,6 +27,25 @@ def test_a_prediction_with_every_optional_field_round_trips() -> None:
     assert Prediction.from_dict(prediction.to_dict()) == prediction
 
 
+def test_a_scoring_prediction_serialises_label_scores_without_rounding() -> None:
+    import json
+
+    yes_score = 0.5000001
+    prediction = Prediction(
+        item_id="b" * 16,
+        expected=Label.YES,
+        predicted=Label.YES,
+        raw_output="no=0.500000 yes=0.500000",
+        label_scores={Label.NO: 1.0 - yes_score, Label.YES: yes_score},
+    )
+
+    payload = prediction.to_dict()
+
+    assert payload["label_scores"] == {"no": 1.0 - yes_score, "yes": yes_score}
+    restored = Prediction.from_dict(json.loads(json.dumps(payload)))
+    assert restored.label_scores == prediction.label_scores
+
+
 def test_a_prediction_payload_names_each_optional_field() -> None:
     prediction = Prediction(
         item_id="a" * 16,
@@ -46,6 +65,7 @@ def test_a_prediction_payload_names_each_optional_field() -> None:
     assert payload["verify_steps"] == 2
     assert payload["accepted_drafts"] == 1
     assert payload["proposed_drafts"] == 3
+    assert "label_scores" not in payload
 
 
 def test_a_run_result_payload_has_exactly_its_four_sections() -> None:

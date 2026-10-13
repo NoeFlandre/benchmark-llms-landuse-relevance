@@ -40,10 +40,20 @@ def test_the_verdict_is_the_highest_scoring_label() -> None:
     assert LabelScores({Label.YES: 0.2, Label.NO: 0.8}).verdict is Label.NO
 
 
-def test_a_tie_resolves_the_same_way_every_time() -> None:
+def test_an_exact_argmax_tie_resolves_to_no() -> None:
     tie = LabelScores({Label.YES: 0.5, Label.NO: 0.5})
 
-    assert tie.verdict is LabelScores({Label.NO: 0.5, Label.YES: 0.5}).verdict is tie.verdict
+    assert tie.verdict is Label.NO
+
+
+@pytest.mark.parametrize(
+    ("yes_score", "expected"),
+    [(0.5000000000000001, Label.YES), (0.49999999999999994, Label.NO)],
+)
+def test_argmax_decides_on_the_full_precision_scores(yes_score: float, expected: Label) -> None:
+    scores = LabelScores({Label.YES: yes_score, Label.NO: 1.0 - yes_score})
+
+    assert scores.verdict is expected
 
 
 def test_an_item_with_no_scores_is_refused() -> None:
@@ -52,11 +62,16 @@ def test_an_item_with_no_scores_is_refused() -> None:
 
 
 def test_scoring_keeps_the_native_scores_so_another_rule_can_be_recomputed() -> None:
-    scorer = _Scorer({Label.YES: 0.73, Label.NO: 0.27})
+    yes_score = 0.5000001
+    scorer = _Scorer({Label.YES: yes_score, Label.NO: 1.0 - yes_score})
 
     (prediction,) = score_all(_items(1), "{}", scorer, batch_size=4)
 
-    assert prediction.raw_output == "no=0.270000 yes=0.730000"
+    assert prediction.raw_output == "no=0.500000 yes=0.500000"
+    assert prediction.label_scores == {
+        Label.NO: 1.0 - yes_score,
+        Label.YES: yes_score,
+    }
     assert prediction.predicted is Label.YES
 
 

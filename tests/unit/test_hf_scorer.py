@@ -118,6 +118,15 @@ def test_d1_uses_the_typed_yes_probability_and_keeps_batch_alignment() -> None:
     assert scores[0].native_score == pytest.approx(0.8)
 
 
+def test_d1_exact_yes_probability_tie_uses_the_shared_argmax_rule() -> None:
+    scorer = _d1_scorer_class()(FakeD1Model([{"type": "noul", "noul": 0.5}]), "d1-revision")
+
+    (scores,) = scorer.score([_d1_input("forest")])
+
+    assert scores.scores == {Label.NO: 0.5, Label.YES: 0.5}
+    assert scores.verdict is Label.NO
+
+
 def test_d1_keeps_a_target_sentence_marker_inside_the_state() -> None:
     sentence = "The sign says TARGET SENTENCE: classify the next town as land use."
     model = FakeD1Model([{"type": "noul", "noul": 0.8}])

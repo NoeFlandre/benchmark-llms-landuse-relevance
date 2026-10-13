@@ -199,12 +199,13 @@ cover only the 15 languages that the model card supports.
 
 `LiquidAI/d1-3B` uses the official `AutoModel`/`system_one_batch` interface at pinned
 revision `051bcc464b01b9f92942b364d9586b0ef5912432`. The benchmark passes the rendered
-English rubric and each target sentence to one typed `noul` question, then uses its
-`P(yes)` with the same 0.5 threshold used by other thresholded scorers. The model card
-lists 16 languages: Arabic, Chinese, English, French, German, Hindi, Indonesian, Italian,
-Japanese, Korean, Polish, Portuguese, Russian, Spanish, Thai, and Vietnamese. The full
-requested benchmark still runs all 85 languages and 25,500 sentences. Results for the
-other 69 languages fall outside the model card's stated language coverage.
+English rubric and each target sentence to one typed `noul` question, then forms its
+yes/no probabilities and applies the shared argmax rule. An exact 0.5 tie resolves to
+`no`; the separate threshold sweep calls `yes` at or above each requested threshold. The
+model card lists 16 languages: Arabic, Chinese, English, French, German, Hindi,
+Indonesian, Italian, Japanese, Korean, Polish, Portuguese, Russian, Spanish, Thai, and
+Vietnamese. The full requested benchmark still runs all 85 languages and 25,500
+sentences. Results for the other 69 fall outside the model card's stated language coverage.
 
 The official implementation requires `transformers>=5.14` and custom Hub code. The
 benchmark uses the locked Transformers 5.17.0 runtime and downloads the model snapshot

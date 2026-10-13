@@ -62,8 +62,15 @@ def parse_scores(raw_output: str) -> dict[Label, float]:
 
 
 def yes_scores(predictions: Sequence[Prediction]) -> tuple[float, ...]:
-    """The `yes` score of every prediction, in order."""
-    return tuple(parse_scores(p.raw_output).get(Label.YES, 0.0) for p in predictions)
+    """The `yes` score of every prediction, preferring full-precision saved scores."""
+    return tuple(
+        (
+            prediction.label_scores.get(Label.YES, 0.0)
+            if prediction.label_scores is not None
+            else parse_scores(prediction.raw_output).get(Label.YES, 0.0)
+        )
+        for prediction in predictions
+    )
 
 
 def decide_at(predictions: Sequence[Prediction], threshold: float) -> ClassificationMetrics:
