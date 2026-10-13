@@ -19,6 +19,7 @@ RELEVANCE_THRESHOLD = "sigmoid of the native relevance logit at 0.5"
 MXBAI_LOGIT_OFFSET = 4.5
 MXBAI_RELEVANCE_THRESHOLD = f"sigmoid(native yes-minus-no logit minus {MXBAI_LOGIT_OFFSET}) at 0.5"
 LAYA_RELEVANCE_THRESHOLD = "Laya noul yes probability at 0.5"
+D1_RELEVANCE_THRESHOLD = "d1 noul yes probability at 0.5"
 LOGPROB_ARGMAX = "argmax over the first-token yes/no log-probabilities"
 ENTAILMENT_THRESHOLD = "zero-shot pipeline entailment probability at 0.5"
 LABEL_THRESHOLD = "zero-shot label probability at 0.5"
@@ -72,6 +73,8 @@ class ScorerSpec:
     #: model whose ``auto_map`` names another Hub repo is not safe to opt in until that repo
     #: is pinned too.
     trust_remote_code: bool = False
+    #: Optional immutable model snapshot used when a run is created.
+    revision: str | None = None
 
     @property
     def repository(self) -> str:
@@ -114,6 +117,24 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
             "JSON state + 4 `noul` questions/call",
             "Laya `noul` yes probability",
         ),
+    ),
+    # The pinned config maps AutoModel to modeling_d1.D1Model in this same repository.
+    # Its reviewed System One code loads the tokenizer from name_or_path, so the adapter
+    # first materializes this exact snapshot and passes that local path to Transformers.
+    ScorerSpec(
+        "LiquidAI/d1-3B",
+        3_123_483_888,
+        "typed-decision-model",
+        D1_RELEVANCE_THRESHOLD,
+        "Single-pass typed yes/no decision model; official documentation lists 16 languages.",
+        GENERATIVE_PROMPT,
+        card=(
+            "typed decision model",
+            "sentence state + one `noul` question/request",
+            "d1 `noul` P(yes)",
+        ),
+        trust_remote_code=True,
+        revision="051bcc464b01b9f92942b364d9586b0ef5912432",
     ),
     ScorerSpec(
         "Qwen/Qwen3-Reranker-0.6B",

@@ -8,6 +8,7 @@ probability, and zero-shot models asked one shared hypothesis: NLI cross-encoder
 through the ``zero-shot-classification`` pipeline, GLiClass and GLiNER2.
 """
 
+import math
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -385,6 +386,100 @@ def _laya_probability(answer: Any) -> float:
     return probability
 
 
+D1_SEQUENCE_LENGTH = 32_768
+D1_TARGET_SENTENCE_MARKER = "TARGET SENTENCE:"
+D1_QUESTION_NAME = "relevance"
+D1_MIN_TRANSFORMERS_VERSION = "5.14"
+
+
+class D1Scorer(_PipelineScorer):
+    """Read d1's typed yes probability from one System One pass per sentence."""
+
+    sequence_length = D1_SEQUENCE_LENGTH
+
+    def __init__(self, model: Any, revision: str) -> None:
+        self._model = model
+        self._revision = revision
+
+    @classmethod
+    def load(
+        cls, model_id: str, settings: ScorerSettings, revision: str | None = None
+    ) -> "D1Scorer":
+        trust = _trust_remote_code(settings, revision)
+        if not trust:
+            raise ValueError(
+                "LiquidAI/d1-3B requires reviewed remote code and a pinned model revision"
+            )
+
+        transformers = _load_transformers()
+        from packaging.version import Version
+
+        installed = str(transformers.__version__)
+        if Version(installed) < Version(D1_MIN_TRANSFORMERS_VERSION):
+            raise RuntimeError(
+                f"LiquidAI/d1-3B requires transformers>={D1_MIN_TRANSFORMERS_VERSION}, "
+                f"found {installed}"
+            )
+
+        import torch
+        from huggingface_hub import snapshot_download
+
+        local_snapshot = snapshot_download(model_id, revision=revision)
+        model = transformers.AutoModel.from_pretrained(
+            local_snapshot,
+            revision=revision,
+            trust_remote_code=trust,
+            dtype=getattr(torch, settings.dtype),
+            device_map=settings.device_map,
+        )
+        model.eval()
+        return cls(model, revision or loaded_revision(model))
+
+    @property
+    def runtime_dtype(self) -> str:
+        value = getattr(self._model, "dtype", None)
+        return "model-default" if value is None else str(value).removeprefix("torch.")
+
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        requests = [
+            (
+                item.sentence,
+                {
+                    D1_QUESTION_NAME: {
+                        "type": "noul",
+                        "instructions": _d1_instructions(item.prompt),
+                    }
+                },
+            )
+            for item in inputs
+        ]
+        responses = self._model.system_one_batch(requests)
+        if not isinstance(responses, Sequence) or isinstance(responses, (str, bytes)):
+            raise ValueError("d1 returned a non-sequence batch response")
+        if len(responses) != len(inputs):
+            raise ValueError(f"d1 returned {len(responses)} answers for {len(inputs)} requests")
+        return [_probability_scores(_d1_probability(response)) for response in responses]
+
+
+def _d1_instructions(prompt: str) -> str:
+    """Move the rendered benchmark rubric into d1's typed question instructions."""
+    rubric, marker, _sentence = prompt.rpartition(D1_TARGET_SENTENCE_MARKER)
+    if not marker or not rubric.strip():
+        raise ValueError(f"d1 prompt must include a {D1_TARGET_SENTENCE_MARKER!r} field")
+    return f"{rubric.rstrip()}\nThe state is the TARGET SENTENCE."
+
+
+def _d1_probability(response: Any) -> float:
+    """Read the official ``answers[name].noul`` P(yes) field and reject bad results."""
+    try:
+        probability = float(response["answers"][D1_QUESTION_NAME]["noul"])
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("d1 returned an invalid noul probability") from exc
+    if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
+        raise ValueError("d1 returned an invalid noul probability")
+    return probability
+
+
 ZEROSHOT_HYPOTHESIS_MARKER = "HYPOTHESIS:"
 ZEROSHOT_SEQUENCE_LENGTH = 512
 
@@ -724,6 +819,7 @@ _ADAPTERS: dict[str, type[Any]] = {
     "Alibaba-NLP/gte-multilingual-reranker-base": GteScorer,
     "mixedbread-ai/mxbai-rerank-base-v2": MxbaiRerankerScorer,
     "convaiinnovations/laya-multilingual": LayaScorer,
+    "LiquidAI/d1-3B": D1Scorer,
     "Qwen/Qwen3-Reranker-0.6B": RerankerScorer,
     "Qwen/Qwen3-Reranker-4B": RerankerScorer,
     "LiquidAI/LFM2.5-2.6B@logprob": CausalLogprobScorer,

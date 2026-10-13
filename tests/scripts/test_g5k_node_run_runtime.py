@@ -23,6 +23,7 @@ pytestmark = pytest.mark.skipif(_BASH_MAJOR < 4, reason="g5k_node_run.sh needs b
 
 REPOSITORY = Path(__file__).parents[2]
 GTE_MODEL_ID = "Alibaba-NLP/gte-multilingual-reranker-base"
+D1_MODEL_ID = "LiquidAI/d1-3B"
 MXBAI_MODEL_ID = "mixedbread-ai/mxbai-rerank-base-v2"
 GLICLASS_MODEL_ID = "knowledgator/gliclass-multilang-mini"
 GLINER2_MODEL_ID = "fastino/gliner2.5-multi-v1"
@@ -38,7 +39,9 @@ printf '%s\\t%s\\tCUDA=%s\\tLD=%s\\tCMAKE=%s\\tSGLANG_CONTEXT=%s\\n' \\
 if [[ "$1" == sync ]]; then
   if [[ -n "${UV_PROJECT_ENVIRONMENT:-}" ]]; then
     mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"
-    printf '%s\\n' '#!/bin/sh' 'printf "5.11.0\\n"' > "$UV_PROJECT_ENVIRONMENT/bin/python"
+    printf '%s\\n' '#!/bin/sh' \\
+      'printf "%s\\n" "${TEST_TRANSFORMERS_VERSION:-5.11.0}"' \\
+      > "$UV_PROJECT_ENVIRONMENT/bin/python"
     chmod +x "$UV_PROJECT_ENVIRONMENT/bin/python"
     [[ -z "${TEST_ENV_MARKER:-}" ]] || printf '%s\\n' "$UV_PROJECT_ENVIRONMENT" > "$TEST_ENV_MARKER"
   fi
@@ -178,6 +181,32 @@ def test_gte_uses_an_isolated_transformers_511_runtime(tmp_path: Path) -> None:
     assert "pip install --python" in run.uv_log
     assert "transformers==5.11.0" in run.uv_log
     assert "== runtime: Transformers 5.11.0" in run.completed.stdout
+
+
+def test_d1_uses_its_isolated_transformers_517_runtime(tmp_path: Path) -> None:
+    run = _run_node_script(
+        tmp_path,
+        D1_MODEL_ID,
+        extra_environment={"TEST_TRANSFORMERS_VERSION": "5.17.0"},
+    )
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    assert ".venv-d1-job-42" in run.uv_log
+    assert "sync --extra inference --frozen --no-dev" in run.uv_log
+    assert "transformers==5.17.0" in run.uv_log
+    assert "== runtime: Transformers 5.17.0 (d1 compatibility)" in run.completed.stdout
+
+
+def test_d1_runtime_rejects_a_transformers_version_other_than_the_pin(tmp_path: Path) -> None:
+    run = _run_node_script(
+        tmp_path,
+        D1_MODEL_ID,
+        extra_environment={"TEST_TRANSFORMERS_VERSION": "5.18.0"},
+    )
+
+    assert run.completed.returncode == 1
+    assert "expected Transformers 5.17.0, found 5.18.0" in run.completed.stderr
+    assert "lrb languages" not in run.uv_log
 
 
 def test_other_scoring_models_keep_the_locked_runtime(tmp_path: Path) -> None:

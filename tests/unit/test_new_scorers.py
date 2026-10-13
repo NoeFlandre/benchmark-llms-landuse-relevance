@@ -17,6 +17,8 @@ from landuse_relevance_bench.adapters.llama_generator import (
     LlamaSettings,
     render_chat,
 )
+from landuse_relevance_bench.adapters.pipeline import RunRequest
+from landuse_relevance_bench.adapters.translations import load_manifest
 from landuse_relevance_bench.domain.engine import ScoringInput
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.records import RunMetadata
@@ -41,6 +43,33 @@ def test_new_scorers_select_their_intended_adapters() -> None:
     ):
         assert scorer_class_for(model_id) is NliZeroShotScorer
         assert scorer_for(model_id).prompt == "data/prompt_zeroshot.txt"
+
+
+def test_d1_is_a_pinned_typed_scorer_for_the_full_multilingual_inventory() -> None:
+    model_id = "LiquidAI/d1-3B"
+    revision = "051bcc464b01b9f92942b364d9586b0ef5912432"
+
+    spec = scorer_for(model_id)
+    request = RunRequest.for_model(
+        model_id,
+        language="en",
+        benchmark_path=Path("en.csv"),
+        prompt_path=Path("prompt.txt"),
+        output_dir=Path("results"),
+    )
+
+    assert scorer_class_for(model_id).__name__ == "D1Scorer"
+    assert spec.revision == revision
+    assert spec.kind == "typed-decision-model"
+    assert spec.trust_remote_code is True
+    assert spec.supported_languages is None
+    assert spec.prompt == "data/prompt.txt"
+    assert request.revision == revision
+
+    data_root = Path(__file__).parents[2] / "data" / "translations"
+    manifest = load_manifest(data_root)
+    assert len(manifest.languages) == 85
+    assert sum(manifest.files[language].rows for language in manifest.languages) == 25_500
 
 
 def test_lfm_encoder_is_a_masked_lm_scorer_limited_to_its_supported_languages() -> None:

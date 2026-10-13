@@ -54,6 +54,8 @@ LRB_EXPECTED_ROWS="${LRB_EXPECTED_ROWS-300}"
 LRB_CUDA_MODULE="${LRB_CUDA_MODULE:-cuda-toolkit/12.9.1}"
 GTE_MODEL_ID="Alibaba-NLP/gte-multilingual-reranker-base"
 GTE_TRANSFORMERS_VERSION="5.11.0"
+D1_MODEL_ID="LiquidAI/d1-3B"
+D1_TRANSFORMERS_VERSION="5.17.0"
 GLINER2_MODEL_ID="fastino/gliner2.5-multi-v1"
 GLICLASS_MODEL_ID="knowledgator/gliclass-multilang-mini"
 
@@ -104,6 +106,7 @@ fi
 # environment so the locked runtime every other model uses is never touched.
 case "$LRB_MODEL_ID" in
   "$GTE_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gte-${OAR_JOB_ID:-manual}" ;;
+  "$D1_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-d1-${OAR_JOB_ID:-manual}" ;;
   # gliclass is an extra the default sync removes, so a concurrent job on the shared
   # environment would uninstall it mid-run.
   "$GLICLASS_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$LRB_ROOT/.venv-gliclass-${OAR_JOB_ID:-manual}" ;;
@@ -206,6 +209,19 @@ if [[ "$LRB_MODEL_ID" == "$GTE_MODEL_ID" ]]; then
     exit 1
   fi
   echo "== runtime: Transformers $installed_transformers_version (GTE compatibility)"
+fi
+if [[ "$LRB_MODEL_ID" == "$D1_MODEL_ID" ]]; then
+  uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    "transformers==$D1_TRANSFORMERS_VERSION"
+  installed_transformers_version="$(
+    "$UV_PROJECT_ENVIRONMENT/bin/python" -c \
+      'from importlib.metadata import version; print(version("transformers"))'
+  )"
+  if [[ "$installed_transformers_version" != "$D1_TRANSFORMERS_VERSION" ]]; then
+    echo "expected Transformers $D1_TRANSFORMERS_VERSION, found $installed_transformers_version" >&2
+    exit 1
+  fi
+  echo "== runtime: Transformers $installed_transformers_version (d1 compatibility)"
 fi
 
 mapfile -t language_rows < <(uv run --no-sync lrb languages --data-root "$LRB_DATA_ROOT")
