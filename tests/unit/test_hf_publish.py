@@ -12,16 +12,21 @@ from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.hf_publish import (
     CardOptions,
     _default_api,
-    dataset_card,
+    methodology_card,
     publish_results,
     read_published_runs,
     write_viewer_dataset,
+)
+from landuse_relevance_bench.adapters.hf_publish import (
+    dataset_card as published_dataset_card,
 )
 from landuse_relevance_bench.adapters.publishing.card_logprob import _same_gpu_row
 from landuse_relevance_bench.domain import card_invariants
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.metrics import evaluate
 from landuse_relevance_bench.domain.records import Prediction, RunMetadata, RunResult
+
+dataset_card = methodology_card
 
 PROMPT = "Classify the sentence.\n\nTARGET SENTENCE: {}\n"
 PROMPT_SHA256 = sha256_of_text(PROMPT)
@@ -122,6 +127,71 @@ def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
     assert aggregate.count("| b/two |") == 1
     assert "| n_items |" not in aggregate
     assert "benchmark.csv" in card
+
+
+def test_published_summary_keeps_macro_mcc_and_links_the_methods_supplement() -> None:
+    from landuse_relevance_bench.adapters.publishing.card_format import format_card_float
+    from landuse_relevance_bench.adapters.results_store import aggregate_rows
+
+    results = [_result("gen/one"), _scored("knowledgator/gliclass-multilang-ultra")]
+    card = published_dataset_card(
+        results,
+        benchmark_name="v3-multilingual",
+        prompt_text=PROMPT,
+        options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
+    )
+    ultra = next(row for row in aggregate_rows(results) if row["model_id"].endswith("-ultra"))
+
+    assert "| Model | Languages |" in card
+    assert "Native macro MCC |" in card
+    assert "| `knowledgator/gliclass-multilang-ultra` | 1/85 |" in card
+    ultra_row = next(
+        line for line in card.splitlines() if "knowledgator/gliclass-multilang-ultra" in line
+    )
+    assert format_card_float(ultra["matthews_corrcoef_macro"]) in ultra_row
+    assert "docs/results-and-methodology.md" in card
+    assert "No threshold was tuned on gold labels for these native results." in " ".join(
+        card.split()
+    )
+    assert card.startswith("---\nlicense: mit\n")
+
+
+def test_publication_uploads_historical_supplement_and_adds_ultra_provenance(
+    tmp_path: Path,
+) -> None:
+    ultra = _scored("knowledgator/gliclass-multilang-ultra")
+    ultra = replace(
+        ultra,
+        metadata=replace(
+            ultra.metadata,
+            model_revision="33c3ffec64056b0d37173d2dd90b885ac29b72c3",
+        ),
+    )
+    results = [_result("gen/one"), ultra]
+    api = FakeApi()
+    publish_results(
+        "me/bench",
+        tmp_path,
+        results,
+        api=api,
+        prompt_text=PROMPT,
+        scorer_prompt_text=SCORER_PROMPT,
+    )
+
+    card = (tmp_path / "README.md").read_text(encoding="utf-8")
+    supplement = (tmp_path / "docs" / "results-and-methodology.md").read_text(encoding="utf-8")
+
+    assert "Native macro MCC" in card
+    assert "d1-3B precision caveat" in supplement
+    assert "The original full-precision per-item probabilities were not stored" in supplement
+    assert "## Current additions to the historical appendix" in supplement
+    assert "knowledgator/gliclass-multilang-ultra" in supplement
+    assert "20 native training languages" in supplement
+    assert "ar, cs, de, es, et, fi, fr, he, hi, it" in supplement
+    assert "Apache-2.0" in supplement
+    assert "33c3ffec64056b0d37173d2dd90b885ac29b72c3" in supplement
+    assert "25,500 independent source examples" in supplement
+    assert "52 model IDs" not in supplement
 
 
 def test_card_discloses_package_version_recorded_in_run_metadata() -> None:

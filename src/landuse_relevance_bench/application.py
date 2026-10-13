@@ -242,6 +242,7 @@ DEFAULT_BENCHMARK_NAME = "v3-multilingual"
 VIEWER_FILE = "data/train.csv"
 RELEASE_FILES = (
     "README.md",
+    "docs/results-and-methodology.md",
     "leaderboard.csv",
     "aggregates.csv",
     "threshold_sweep.csv",

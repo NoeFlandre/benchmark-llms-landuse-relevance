@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Scoring: add the pinned `knowledgator/gliclass-multilang-ultra` checkpoint. Use one
+  English land-use hypothesis with GLiClass multi-label scoring and the fixed inclusive
+  0.5 sigmoid-score rule; retain its native tie behavior and evaluate all 85 languages.
+- Publishing: keep the concise dataset summary in sync with aggregate rows, including
+  macro MCC, and generate a methods supplement that preserves the historical appendix
+  and records new scoring model protocols and revisions.
 - Security: scoring models no longer run their Hub checkpoint's remote code unless their
   roster entry opts in. An opt-in needs a full 40-character lowercase commit SHA as the
   revision; any other revision is refused before any download. The SHA pins only the
