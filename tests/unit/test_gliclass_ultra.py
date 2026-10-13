@@ -1,5 +1,6 @@
 """The GLiClass Ultra adapter follows the pinned upstream score contract."""
 
+import json
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -13,9 +14,12 @@ from landuse_relevance_bench.adapters.hf_scorer import (
     ScorerSettings,
     scorer_class_for,
 )
+from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.application import manifest_for
+from landuse_relevance_bench.domain.dataset import BenchmarkItem
 from landuse_relevance_bench.domain.engine import ScoringInput
 from landuse_relevance_bench.domain.labels import Label
+from landuse_relevance_bench.domain.orchestration import score_all
 from landuse_relevance_bench.domain.scorers import (
     GLICLASS_ULTRA_ID,
     GLICLASS_ULTRA_NATIVE_LANGUAGES,
@@ -35,12 +39,41 @@ def test_ultra_is_pinned_and_runs_all_85_languages() -> None:
     manifest = manifest_for(Path(__file__).parents[2] / "data" / "translations")
 
     assert len(GLICLASS_ULTRA_REVISION) == 40
-    assert len(GLICLASS_ULTRA_NATIVE_LANGUAGES) == 20
+    assert GLICLASS_ULTRA_NATIVE_LANGUAGES == (
+        "ar",
+        "cs",
+        "de",
+        "es",
+        "et",
+        "fi",
+        "fr",
+        "he",
+        "hi",
+        "it",
+        "lt",
+        "lv",
+        "nl",
+        "no",
+        "pl",
+        "pt",
+        "ro",
+        "sv",
+        "uk",
+        "zh",
+    )
     assert spec.total_parameters == 1_720_000_000
     assert spec.supported_languages is None
     assert spec.prompt == "data/prompt_zeroshot.txt"
     assert "native training coverage is 20 languages" in spec.note
     assert scorer_class_for(GLICLASS_ULTRA_ID) is GliClassUltraScorer
+    request = RunRequest.for_model(
+        GLICLASS_ULTRA_ID,
+        language="en",
+        benchmark_path=Path("data/translations/en.csv"),
+        prompt_path=Path("data/prompt_zeroshot.txt"),
+        output_dir=Path("results"),
+    )
+    assert request.revision == GLICLASS_ULTRA_REVISION
     assert manifest.revision == "d431a6c522b3c3a616e4f3d2814906c3011843e7"
     assert len(manifest.languages) == 85
     assert {manifest.files[language].rows for language in manifest.languages} == {300}
@@ -71,6 +104,29 @@ def test_ultra_uses_one_independent_label_score_and_the_inclusive_native_cutoff(
     assert [score.verdict for score in scores] == [Label.YES, Label.NO, Label.YES]
     assert [score.scores[Label.YES] for score in scores] == [0.5, 0.499999, 0.500001]
     assert [score.native_score for score in scores] == [0.5, 0.499999, 0.500001]
+
+
+def test_ultra_keeps_full_precision_scores_in_saved_predictions() -> None:
+    yes_score = 0.5000001
+
+    def pipeline(texts: list[str], labels: list[str], **_kwargs: Any) -> list[list[dict[str, Any]]]:
+        return [[{"label": labels[0], "score": yes_score}] for _ in texts]
+
+    item = BenchmarkItem(
+        item_id="0123456789abcdef",
+        source_item_id="source-1",
+        language="en",
+        sentence="A sentence about forests.",
+        label=Label.YES,
+    )
+    template = f"TARGET SENTENCE: {{}}\n\nHYPOTHESIS: {HYPOTHESIS}\n"
+    (prediction,) = score_all([item], template, GliClassUltraScorer(pipeline, "revision"))
+    restored = type(prediction).from_dict(json.loads(json.dumps(prediction.to_dict())))
+
+    assert prediction.raw_output == "no=0.500000 yes=0.500000 native=0.500000"
+    assert prediction.label_scores == {Label.NO: 1.0 - yes_score, Label.YES: yes_score}
+    assert prediction.predicted is Label.YES
+    assert restored.label_scores == prediction.label_scores
 
 
 def test_ultra_loader_pins_model_and_tokenizer_to_the_same_commit(

@@ -26,6 +26,7 @@ GTE_MODEL_ID = "Alibaba-NLP/gte-multilingual-reranker-base"
 D1_MODEL_ID = "LiquidAI/d1-3B"
 MXBAI_MODEL_ID = "mixedbread-ai/mxbai-rerank-base-v2"
 GLICLASS_MODEL_ID = "knowledgator/gliclass-multilang-mini"
+GLICLASS_ULTRA_MODEL_ID = "knowledgator/gliclass-multilang-ultra"
 GLINER2_MODEL_ID = "fastino/gliner2.5-multi-v1"
 GGUF_MODEL_ID = "unsloth/Qwen3.8-27B-GGUF@UD-IQ2_XXS"
 GENERATIVE_MODEL_ID = "LiquidAI/LFM2.5-350M"
@@ -323,6 +324,18 @@ def test_full_roster_sglang_uses_per_job_scratch_environment(tmp_path: Path) -> 
 
 def test_gliclass_syncs_the_scoring_extra_in_its_own_environment(tmp_path: Path) -> None:
     run = _run_node_script(tmp_path, GLICLASS_MODEL_ID)
+
+    assert run.completed.returncode == 0, run.completed.stderr
+    (sync,) = run.uv_lines("\tsync ")
+    assert ".venv-gliclass-job-42" in sync
+    assert "--extra inference --extra scoring --frozen --no-dev" in sync
+    assert "pip install" not in run.uv_log
+
+
+def test_gliclass_ultra_syncs_the_scoring_extra_in_its_own_environment(
+    tmp_path: Path,
+) -> None:
+    run = _run_node_script(tmp_path, GLICLASS_ULTRA_MODEL_ID)
 
     assert run.completed.returncode == 0, run.completed.stderr
     (sync,) = run.uv_lines("\tsync ")

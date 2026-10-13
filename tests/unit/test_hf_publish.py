@@ -184,6 +184,7 @@ def test_publication_uploads_historical_supplement_and_adds_ultra_provenance(
     assert "Native macro MCC" in card
     assert "d1-3B precision caveat" in supplement
     assert "The original full-precision per-item probabilities were not stored" in supplement
+    assert "unrounded label scores in the JSON `label_scores` field" in supplement
     assert "## Current additions to the historical appendix" in supplement
     assert "knowledgator/gliclass-multilang-ultra" in supplement
     assert "20 native training languages" in supplement

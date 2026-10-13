@@ -6,6 +6,10 @@ The 85 language editions translate the same 300 source sentences. Treat them as 
 language results, not as 25,500 independent source examples; macro metrics average across
 languages.
 
+Current scoring runs store unrounded label scores in the JSON `label_scores` field; the
+readable `raw_output` string remains rounded to six decimals. Legacy result files without
+`label_scores` remain readable and use their saved text scores for threshold sweeps.
+
 ## Task and prompt
 
 Does a sentence describe a place's land or environment in ways visible to satellites?

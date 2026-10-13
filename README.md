@@ -69,6 +69,10 @@ A scoring run keeps the normalised relevance score and the native score of the m
 each item. It sweeps thresholds. It reports the best MCC, F1, balanced accuracy,
 precision, recall, and ROC-AUC in `scoring_summary.csv`.
 
+New scoring run files store unrounded JSON-float label scores in `label_scores`; the
+readable `raw_output` string stays rounded to six decimals. Older run files without
+`label_scores` remain readable and their threshold sweeps use the saved text scores.
+
 A scoring run records the inference throughput in items per second. It also records the
 peak allocated CUDA VRAM when a CUDA device is available. These values are in the
 detailed `leaderboard.csv` and in the scoring summary.
@@ -90,7 +94,8 @@ Each adapter keeps the interface that the checkpoint was made for:
 `knowledgator/gliclass-multilang-ultra` uses GLiClass multi-label mode for one English
 hypothesis and the raw sentence. Its native yes score is the sigmoid label score; the
 fixed verdict is yes when that score is at least 0.5, including an exact tie. This score
-is not described as a calibrated probability. Its [official model card](https://huggingface.co/knowledgator/gliclass-multilang-ultra) lists 20 native
+is stored with a complementary `no = 1 - yes` score for the benchmark's binary interface,
+and is not described as a calibrated probability. Its [official model card](https://huggingface.co/knowledgator/gliclass-multilang-ultra) lists 20 native
 training languages (`ar`, `cs`, `de`, `es`, `et`, `fi`, `fr`, `he`, `hi`, `it`, `lt`,
 `lv`, `nl`, `no`, `pl`, `pt`, `ro`, `sv`, `uk`, `zh`) and describes cross-lingual use;
 it declares Apache-2.0. The benchmark run still covers all 85 languages.

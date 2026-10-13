@@ -212,6 +212,7 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "GLiClass Multilang Ultra; native training coverage is 20 languages, evaluated on all 85.",
         ZEROSHOT_PROMPT,
         card=("GLiClass multi-label", "sentence + one English hypothesis", "sigmoid label score"),
+        revision=GLICLASS_ULTRA_REVISION,
     ),
     ScorerSpec(
         "MoritzLaurer/bge-m3-zeroshot-v2.0",
