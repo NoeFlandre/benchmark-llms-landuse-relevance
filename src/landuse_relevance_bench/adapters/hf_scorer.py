@@ -463,7 +463,7 @@ class D1Scorer(_PipelineScorer):
 
 def _d1_instructions(prompt: str) -> str:
     """Move the rendered benchmark rubric into d1's typed question instructions."""
-    rubric, marker, _sentence = prompt.rpartition(D1_TARGET_SENTENCE_MARKER)
+    rubric, marker, _sentence = prompt.partition(D1_TARGET_SENTENCE_MARKER)
     if not marker or not rubric.strip():
         raise ValueError(f"d1 prompt must include a {D1_TARGET_SENTENCE_MARKER!r} field")
     return f"{rubric.rstrip()}\nThe state is the TARGET SENTENCE."
