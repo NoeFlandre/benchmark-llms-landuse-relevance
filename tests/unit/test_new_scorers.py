@@ -22,7 +22,7 @@ from landuse_relevance_bench.adapters.translations import load_manifest
 from landuse_relevance_bench.domain.engine import ScoringInput
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.records import RunMetadata
-from landuse_relevance_bench.domain.scorers import ARGMAX, repository_of, scorer_for
+from landuse_relevance_bench.domain.scorers import D1_ARGMAX, repository_of, scorer_for
 
 HYPOTHESIS = "It is about land use."
 PROMPT = f"TARGET SENTENCE: forest\n\nHYPOTHESIS: {HYPOTHESIS}\n"
@@ -61,7 +61,8 @@ def test_d1_is_a_pinned_typed_scorer_for_the_full_multilingual_inventory() -> No
     assert scorer_class_for(model_id).__name__ == "D1Scorer"
     assert spec.revision == revision
     assert spec.kind == "typed-decision-model"
-    assert spec.decision_rule == ARGMAX
+    assert spec.decision_rule == D1_ARGMAX
+    assert "ties resolve to no" in spec.decision_rule
     assert spec.trust_remote_code is True
     assert spec.supported_languages is None
     assert spec.prompt == "data/prompt.txt"
