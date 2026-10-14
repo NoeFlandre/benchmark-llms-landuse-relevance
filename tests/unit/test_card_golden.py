@@ -14,7 +14,8 @@ from tests.unit.test_hf_publish import (
     _scoring_result,
 )
 
-from landuse_relevance_bench.adapters.hf_publish import CardOptions, dataset_card
+from landuse_relevance_bench.adapters.hf_publish import CardOptions
+from landuse_relevance_bench.adapters.hf_publish import methodology_card as dataset_card
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
 from landuse_relevance_bench.adapters.results_store import read_runs
 from landuse_relevance_bench.domain.labels import Label

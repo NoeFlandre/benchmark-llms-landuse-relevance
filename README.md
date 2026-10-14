@@ -69,6 +69,10 @@ A scoring run keeps the normalised relevance score and the native score of the m
 each item. It sweeps thresholds. It reports the best MCC, F1, balanced accuracy,
 precision, recall, and ROC-AUC in `scoring_summary.csv`.
 
+New scoring run files store unrounded JSON-float label scores in `label_scores`; the
+readable `raw_output` string stays rounded to six decimals. Older run files without
+`label_scores` remain readable and their threshold sweeps use the saved text scores.
+
 A scoring run records the inference throughput in items per second. It also records the
 peak allocated CUDA VRAM when a CUDA device is available. These values are in the
 detailed `leaderboard.csv` and in the scoring summary.
@@ -86,6 +90,15 @@ Each adapter keeps the interface that the checkpoint was made for:
 - `LFM2.5-2.6B@logprob` reads `P(yes)` against `P(no)` from one forward pass. The
   forward pass uses the generative turn with an empty think block at the end.
 - The NLI models, GLiClass, and GLiNER2 score the hypothesis in `data/prompt_zeroshot.txt`.
+
+`knowledgator/gliclass-multilang-ultra` uses GLiClass multi-label mode for one English
+hypothesis and the raw sentence. Its native yes score is the sigmoid label score; the
+fixed verdict is yes when that score is at least 0.5, including an exact tie. This score
+is stored with a complementary `no = 1 - yes` score for the benchmark's binary interface,
+and is not described as a calibrated probability. Its [official model card](https://huggingface.co/knowledgator/gliclass-multilang-ultra) lists 20 native
+training languages (`ar`, `cs`, `de`, `es`, `et`, `fi`, `fr`, `he`, `hi`, `it`, `lt`,
+`lv`, `nl`, `no`, `pl`, `pt`, `ro`, `sv`, `uk`, `zh`) and describes cross-lingual use;
+it declares Apache-2.0. The benchmark run still covers all 85 languages.
 
 Laya uses the context of 1,024 tokens of the checkpoint and the runtime dtype that the
 SDK selects. The run records the other scoring sequence lengths.
@@ -114,7 +127,9 @@ decoding settings, the seed, and the source commit.
 
 The active inventory is [`data/translations/manifest.json`](data/translations/manifest.json).
 It has 85 language configurations. Each configuration has 300 aligned adjudicated rows.
-The Hub release gives the same records as one `data/train.csv` split for the viewer.
+They translate the same 300 source sentences, so the 25,500 model-language cases are not
+25,500 independent source examples. The Hub release gives the same records as one
+`data/train.csv` split for the viewer.
 
 ## Outputs
 
@@ -176,6 +191,7 @@ the code writes runs and from which it reads them. The explicit options `--data-
 | `Qwen/Qwen3-Reranker-4B` | ~4.022B | yes/no next-token argmax |
 | `LiquidAI/LFM2.5-2.6B@logprob` | ~2.7B | first-token yes/no log-probs, one forward pass |
 | `knowledgator/gliclass-multilang-mini` | ~0.284B | GLiClass label probability |
+| `knowledgator/gliclass-multilang-ultra` | ~1.72B | GLiClass multi-label sigmoid score; `>= 0.5`, ties yes; Apache-2.0 |
 | `MoritzLaurer/bge-m3-zeroshot-v2.0` | ~0.568B | NLI entailment probability |
 | `MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7` | ~0.279B | NLI entailment probability |
 | `BalaRajesh1/mmbert-small-nli` | ~0.141B | NLI entailment probability |

@@ -62,6 +62,7 @@ D1_MODEL_ID="LiquidAI/d1-3B"
 D1_TRANSFORMERS_VERSION="5.17.0"
 GLINER2_MODEL_ID="fastino/gliner2.5-multi-v1"
 GLICLASS_MODEL_ID="knowledgator/gliclass-multilang-mini"
+GLICLASS_ULTRA_MODEL_ID="knowledgator/gliclass-multilang-ultra"
 
 if [[ "${1:-}" == "--dry-run" ]]; then
   LRB_DRY_RUN=1
@@ -113,7 +114,8 @@ case "$LRB_MODEL_ID" in
   "$D1_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-d1-$JOB_ID_SUFFIX" ;;
   # gliclass is an extra the default sync removes, so a concurrent job on the shared
   # environment would uninstall it mid-run.
-  "$GLICLASS_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-gliclass-$JOB_ID_SUFFIX" ;;
+  "$GLICLASS_MODEL_ID"|"$GLICLASS_ULTRA_MODEL_ID") \
+    export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-gliclass-$JOB_ID_SUFFIX" ;;
   "$GLINER2_MODEL_ID") export UV_PROJECT_ENVIRONMENT="$NODE_SCRATCH_ROOT/.venv-gliner2-$JOB_ID_SUFFIX" ;;
 esac
 if (( is_quantized == 1 )); then
@@ -158,7 +160,7 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 # Every runtime is resolved by uv.lock. `gliner2` conflicts with `inference`
 # (Transformers<5 vs 5), so its environment syncs that extra alone.
 extras=(--extra inference)
-if [[ "$LRB_MODEL_ID" == "$GLICLASS_MODEL_ID" ]]; then
+if [[ "$LRB_MODEL_ID" == "$GLICLASS_MODEL_ID" || "$LRB_MODEL_ID" == "$GLICLASS_ULTRA_MODEL_ID" ]]; then
   extras+=(--extra scoring)
 elif [[ "$LRB_MODEL_ID" == "$GLINER2_MODEL_ID" ]]; then
   extras=(--extra gliner2)

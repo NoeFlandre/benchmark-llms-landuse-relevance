@@ -8,7 +8,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from landuse_relevance_bench.adapters.publishing.card import CardOptions, dataset_card
+from landuse_relevance_bench.adapters.publishing.card import (
+    CardOptions,
+    dataset_card,
+    methodology_card,
+    methodology_supplement,
+)
 from landuse_relevance_bench.adapters.publishing.card_agreement import DSPARK_COLUMNS
 from landuse_relevance_bench.adapters.publishing.card_overview import CARD_COLUMNS
 from landuse_relevance_bench.adapters.publishing.card_scoring import (
@@ -33,6 +38,8 @@ __all__ = [
     "CardOptions",
     "DatasetHub",
     "dataset_card",
+    "methodology_card",
+    "methodology_supplement",
     "publish_results",
     "read_published_runs",
     "write_viewer_dataset",
@@ -84,17 +91,29 @@ def publish_results(
             languages=sorted({result.metadata.language for result in results}),
         )
         viewer_file = "data/train.csv"
+    card_options = CardOptions(
+        scorer_prompt_text=scorer_prompt_text,
+        extra_scorer_prompt_texts=extra_scorer_prompt_texts,
+        timing_results=timing_results,
+        viewer_file=viewer_file,
+    )
     (results_dir / "README.md").write_text(
         dataset_card(
             results,
             benchmark_name=benchmark_name,
             prompt_text=prompt_text,
-            options=CardOptions(
-                scorer_prompt_text=scorer_prompt_text,
-                extra_scorer_prompt_texts=extra_scorer_prompt_texts,
-                timing_results=timing_results,
-                viewer_file=viewer_file,
-            ),
+            options=card_options,
+        ),
+        encoding="utf-8",
+    )
+    supplement_path = results_dir / "docs" / "results-and-methodology.md"
+    supplement_path.parent.mkdir(parents=True, exist_ok=True)
+    supplement_path.write_text(
+        methodology_supplement(
+            results,
+            benchmark_name=benchmark_name,
+            prompt_text=prompt_text,
+            options=card_options,
         ),
         encoding="utf-8",
     )

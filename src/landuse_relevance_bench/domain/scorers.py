@@ -23,6 +23,36 @@ LAYA_RELEVANCE_THRESHOLD = "Laya noul yes probability at 0.5"
 LOGPROB_ARGMAX = "argmax over the first-token yes/no log-probabilities"
 ENTAILMENT_THRESHOLD = "zero-shot pipeline entailment probability at 0.5"
 LABEL_THRESHOLD = "zero-shot label probability at 0.5"
+GLICLASS_ULTRA_ID = "knowledgator/gliclass-multilang-ultra"
+GLICLASS_ULTRA_REVISION = "33c3ffec64056b0d37173d2dd90b885ac29b72c3"
+GLICLASS_ULTRA_NATIVE_LANGUAGES = (
+    "ar",
+    "cs",
+    "de",
+    "es",
+    "et",
+    "fi",
+    "fr",
+    "he",
+    "hi",
+    "it",
+    "lt",
+    "lv",
+    "nl",
+    "no",
+    "pl",
+    "pt",
+    "ro",
+    "sv",
+    "uk",
+    "zh",
+)
+GLICLASS_ULTRA_THRESHOLD = 0.5
+GLICLASS_ULTRA_NATIVE_THRESHOLD = (
+    f"GLiClass multi-label sigmoid label score >= {GLICLASS_ULTRA_THRESHOLD}; "
+    "exact ties resolve to yes"
+)
+D1_MODEL_CARD_LANGUAGE_COUNT = 16
 
 #: Prompt files, relative to the project root. Each scorer names the one it is asked
 #: with, so a run's recorded prompt digest always matches its model's intended input.
@@ -173,6 +203,16 @@ SCORER_ROSTER: tuple[ScorerSpec, ...] = (
         "GLiClass multilingual zero-shot classifier; one land-use label.",
         ZEROSHOT_PROMPT,
         card=("GLiClass zero-shot", "sentence + hypothesis label", "label probability"),
+    ),
+    ScorerSpec(
+        GLICLASS_ULTRA_ID,
+        1_720_000_000,
+        "zero-shot-classifier",
+        GLICLASS_ULTRA_NATIVE_THRESHOLD,
+        "GLiClass Multilang Ultra; native training coverage is 20 languages, evaluated on all 85.",
+        ZEROSHOT_PROMPT,
+        card=("GLiClass multi-label", "sentence + one English hypothesis", "sigmoid label score"),
+        revision=GLICLASS_ULTRA_REVISION,
     ),
     ScorerSpec(
         "MoritzLaurer/bge-m3-zeroshot-v2.0",

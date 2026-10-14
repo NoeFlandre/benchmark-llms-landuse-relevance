@@ -21,7 +21,13 @@ from landuse_relevance_bench.adapters.pipeline import SCORING_SEQUENCE_LENGTH, R
 from landuse_relevance_bench.adapters.revision import loaded_revision
 from landuse_relevance_bench.domain.engine import LabelScorer, LabelScores, ScoringInput
 from landuse_relevance_bench.domain.labels import Label
-from landuse_relevance_bench.domain.scorers import MXBAI_LOGIT_OFFSET, scorer_for
+from landuse_relevance_bench.domain.scorers import (
+    GLICLASS_ULTRA_ID,
+    GLICLASS_ULTRA_REVISION,
+    GLICLASS_ULTRA_THRESHOLD,
+    MXBAI_LOGIT_OFFSET,
+    scorer_for,
+)
 from landuse_relevance_bench.domain.variants import repository_of
 
 _SINGLE_LOGIT_COUNT = 1
@@ -590,10 +596,13 @@ class GliClassScorer(_PipelineScorer):
 
         transformers = _load_transformers()
 
+        pinned_revision = revision
+        if model_id == GLICLASS_ULTRA_ID and pinned_revision is None:
+            pinned_revision = GLICLASS_ULTRA_REVISION
         model = GLiClassModel.from_pretrained(
-            model_id, revision=revision or "main", dtype=getattr(torch, settings.dtype)
+            model_id, revision=pinned_revision or "main", dtype=getattr(torch, settings.dtype)
         )
-        tokenizer = transformers.AutoTokenizer.from_pretrained(model_id, revision=revision)
+        tokenizer = transformers.AutoTokenizer.from_pretrained(model_id, revision=pinned_revision)
         # multi-label scores each label independently, so one label keeps its own
         # probability instead of being normalised to 1 against nothing.
         pipeline = ZeroShotClassificationPipeline(
@@ -605,7 +614,7 @@ class GliClassScorer(_PipelineScorer):
             progress_bar=False,
         )
         resolved = loaded_revision(model)
-        return cls(pipeline, revision or resolved)
+        return cls(pipeline, pinned_revision or resolved)
 
     def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         hypothesis = batch_hypothesis(inputs)
@@ -623,6 +632,73 @@ def _label_probability(result: Any, label: str) -> LabelScores:
         if entry["label"] == label:
             return _probability_scores(entry["score"])
     raise ValueError(f"GLiClass returned no score for the label {label!r}")
+
+
+def _check_gliclass_input_lengths(
+    pipeline: Any, inputs: Sequence[ScoringInput], hypothesis: str, max_length: int
+) -> None:
+    """Fail before GLiClass silently truncates any formatted input sequence."""
+    runtime_pipeline = getattr(pipeline, "pipe", None)
+    prepare_input = getattr(runtime_pipeline, "prepare_input", None)
+    tokenizer = getattr(runtime_pipeline, "tokenizer", None)
+    if not callable(prepare_input) or not callable(tokenizer):
+        raise TypeError(
+            "GLiClass Ultra needs the pipeline's input formatter and tokenizer to verify "
+            "sequence lengths; refusing to score unverified inputs"
+        )
+
+    formatted = [prepare_input(item.sentence, [hypothesis]) for item in inputs]
+    encoded = tokenizer(formatted, truncation=False, padding=False)
+    token_sequences = encoded["input_ids"]
+    if len(token_sequences) != len(inputs):
+        raise ValueError("GLiClass Ultra tokenizer returned an unexpected number of input rows")
+    lengths = [len(sequence) for sequence in token_sequences]
+    overflowing = [(index, length) for index, length in enumerate(lengths) if length > max_length]
+    if overflowing:
+        examples = ", ".join(
+            f"batch index {index}: {length} tokens" for index, length in overflowing[:5]
+        )
+        raise ValueError(
+            f"GLiClass Ultra input would be truncated at max_length={max_length}; "
+            f"refusing to score {len(overflowing)} overlength input(s) ({examples})"
+        )
+
+
+class _ThresholdLabelScores(LabelScores):
+    """A label-score pair with the upstream multi-label decision kept explicit."""
+
+    __slots__ = ("_native_verdict",)
+
+    def __init__(self, scores: dict[Label, float], native_score: float, decision: Label) -> None:
+        super().__init__(scores, native_score)
+        object.__setattr__(self, "_native_verdict", decision)
+
+    @property
+    def verdict(self) -> Label:
+        return self._native_verdict
+
+
+class GliClassUltraScorer(GliClassScorer):
+    """GLiClass Ultra with its documented inclusive 0.5 multi-label cutoff.
+
+    The shared Mini adapter resolves exact ties by argmax's label order. Ultra instead
+    follows the upstream pipeline, whose multi-label rule includes scores equal to the
+    configured threshold. Keep this narrow so the already-published Mini result keeps
+    its historical decision convention.
+    """
+
+    def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
+        hypothesis = batch_hypothesis(inputs)
+        _check_gliclass_input_lengths(self._pipeline, inputs, hypothesis, ZEROSHOT_SEQUENCE_LENGTH)
+        scored = super()._score_nonempty(inputs)
+        return [
+            _ThresholdLabelScores(
+                dict(result.scores),
+                float(result.scores[Label.YES]),
+                Label.YES if result.scores[Label.YES] >= GLICLASS_ULTRA_THRESHOLD else Label.NO,
+            )
+            for result in scored
+        ]
 
 
 class Gliner2Scorer(_PipelineScorer):
@@ -825,6 +901,7 @@ _ADAPTERS: dict[str, type[Any]] = {
     "LiquidAI/LFM2.5-2.6B@logprob": CausalLogprobScorer,
     "LiquidAI/LFM2.5-Encoder-350M": MaskedTokenScorer,
     "knowledgator/gliclass-multilang-mini": GliClassScorer,
+    GLICLASS_ULTRA_ID: GliClassUltraScorer,
     "MoritzLaurer/bge-m3-zeroshot-v2.0": NliZeroShotScorer,
     "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7": NliZeroShotScorer,
     "BalaRajesh1/mmbert-small-nli": NliZeroShotScorer,
