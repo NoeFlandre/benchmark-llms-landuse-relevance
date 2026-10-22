@@ -36,7 +36,7 @@ scoring = [
 # gliner2 pins Transformers<5, incompatible with `inference`: it is locked as a
 # conflicting extra and synced into its own environment on the node.
 gliner2 = [
-    "gliner2[local]==2.0.0",
+    "gliner2[local]==2.1.0",
     "protobuf",
     "sentencepiece",
 ]
