@@ -1,5 +1,6 @@
 """Usage-error messages, planning lines and checkpoint handling of the CLI use cases."""
 
+import json
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -12,7 +13,11 @@ from factories import make_result
 from landuse_relevance_bench import application
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.adapters.prompt_file import PromptFileError
-from landuse_relevance_bench.adapters.results_store import run_filename
+from landuse_relevance_bench.adapters.results_store import (
+    dumps_run_payload,
+    run_filename,
+    write_run,
+)
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.records import Prediction
 from landuse_relevance_bench.domain.roster import ROSTER, SGLANG, TRANSFORMERS
@@ -54,11 +59,15 @@ def _no_git_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _request(tmp_path: Path, model: str = "m", language: str = "en") -> RunRequest:
+    benchmark_path = tmp_path / "b.csv"
+    prompt_path = tmp_path / "p.txt"
+    benchmark_path.write_text("id,expected,sentence\n1,yes,example\n", encoding="utf-8")
+    prompt_path.write_text("Judge this sentence: {}", encoding="utf-8")
     return RunRequest(
         model_id=model,
         language=language,
-        benchmark_path=tmp_path / "b.csv",
-        prompt_path=tmp_path / "p.txt",
+        benchmark_path=benchmark_path,
+        prompt_path=prompt_path,
         output_dir=tmp_path,
     )
 
@@ -77,13 +86,18 @@ def test_run_pair_skips_a_complete_checkpoint_unless_told_otherwise(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
     _store_checkpoint(tmp_path)
-    meta = SimpleNamespace(name="m", language="en")
+    request = _request(tmp_path)
+    meta = SimpleNamespace(
+        name="m",
+        language="en",
+        experiment_identity=application._requested_experiment_identity(request),
+    )
     monkeypatch.setattr(application, "read_run", lambda _path: SimpleNamespace(metadata=meta))
 
     def never_runs():
         raise AssertionError("a complete pair must not run again")
 
-    application.run_pair(_request(tmp_path), never_runs, lambda _result: "")
+    application.run_pair(request, never_runs, lambda _result: "")
 
     assert capsys.readouterr().out == "m [en] already complete; skipping\n"
 
@@ -103,6 +117,173 @@ def test_run_pair_refuses_a_checkpoint_it_cannot_read(
         match=re.escape(f"{stored} is unreadable or contains a different model-language run"),
     ):
         application.run_pair(_request(tmp_path), lambda: pytest.fail("must not run"), lambda _r: "")
+
+
+@pytest.mark.parametrize(
+    ("change", "identity_field"),
+    [
+        ("prompt", "prompt_sha256"),
+        ("dataset", "benchmark_sha256"),
+        ("revision", "requested_revision"),
+        ("max_new_tokens", "max_new_tokens"),
+        ("seed", "seed"),
+        ("dtype", "dtype"),
+        ("batch_size", "batch_size"),
+        ("generation_mode", "generation_mode"),
+    ],
+)
+def test_run_pair_rejects_changed_experiment_identity_without_overwriting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+    identity_field: str,
+) -> None:
+    request = _request(tmp_path)
+    stored_path = _store_checkpoint(tmp_path)
+    original_file = stored_path.read_bytes()
+    saved_metadata = SimpleNamespace(
+        name=request.name,
+        language=request.language,
+        experiment_identity=application._requested_experiment_identity(request),
+    )
+    monkeypatch.setattr(
+        application, "read_run", lambda _path: SimpleNamespace(metadata=saved_metadata)
+    )
+
+    if change == "prompt":
+        request.prompt_path.write_text("Changed prompt: {}", encoding="utf-8")
+    elif change == "dataset":
+        request.benchmark_path.write_text(
+            "id,expected,sentence\n1,no,different example\n", encoding="utf-8"
+        )
+    else:
+        changed_values: dict[str, object] = {
+            "revision": "new-revision",
+            "max_new_tokens": 123,
+            "seed": 7,
+            "dtype": "float16",
+            "batch_size": 4,
+            "generation_mode": True,
+        }
+        field = "continuous_batching" if change == "generation_mode" else change
+        request = replace(request, **{field: changed_values[change]})
+
+    with pytest.raises(typer.BadParameter, match=identity_field):
+        application.run_pair(
+            request, lambda: pytest.fail("mismatched checkpoint must not run"), lambda _r: ""
+        )
+
+    assert stored_path.read_bytes() == original_file
+
+
+def test_run_pair_rejects_legacy_metadata_without_overwriting(
+    tmp_path: Path,
+) -> None:
+    request = _request(tmp_path)
+    stored_path = write_run(make_result(model_id=request.model_id), tmp_path)
+    payload = json.loads(stored_path.read_text(encoding="utf-8"))
+    payload["metadata"].pop("experiment_identity")
+    stored_path.write_text(dumps_run_payload(payload), encoding="utf-8")
+    original_file = stored_path.read_bytes()
+
+    with pytest.raises(typer.BadParameter) as error:
+        application.run_pair(
+            request, lambda: pytest.fail("legacy checkpoint must not run"), lambda _r: ""
+        )
+
+    assert str(error.value) == (
+        f"{stored_path} has legacy or unsupported metadata without a usable "
+        "experiment identity; refusing to reuse or overwrite the stored result"
+    )
+    assert stored_path.read_bytes() == original_file
+
+
+def test_run_pair_rejects_incomplete_versioned_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+    stored_path = _store_checkpoint(tmp_path)
+    saved_metadata = SimpleNamespace(
+        name=request.name,
+        language=request.language,
+        experiment_identity={"schema_version": 1},
+    )
+    monkeypatch.setattr(
+        application, "read_run", lambda _path: SimpleNamespace(metadata=saved_metadata)
+    )
+
+    with pytest.raises(typer.BadParameter, match="requested_revision"):
+        application.run_pair(
+            request, lambda: pytest.fail("incomplete checkpoint must not run"), lambda _r: ""
+        )
+
+    assert stored_path.read_text(encoding="utf-8") == "{}"
+
+
+def test_run_pair_reports_each_changed_identity_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+    stored_path = _store_checkpoint(tmp_path)
+    original_file = stored_path.read_bytes()
+    saved_metadata = SimpleNamespace(
+        name=request.name,
+        language=request.language,
+        experiment_identity=application._requested_experiment_identity(request),
+    )
+    monkeypatch.setattr(
+        application, "read_run", lambda _path: SimpleNamespace(metadata=saved_metadata)
+    )
+    request = replace(request, revision="new-revision", max_new_tokens=123)
+
+    with pytest.raises(typer.BadParameter) as error:
+        application.run_pair(
+            request, lambda: pytest.fail("mismatched checkpoint must not run"), lambda _r: ""
+        )
+
+    message = str(error.value)
+    assert "experiment identity differs in max_new_tokens, requested_revision" in message
+    assert "refusing to reuse or overwrite the stored result" in message
+    assert stored_path.read_bytes() == original_file
+
+
+def test_run_pair_preserves_input_error_when_identity_cannot_be_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+    request.prompt_path.unlink()
+    stored_path = _store_checkpoint(tmp_path)
+    metadata = SimpleNamespace(
+        name=request.name,
+        language=request.language,
+        experiment_identity={"schema_version": 1},
+    )
+    monkeypatch.setattr(application, "read_run", lambda _path: SimpleNamespace(metadata=metadata))
+
+    with pytest.raises(typer.BadParameter) as error:
+        application.run_pair(
+            request,
+            lambda: pytest.fail("identity input failure must stop before run"),
+            lambda _r: "",
+        )
+
+    assert str(request.prompt_path) in str(error.value)
+    assert stored_path.read_text(encoding="utf-8") == "{}"
+
+
+def test_run_pair_rejects_unusable_result_from_checkpoint_reader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = _request(tmp_path)
+    stored_path = _store_checkpoint(tmp_path)
+    monkeypatch.setattr(application, "_checkpoint_result", lambda *_: ("complete", None))
+
+    with pytest.raises(typer.BadParameter, match="could not be read as a run result"):
+        application.run_pair(
+            request, lambda: pytest.fail("unusable checkpoint must not run"), lambda _r: ""
+        )
+
+    assert stored_path.read_text(encoding="utf-8") == "{}"
 
 
 def test_run_pair_reports_an_input_failure_as_a_usage_error(tmp_path: Path) -> None:

@@ -19,7 +19,7 @@ This page defines the project terms. Each term has one meaning in all the docume
 | scoring model | A model that gives a relevance score for each item. It does not write text. |
 | run | One model on one language split. |
 | run file | The JSON file that holds the data of one run. |
-| checkpoint | A run file that is complete. A job skips a run that has a checkpoint. |
+| checkpoint | A complete run file that can be reused when its experiment identity matches the current request. |
 | verdict | The `yes` or `no` that the benchmark reads from a generation. |
 | generation | The text that a model writes for one item. |
 | unparsed | A generation that has no verdict. The benchmark counts it as an error. |

@@ -48,7 +48,7 @@ start.
 | --- | --- | --- |
 | `--only REGEX` | `run-all` | Run only the roster run names that match the regular expression. |
 | `--runtime NAME` | `run-all` | Restrict the roster to `transformers` or `sglang`. Repeat the flag to select both. |
-| `--skip-existing` / `--no-skip-existing` | `run-all` | Skip a model-language pair that already has a stored result (default), or run it again. |
+| `--skip-existing` / `--no-skip-existing` | `run-all` | Reuse a stored result only when its inputs and run settings match (default), or explicitly run it again. |
 | `--keep-going` | `run-all` | Continue after a failed run. The command prints each failure to standard error and exits with status 1 at the end. Without this flag, the first failure stops the command. |
 | `--throughput` | `run`, `run-all` | Use the SGLang multi-request throughput mode. |
 | `--json` | `models` | Print the roster as JSON. |
@@ -245,8 +245,11 @@ usagepolicycheck -t
 ```
 
 The node script saves the result of each model as a checkpoint when the model is
-complete. It skips the models that are complete. Therefore, you resume a job that
-exceeded its walltime. You do not repeat it. Refer to [docs/grid5000.md](docs/grid5000.md).
+complete. With the default skip behavior, it reuses a result only when the prompt, dataset
+and run settings match. If they differ, or an older result lacks experiment identity
+metadata, the command stops before loading the model and leaves the stored result
+untouched. Therefore, you can resume a job that exceeded its walltime without reusing
+results from another experiment. Refer to [docs/grid5000.md](docs/grid5000.md).
 
 ## Development
 

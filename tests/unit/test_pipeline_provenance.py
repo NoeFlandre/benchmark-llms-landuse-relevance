@@ -68,6 +68,93 @@ def _provider(generator, revision: str = "rev0"):
     return lambda _request: (generator, revision)
 
 
+def test_experiment_identity_records_all_generation_settings(request_for) -> None:
+    request = replace(
+        request_for(),
+        model_id=QUANTIZED,
+        run_id="quantized-variant",
+        language="fr",
+        revision="target-revision",
+        batch_size=7,
+        max_new_tokens=28,
+        seed=9,
+        dtype="float16",
+        runtime=SGLANG,
+        vision=True,
+        draft_model_id="example/draft",
+        draft_revision="draft-revision",
+        speculative={"num_speculative_tokens": 3},
+        throughput_mode=True,
+    )
+
+    identity = pipeline.experiment_identity_for_request(
+        request, prompt_sha256="prompt-hash", benchmark_sha256="dataset-hash"
+    )
+
+    assert identity == {
+        "schema_version": 1,
+        "model_id": QUANTIZED,
+        "run_name": "quantized-variant",
+        "language": "fr",
+        "prompt_sha256": "prompt-hash",
+        "benchmark_sha256": "dataset-hash",
+        "requested_revision": "target-revision",
+        "batch_size": 7,
+        "max_new_tokens": 28,
+        "seed": 9,
+        "dtype": "float16",
+        "decoding": "greedy",
+        "runtime": SGLANG,
+        "generation_mode": "sglang-throughput",
+        "continuous_batching": False,
+        "throughput_mode": True,
+        "vision": True,
+        "quantization": "UD-IQ2_XXS",
+        "draft_model_id": "example/draft",
+        "requested_draft_revision": "draft-revision",
+        "speculative": {"num_speculative_tokens": 3},
+        "inference": "generation",
+        "decision_rule": "",
+    }
+
+
+def test_experiment_identity_records_scoring_settings(request_for) -> None:
+    scorer = SCORER_ROSTER[0]
+    request = replace(
+        request_for(), model_id=scorer.model_id, max_new_tokens=47, seed=5, dtype="float32"
+    )
+
+    identity = pipeline.experiment_identity_for_request(
+        request, prompt_sha256="prompt-hash", benchmark_sha256="dataset-hash"
+    )
+
+    assert identity == {
+        "schema_version": 1,
+        "model_id": scorer.model_id,
+        "run_name": scorer.model_id,
+        "language": "en",
+        "prompt_sha256": "prompt-hash",
+        "benchmark_sha256": "dataset-hash",
+        "requested_revision": None,
+        "batch_size": DEFAULT_BATCH_SIZE,
+        "max_new_tokens": 0,
+        "seed": 5,
+        "dtype": "float32",
+        "decoding": "none",
+        "runtime": TRANSFORMERS,
+        "generation_mode": "static-batched",
+        "continuous_batching": False,
+        "throughput_mode": False,
+        "vision": False,
+        "quantization": "",
+        "draft_model_id": "",
+        "requested_draft_revision": None,
+        "speculative": {},
+        "inference": "scoring",
+        "decision_rule": scorer.decision_rule,
+    }
+
+
 @pytest.fixture
 def clock(monkeypatch: pytest.MonkeyPatch):
     """Control the two monotonic readings a timed run takes; returns a setter."""

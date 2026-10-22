@@ -159,6 +159,48 @@ def _close_generator(generator: TextGenerator) -> None:
         generator.close()
 
 
+def _generation_mode(request: RunRequest) -> str:
+    return (
+        "transformers-continuous-batching"
+        if request.continuous_batching
+        else "sglang-throughput"
+        if request.throughput_mode
+        else "static-batched"
+    )
+
+
+def experiment_identity_for_request(
+    request: RunRequest, *, prompt_sha256: str, benchmark_sha256: str
+) -> dict[str, Any]:
+    """Return the persisted identity used to decide whether a result can be resumed."""
+    scoring = request.model_id in scorer_ids()
+    return {
+        "schema_version": 1,
+        "model_id": request.model_id,
+        "run_name": request.name,
+        "language": request.language,
+        "prompt_sha256": prompt_sha256,
+        "benchmark_sha256": benchmark_sha256,
+        "requested_revision": request.revision,
+        "batch_size": request.batch_size,
+        "max_new_tokens": 0 if scoring else request.max_new_tokens,
+        "seed": request.seed,
+        "dtype": request.dtype,
+        "decoding": "none" if scoring else "greedy",
+        "runtime": request.runtime,
+        "generation_mode": _generation_mode(request),
+        "continuous_batching": request.continuous_batching,
+        "throughput_mode": request.throughput_mode,
+        "vision": request.vision,
+        "quantization": quantization_of(request.model_id),
+        "draft_model_id": request.draft_model_id,
+        "requested_draft_revision": request.draft_revision,
+        "speculative": dict(request.speculative),
+        "inference": SCORING if scoring else "generation",
+        "decision_rule": scorer_for(request.model_id).decision_rule if scoring else "",
+    }
+
+
 def _close_run_generator(request: RunRequest, generator: TextGenerator, *, failed: bool) -> None:
     """Close a generator this run owns, then log GPU memory."""
     if not request.close_generator:
@@ -318,13 +360,15 @@ def _metadata(  # noqa: PLR0913 - the provenance fields are distinct inputs
 ) -> RunMetadata:
     """Fields every run records, plus the ones its method adds."""
     duration = run.duration
+    prompt_sha256 = sha256_of_text(template)
+    benchmark_sha256 = sha256_of_file(request.benchmark_path)
     return RunMetadata(
         model_id=request.model_id,
         run_id=request.run_id,
         language=request.language,
         model_revision=revision,
-        prompt_sha256=sha256_of_text(template),
-        benchmark_sha256=sha256_of_file(request.benchmark_path),
+        prompt_sha256=prompt_sha256,
+        benchmark_sha256=benchmark_sha256,
         batch_size=_effective_batch_size(model, request),
         seed=request.seed,
         dtype=_runtime_dtype(model, request),
@@ -336,12 +380,9 @@ def _metadata(  # noqa: PLR0913 - the provenance fields are distinct inputs
         draft_model_revision=_draft_revision(model, request),
         speculative=dict(request.speculative),
         package_version=__version__,
-        generation_mode=(
-            "transformers-continuous-batching"
-            if request.continuous_batching
-            else "sglang-throughput"
-            if request.throughput_mode
-            else "static-batched"
+        generation_mode=_generation_mode(request),
+        experiment_identity=experiment_identity_for_request(
+            request, prompt_sha256=prompt_sha256, benchmark_sha256=benchmark_sha256
         ),
         throughput_items_per_second=len(run.predictions) / duration if duration > 0.0 else None,
         device_name=_device_name(),

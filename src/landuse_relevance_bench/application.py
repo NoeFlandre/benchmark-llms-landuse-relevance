@@ -4,13 +4,14 @@ Input problems surface as ``typer.BadParameter`` so every command reports them a
 errors; the command definitions themselves stay in :mod:`landuse_relevance_bench.cli`.
 """
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Literal, NamedTuple, TypedDict
 
 import typer
 
 from landuse_relevance_bench.adapters.benchmark_csv import BenchmarkFileError
+from landuse_relevance_bench.adapters.hashing import sha256_of_file, sha256_of_text
 from landuse_relevance_bench.adapters.paths import default_paths
 from landuse_relevance_bench.adapters.pipeline import (
     GeneratorProvider,
@@ -18,6 +19,7 @@ from landuse_relevance_bench.adapters.pipeline import (
     ScorerProvider,
     execute,
     execute_scoring,
+    experiment_identity_for_request,
 )
 from landuse_relevance_bench.adapters.prompt_file import PromptFileError, load_prompt
 from landuse_relevance_bench.adapters.provenance import source_commit
@@ -54,20 +56,54 @@ DEFAULT_RESULTS = _DEFAULTS.results
 _INPUT_ERRORS = (OSError, BenchmarkFileError, PromptFileError, TranslationDataError, ValueError)
 
 
-CheckpointState = Literal["complete", "pending", "invalid"]
+CheckpointState = Literal["complete", "pending", "invalid", "legacy"]
 
 
-def _checkpoint_state(path: Path, model: str, language: str) -> CheckpointState:
-    """Classify a stored result: absent is pending; unreadable or mismatched is invalid."""
+def _checkpoint_result(
+    path: Path, model: str, language: str
+) -> tuple[CheckpointState, RunResult | None]:
+    """Read a usable checkpoint, distinguishing legacy results that lack identity."""
     if not path.is_file():
-        return "pending"
+        return "pending", None
     try:
         result = read_run(path)
     except (OSError, ValueError):
-        return "invalid"
-    if result.metadata.name == model and result.metadata.language == language:
-        return "complete"
-    return "invalid"
+        return "invalid", None
+    if result.metadata.name != model or result.metadata.language != language:
+        return "invalid", None
+    identity = result.metadata.experiment_identity
+    if (
+        not isinstance(identity, Mapping)
+        or type(identity.get("schema_version")) is not int
+        or identity.get("schema_version") != 1
+    ):
+        return "legacy", result
+    return "complete", result
+
+
+def _checkpoint_state(path: Path, model: str, language: str) -> CheckpointState:
+    """Classify a saved model-language result and reject metadata without identity."""
+    return _checkpoint_result(path, model, language)[0]
+
+
+def _requested_experiment_identity(request: RunRequest) -> dict[str, object]:
+    """Hash the inputs and settings the current request would use."""
+    prompt = load_prompt(request.prompt_path)
+    return experiment_identity_for_request(
+        request,
+        prompt_sha256=sha256_of_text(prompt),
+        benchmark_sha256=sha256_of_file(request.benchmark_path),
+    )
+
+
+def _identity_mismatches(stored: Mapping[str, object], expected: Mapping[str, object]) -> list[str]:
+    """Name the request fields that differ from the saved experiment."""
+    missing = object()
+    return sorted(
+        key
+        for key in stored.keys() | expected.keys()
+        if stored.get(key, missing) != expected.get(key, missing)
+    )
 
 
 def run_pair(
@@ -80,12 +116,30 @@ def run_pair(
     """Run one model-language pair unless it is checkpointed; input problems are usage errors."""
     result_path = request.output_dir / run_filename(request.name, request.language)
     if skip_existing:
-        state = _checkpoint_state(result_path, request.name, request.language)
+        state, stored_result = _checkpoint_result(result_path, request.name, request.language)
         if state == "invalid":
             raise typer.BadParameter(
                 f"{result_path} is unreadable or contains a different model-language run"
             )
+        if state == "legacy":
+            raise typer.BadParameter(
+                f"{result_path} has legacy or unsupported metadata without a usable "
+                "experiment identity; refusing to reuse or overwrite the stored result"
+            )
         if state == "complete":
+            try:
+                expected = _requested_experiment_identity(request)
+            except _INPUT_ERRORS as exc:
+                raise typer.BadParameter(str(exc)) from exc
+            if stored_result is None:
+                raise typer.BadParameter(f"{result_path} could not be read as a run result")
+            stored = stored_result.metadata.experiment_identity
+            differences = _identity_mismatches(stored, expected)
+            if differences:
+                raise typer.BadParameter(
+                    f"{result_path} experiment identity differs in "
+                    f"{', '.join(differences)}; refusing to reuse or overwrite the stored result"
+                )
             typer.echo(f"{request.name} [{request.language}] already complete; skipping")
             return
     try:
@@ -192,7 +246,9 @@ def print_run_plan(
         _checkpoint_state(results_dir / run_filename(model_id, language), model_id, language)
         for model_id, language in pairs
     ]
-    completed, pending, invalid = (states.count(k) for k in ("complete", "pending", "invalid"))
+    completed = states.count("complete")
+    pending = states.count("pending")
+    invalid = len(states) - completed - pending
     prompt_count = sum(manifest.files[language].rows for language in selected) * len(models)
     assigned_prompts = sum(manifest.files[language].rows for _, language in pairs)
     typer.echo(

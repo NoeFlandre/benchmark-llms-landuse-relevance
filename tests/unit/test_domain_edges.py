@@ -87,6 +87,13 @@ def test_blank_language_metadata_is_refused_with_its_reason() -> None:
         RunMetadata(**_metadata(language="   "))
 
 
+def test_experiment_identity_must_be_an_object() -> None:
+    with pytest.raises(
+        ValueError, match=_exact("run metadata experiment_identity must be an object")
+    ):
+        RunMetadata(**_metadata(experiment_identity=[]))
+
+
 def test_metadata_without_a_language_or_with_unknown_fields_is_refused() -> None:
     missing = "legacy/archive-only run metadata is missing required language"
     with pytest.raises(ValueError, match=_exact(missing)):

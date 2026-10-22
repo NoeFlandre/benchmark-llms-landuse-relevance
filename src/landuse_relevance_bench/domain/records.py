@@ -129,6 +129,9 @@ class RunMetadata:
     speculative: Mapping[str, Any] = field(default_factory=dict)
     package_version: str = ""
     generation_mode: str = "static-batched"
+    # The request and input digests needed to decide whether this result can be resumed.
+    # Legacy results have no identity and therefore cannot be safely reused.
+    experiment_identity: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def name(self) -> str:
@@ -144,6 +147,8 @@ class RunMetadata:
             raise ValueError(
                 "run metadata requires a non-empty language; legacy records are archive-only"
             )
+        if not isinstance(self.experiment_identity, Mapping):
+            raise ValueError("run metadata experiment_identity must be an object")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

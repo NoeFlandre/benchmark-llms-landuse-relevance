@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Checkpoint resume: save prompt and dataset hashes with the run settings, and reuse a
+  result only when its experiment identity matches. Reject legacy or mismatched results
+  without changing the stored file.
 - Scoring: add the pinned `knowledgator/gliclass-multilang-ultra` checkpoint. Use one
   English land-use hypothesis with GLiClass multi-label scoring and the fixed inclusive
   0.5 sigmoid-score rule; retain its native tie behavior and evaluate all 85 languages.
