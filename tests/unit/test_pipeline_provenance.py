@@ -13,7 +13,7 @@ import pytest
 import landuse_relevance_bench
 from factories import ScriptedGenerator
 from landuse_relevance_bench.adapters import pipeline
-from landuse_relevance_bench.adapters.hashing import sha256_of_text
+from landuse_relevance_bench.adapters.hashing import sha256_of_bytes, sha256_of_file, sha256_of_text
 from landuse_relevance_bench.adapters.pipeline import RunRequest, execute, execute_scoring
 from landuse_relevance_bench.adapters.results_store import read_run, run_filename
 from landuse_relevance_bench.application import score_one
@@ -68,6 +68,105 @@ def _provider(generator, revision: str = "rev0"):
     return lambda _request: (generator, revision)
 
 
+def test_experiment_identity_records_all_generation_settings(request_for) -> None:
+    request = replace(
+        request_for(),
+        model_id=QUANTIZED,
+        run_id="quantized-variant",
+        language="fr",
+        revision="target-revision",
+        batch_size=7,
+        max_new_tokens=28,
+        seed=9,
+        dtype="float16",
+        runtime=SGLANG,
+        vision=True,
+        draft_model_id="example/draft",
+        draft_revision="draft-revision",
+        speculative={"num_speculative_tokens": 3},
+        throughput_mode=True,
+    )
+
+    identity = pipeline.experiment_identity_for_request(
+        request,
+        prompt_sha256="prompt-hash",
+        benchmark_sha256="dataset-hash",
+        resolved_model_revision="a" * 40,
+        resolved_draft_revision="b" * 40,
+    )
+
+    assert identity == {
+        "schema_version": 2,
+        "model_id": QUANTIZED,
+        "run_name": "quantized-variant",
+        "language": "fr",
+        "prompt_sha256": "prompt-hash",
+        "benchmark_sha256": "dataset-hash",
+        "requested_revision": "target-revision",
+        "resolved_model_revision": "a" * 40,
+        "batch_size": 7,
+        "max_new_tokens": 28,
+        "seed": 9,
+        "dtype": "float16",
+        "decoding": "greedy",
+        "runtime": SGLANG,
+        "generation_mode": "sglang-throughput",
+        "continuous_batching": False,
+        "throughput_mode": True,
+        "vision": True,
+        "quantization": "UD-IQ2_XXS",
+        "draft_model_id": "example/draft",
+        "requested_draft_revision": "draft-revision",
+        "resolved_draft_revision": "b" * 40,
+        "speculative": {"num_speculative_tokens": 3},
+        "inference": "generation",
+        "decision_rule": "",
+    }
+
+
+def test_experiment_identity_records_scoring_settings(request_for) -> None:
+    scorer = SCORER_ROSTER[0]
+    request = replace(
+        request_for(), model_id=scorer.model_id, max_new_tokens=47, seed=5, dtype="float32"
+    )
+
+    identity = pipeline.experiment_identity_for_request(
+        request,
+        prompt_sha256="prompt-hash",
+        benchmark_sha256="dataset-hash",
+        resolved_model_revision="a" * 40,
+        resolved_draft_revision="",
+    )
+
+    assert identity == {
+        "schema_version": 2,
+        "model_id": scorer.model_id,
+        "run_name": scorer.model_id,
+        "language": "en",
+        "prompt_sha256": "prompt-hash",
+        "benchmark_sha256": "dataset-hash",
+        "requested_revision": None,
+        "resolved_model_revision": "a" * 40,
+        "batch_size": DEFAULT_BATCH_SIZE,
+        "max_new_tokens": 0,
+        "seed": 5,
+        "dtype": "float32",
+        "decoding": "none",
+        "runtime": TRANSFORMERS,
+        "generation_mode": "static-batched",
+        "continuous_batching": False,
+        "throughput_mode": False,
+        "vision": False,
+        "quantization": "",
+        "draft_model_id": "",
+        "requested_draft_revision": None,
+        "resolved_draft_revision": "",
+        "speculative": {},
+        "inference": "scoring",
+        "decision_rule": scorer.decision_rule,
+    }
+
+
 @pytest.fixture
 def clock(monkeypatch: pytest.MonkeyPatch):
     """Control the two monotonic readings a timed run takes; returns a setter."""
@@ -87,29 +186,64 @@ def test_metadata_records_the_identity_and_provenance_of_the_request(
         run_id="m@variant",
         runtime=SGLANG,
         draft_model_id="draft/model",
-        draft_revision="draft-rev",
+        draft_revision="b" * 40,
         speculative={"k": 2},
         seed=5,
         max_new_tokens=7,
     )
 
     metadata = execute(
-        request, _provider(ScriptedGenerator(["yes", "no"]), "rev-9"), source_commit="abc123"
+        request, _provider(ScriptedGenerator(["yes", "no"]), "9" * 40), source_commit="abc123"
     ).metadata
 
     assert metadata.model_id == MODEL
     assert metadata.run_id == "m@variant"
     assert metadata.name == "m@variant"
-    assert metadata.model_revision == "rev-9"
+    assert metadata.model_revision == "9" * 40
     assert metadata.runtime == SGLANG
     assert metadata.draft_model_id == "draft/model"
-    assert metadata.draft_model_revision == "draft-rev"
+    assert metadata.draft_model_revision == "b" * 40
     assert metadata.speculative == {"k": 2}
     assert metadata.source_commit == "abc123"
     assert metadata.package_version == landuse_relevance_bench.__version__
     assert metadata.seed == 5
     assert metadata.max_new_tokens == 7
     assert metadata.quantization == ""
+
+
+@pytest.mark.parametrize(
+    ("requested_revision", "expected_revision"),
+    [(None, ""), ("mutable-tag", ""), ("A" * 40, "a" * 40)],
+)
+def test_metadata_records_only_immutable_model_revisions(
+    request_for, monkeypatch, requested_revision: str | None, expected_revision: str
+) -> None:
+    monkeypatch.setattr(pipeline, "free_gpu_memory_bytes", lambda: None)
+    request = request_for(revision=requested_revision)
+
+    metadata = execute(request, _provider(ScriptedGenerator(["yes", "no"]), "mutable-ref"))
+
+    assert metadata.metadata.model_revision == expected_revision
+
+
+def test_metadata_hashes_the_csv_snapshot_parsed_before_provider_load(
+    request_for, benchmark_path: Path
+) -> None:
+    request = request_for()
+    parsed_snapshot = benchmark_path.read_bytes()
+    changed_csv = (
+        'sentence,label,source_item_id,language\n"Replacement row.",yes,replacement-1,en\n'
+    )
+
+    def change_benchmark_after_load(_request):
+        benchmark_path.write_text(changed_csv, encoding="utf-8")
+        return ScriptedGenerator(["yes", "no"]), "9" * 40
+
+    result = execute(request, change_benchmark_after_load)
+
+    assert len(result.predictions) == 2
+    assert result.metadata.benchmark_sha256 == sha256_of_bytes(parsed_snapshot)
+    assert result.metadata.benchmark_sha256 != sha256_of_file(benchmark_path)
 
 
 def test_metadata_takes_the_device_name_from_the_timing_host(request_for, monkeypatch) -> None:

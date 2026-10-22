@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from landuse_relevance_bench.adapters.pipeline import RunRequest
-from landuse_relevance_bench.adapters.revision import loaded_revision, resolve_revision
+from landuse_relevance_bench.adapters.revision import is_immutable_revision, loaded_revision
 from landuse_relevance_bench.domain.engine import Generation
 from landuse_relevance_bench.domain.roster import quantization_of
 
@@ -295,4 +295,7 @@ def provide(request: RunRequest) -> tuple[Any, str]:
         _settings(request),
         revision=request.revision,
     )
-    return generator, resolve_revision(request.model_id, request.revision, generator.revision)
+    revision = generator.revision
+    if not is_immutable_revision(revision):
+        revision = request.revision if is_immutable_revision(request.revision) else ""
+    return generator, revision.lower() if revision else ""

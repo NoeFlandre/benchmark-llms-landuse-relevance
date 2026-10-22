@@ -50,6 +50,7 @@ gguf = [
 # `inference`; the uv `conflicts` table below keeps the two resolutions apart.
 speculative = [
     "sglang>=0.5.20",  # DSpark with LFM2 and LFM2-VL targets
+    "aiohttp>=3.14.5",
     "cuda-tile>=1.6.0rc5",
     "flash-attn-4>=4.0.0b18",
 ]

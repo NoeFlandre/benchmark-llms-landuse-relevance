@@ -48,7 +48,7 @@ start.
 | --- | --- | --- |
 | `--only REGEX` | `run-all` | Run only the roster run names that match the regular expression. |
 | `--runtime NAME` | `run-all` | Restrict the roster to `transformers` or `sglang`. Repeat the flag to select both. |
-| `--skip-existing` / `--no-skip-existing` | `run-all` | Skip a model-language pair that already has a stored result (default), or run it again. |
+| `--skip-existing` / `--no-skip-existing` | `run-all` | Reuse a stored result only when its inputs and run settings match (default), or explicitly run it again. |
 | `--keep-going` | `run-all` | Continue after a failed run. The command prints each failure to standard error and exits with status 1 at the end. Without this flag, the first failure stops the command. |
 | `--throughput` | `run`, `run-all` | Use the SGLang multi-request throughput mode. |
 | `--json` | `models` | Print the roster as JSON. |
@@ -120,8 +120,9 @@ The published benchmark uses a generation budget of 4096 tokens. This gives the 
 enough room to reach their yes/no verdict. The score then does not test the length of
 the output.
 
-Each result file pins the model revision, the prompt sha256, the benchmark sha256, the
-decoding settings, the seed, and the source commit.
+Each result file records immutable model and draft commits, the prompt sha256, the exact
+benchmark CSV bytes parsed for inference, the decoding settings, the seed, and the source
+commit.
 
 ## Data
 
@@ -244,9 +245,12 @@ usagepolicycheck -t
  scripts/g5k_submit.sh
 ```
 
-The node script saves the result of each model as a checkpoint when the model is
-complete. It skips the models that are complete. Therefore, you resume a job that
-exceeded its walltime. You do not repeat it. Refer to [docs/grid5000.md](docs/grid5000.md).
+The node script saves each completed model result as a checkpoint. With the default skip
+behavior, it reuses a result only when the prompt, dataset, settings, and resolved model
+and draft commits match. It resolves mutable revision names before comparing them. If a
+revision cannot be resolved, the command stops before loading the model and leaves the
+stored result untouched. Older results without current experiment identity metadata also
+stop before model loading. Refer to [docs/grid5000.md](docs/grid5000.md).
 
 ## Development
 

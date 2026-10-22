@@ -10,11 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from landuse_relevance_bench import __version__
-from landuse_relevance_bench.adapters.benchmark_csv import load_benchmark
+from landuse_relevance_bench.adapters.benchmark_csv import load_benchmark_snapshot
 from landuse_relevance_bench.adapters.gpu_memory import free_gpu_memory_bytes
-from landuse_relevance_bench.adapters.hashing import sha256_of_file, sha256_of_text
+from landuse_relevance_bench.adapters.hashing import sha256_of_text
 from landuse_relevance_bench.adapters.prompt_file import load_prompt
 from landuse_relevance_bench.adapters.results_store import write_run
+from landuse_relevance_bench.adapters.revision import is_immutable_revision
 from landuse_relevance_bench.domain.engine import (
     BatchSizeReporting,
     Closable,
@@ -53,6 +54,7 @@ from landuse_relevance_bench.domain.scorers import scorer_for, scorer_ids
 DEFAULT_MAX_NEW_TOKENS = 4096
 DEFAULT_DTYPE = "bfloat16"
 SCORING_SEQUENCE_LENGTH = 8192
+EXPERIMENT_IDENTITY_SCHEMA_VERSION = 2
 logger = logging.getLogger(__name__)
 
 
@@ -159,6 +161,55 @@ def _close_generator(generator: TextGenerator) -> None:
         generator.close()
 
 
+def _generation_mode(request: RunRequest) -> str:
+    return (
+        "transformers-continuous-batching"
+        if request.continuous_batching
+        else "sglang-throughput"
+        if request.throughput_mode
+        else "static-batched"
+    )
+
+
+def experiment_identity_for_request(
+    request: RunRequest,
+    *,
+    prompt_sha256: str,
+    benchmark_sha256: str,
+    resolved_model_revision: str,
+    resolved_draft_revision: str,
+) -> dict[str, Any]:
+    """Return the persisted identity used to decide whether a result can be resumed."""
+    scoring = request.model_id in scorer_ids()
+    return {
+        "schema_version": EXPERIMENT_IDENTITY_SCHEMA_VERSION,
+        "model_id": request.model_id,
+        "run_name": request.name,
+        "language": request.language,
+        "prompt_sha256": prompt_sha256,
+        "benchmark_sha256": benchmark_sha256,
+        "requested_revision": request.revision,
+        "resolved_model_revision": resolved_model_revision,
+        "batch_size": request.batch_size,
+        "max_new_tokens": 0 if scoring else request.max_new_tokens,
+        "seed": request.seed,
+        "dtype": request.dtype,
+        "decoding": "none" if scoring else "greedy",
+        "runtime": request.runtime,
+        "generation_mode": _generation_mode(request),
+        "continuous_batching": request.continuous_batching,
+        "throughput_mode": request.throughput_mode,
+        "vision": request.vision,
+        "quantization": quantization_of(request.model_id),
+        "draft_model_id": request.draft_model_id,
+        "requested_draft_revision": request.draft_revision,
+        "resolved_draft_revision": resolved_draft_revision,
+        "speculative": dict(request.speculative),
+        "inference": SCORING if scoring else "generation",
+        "decision_rule": scorer_for(request.model_id).decision_rule if scoring else "",
+    }
+
+
 def _close_run_generator(request: RunRequest, generator: TextGenerator, *, failed: bool) -> None:
     """Close a generator this run owns, then log GPU memory."""
     if not request.close_generator:
@@ -220,7 +271,9 @@ def execute(
     source_commit: str = "",
 ) -> RunResult:
     """Run the benchmark for one model and write the result next to the others."""
-    items = load_benchmark(request.benchmark_path, expected_language=request.language)
+    items, benchmark_sha256 = load_benchmark_snapshot(
+        request.benchmark_path, expected_language=request.language
+    )
     template = load_prompt(request.prompt_path)
     logger.info("%s: loading model (%d prompts)", request.name, len(items))
     free_before = free_gpu_memory_bytes()
@@ -241,6 +294,7 @@ def execute(
         run,
         revision=revision,
         template=template,
+        benchmark_sha256=benchmark_sha256,
         source_commit=source_commit,
         max_new_tokens=request.max_new_tokens,
         decoding="greedy",
@@ -262,7 +316,9 @@ def execute_scoring(
     verdicts, so the two families can be reported apart.
     """
     spec = scorer_for(request.model_id)
-    items = load_benchmark(request.benchmark_path, expected_language=request.language)
+    items, benchmark_sha256 = load_benchmark_snapshot(
+        request.benchmark_path, expected_language=request.language
+    )
     template = load_prompt(request.prompt_path)
     scorer, revision = provide_scorer(request)
 
@@ -280,6 +336,7 @@ def execute_scoring(
         run,
         revision=revision,
         template=template,
+        benchmark_sha256=benchmark_sha256,
         source_commit=source_commit,
         # Nothing is decoded, so there is no token budget and no decoding strategy.
         max_new_tokens=0,
@@ -313,18 +370,28 @@ def _metadata(  # noqa: PLR0913 - the provenance fields are distinct inputs
     *,
     revision: str | None,
     template: str,
+    benchmark_sha256: str,
     source_commit: str,
     **specific: Any,
 ) -> RunMetadata:
     """Fields every run records, plus the ones its method adds."""
     duration = run.duration
+    prompt_sha256 = sha256_of_text(template)
+    resolved_draft_revision = _draft_revision(model, request)
+    resolved_model_revision = (
+        revision.lower()
+        if revision and is_immutable_revision(revision)
+        else request.revision.lower()
+        if request.revision and is_immutable_revision(request.revision)
+        else ""
+    )
     return RunMetadata(
         model_id=request.model_id,
         run_id=request.run_id,
         language=request.language,
-        model_revision=revision,
-        prompt_sha256=sha256_of_text(template),
-        benchmark_sha256=sha256_of_file(request.benchmark_path),
+        model_revision=resolved_model_revision,
+        prompt_sha256=prompt_sha256,
+        benchmark_sha256=benchmark_sha256,
         batch_size=_effective_batch_size(model, request),
         seed=request.seed,
         dtype=_runtime_dtype(model, request),
@@ -333,15 +400,16 @@ def _metadata(  # noqa: PLR0913 - the provenance fields are distinct inputs
         source_commit=source_commit,
         runtime=request.runtime,
         draft_model_id=request.draft_model_id,
-        draft_model_revision=_draft_revision(model, request),
+        draft_model_revision=resolved_draft_revision,
         speculative=dict(request.speculative),
         package_version=__version__,
-        generation_mode=(
-            "transformers-continuous-batching"
-            if request.continuous_batching
-            else "sglang-throughput"
-            if request.throughput_mode
-            else "static-batched"
+        generation_mode=_generation_mode(request),
+        experiment_identity=experiment_identity_for_request(
+            request,
+            prompt_sha256=prompt_sha256,
+            benchmark_sha256=benchmark_sha256,
+            resolved_model_revision=resolved_model_revision,
+            resolved_draft_revision=resolved_draft_revision,
         ),
         throughput_items_per_second=len(run.predictions) / duration if duration > 0.0 else None,
         device_name=_device_name(),
@@ -410,7 +478,15 @@ def _runtime_dtype(model: object, request: RunRequest) -> str:
 
 
 def _draft_revision(model: object, request: RunRequest) -> str:
-    """The draft revision the generator ran with, else the one requested."""
-    if isinstance(model, DraftRevisionReporting) and model.draft_revision:
-        return model.draft_revision
-    return request.draft_revision or ""
+    """The immutable draft commit the generator ran with, else an immutable request pin."""
+    if not request.draft_model_id:
+        return ""
+    if (
+        isinstance(model, DraftRevisionReporting)
+        and model.draft_revision
+        and is_immutable_revision(model.draft_revision)
+    ):
+        return model.draft_revision.lower()
+    if request.draft_revision and is_immutable_revision(request.draft_revision):
+        return request.draft_revision.lower()
+    return ""

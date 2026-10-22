@@ -14,6 +14,7 @@ from typing import Any, cast
 
 from landuse_relevance_bench.adapters.optional_import import require
 from landuse_relevance_bench.adapters.pipeline import RunRequest
+from landuse_relevance_bench.adapters.revision import resolve_revision
 from landuse_relevance_bench.domain.engine import Generation
 from landuse_relevance_bench.domain.roster import spec_for
 
@@ -70,12 +71,12 @@ class LlamaCppGenerator:
         settings: LlamaSettings,
         revision: str | None = None,
     ) -> "LlamaCppGenerator":
-        from huggingface_hub import HfApi, hf_hub_download
+        from huggingface_hub import hf_hub_download
 
         # Imported by name: llama.cpp is installed only in the GGUF job's environment.
         llama_class = require("llama_cpp", "gguf").Llama
 
-        resolved = revision or str(HfApi().model_info(repository).sha or "")
+        resolved = resolve_revision(repository, revision)
         path = hf_hub_download(repository, weights_file, revision=resolved or None)
         llama = llama_class(
             model_path=path,

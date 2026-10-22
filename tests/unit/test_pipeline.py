@@ -64,7 +64,7 @@ def request_for(tmp_path: Path, benchmark_path: Path, prompt_path: Path):
 class StubProvider:
     """A generator provider that keeps the generator reachable for assertions."""
 
-    def __init__(self, outputs: Sequence[str], revision: str = "rev0") -> None:
+    def __init__(self, outputs: Sequence[str], revision: str = "a" * 40) -> None:
         self.generator = StubGenerator(outputs)
         self._revision = revision
 
@@ -72,7 +72,7 @@ class StubProvider:
         return self.generator, self._revision
 
 
-def _provider(outputs: Sequence[str], revision: str = "rev0") -> StubProvider:
+def _provider(outputs: Sequence[str], revision: str = "a" * 40) -> StubProvider:
     return StubProvider(outputs, revision)
 
 
@@ -93,7 +93,7 @@ def test_records_the_inputs_it_actually_used(request_for, benchmark_path: Path) 
     result = execute(request_for(batch_size=1, max_new_tokens=4, seed=7), _provider(["yes", "no"]))
     metadata = result.metadata
     assert metadata.benchmark_sha256 == sha256_of_file(benchmark_path)
-    assert metadata.model_revision == "rev0"
+    assert metadata.model_revision == "a" * 40
     assert metadata.language == "en"
     assert metadata.batch_size == 1
     assert metadata.max_new_tokens == 4
@@ -132,11 +132,11 @@ def test_scoring_records_throughput_and_peak_vram(monkeypatch, request_for) -> N
 
     from landuse_relevance_bench.adapters.pipeline import execute_scoring
 
-    result = execute_scoring(request, lambda _: (scorer, "gte-rev"))
+    result = execute_scoring(request, lambda _: (scorer, "a" * 40))
 
     assert scorer.started is True
     assert scorer.finished is True
-    assert result.metadata.model_revision == "gte-rev"
+    assert result.metadata.model_revision == "a" * 40
     assert result.metadata.sequence_length == 8192
     assert len(result.predictions) == 2
     assert result.metadata.throughput_items_per_second == 1.0  # 2 items over 2.0 seconds
@@ -303,36 +303,44 @@ def test_generation_records_the_generator_declared_batch_size_dtype_and_draft(re
     class ReportingGenerator(StubGenerator):
         effective_batch_size = 2
         runtime_dtype = "float16"
-        draft_revision = "draft-rev"
+        draft_revision = "d" * 40
 
     result = execute(
-        request_for(batch_size=1, draft_revision="requested-draft"),
+        request_for(
+            batch_size=1,
+            draft_model_id="draft/model",
+            draft_revision="requested-draft",
+        ),
         lambda _: (ReportingGenerator(["yes", "no"]), "rev0"),
     )
 
     assert result.metadata.batch_size == 2
     assert result.metadata.dtype == "float16"
-    assert result.metadata.draft_model_revision == "draft-rev"
+    assert result.metadata.draft_model_revision == "d" * 40
 
 
-def test_generation_falls_back_to_the_request_when_the_generator_declares_nothing(
+def test_generation_does_not_record_a_mutable_draft_alias_as_a_commit(
     request_for,
 ) -> None:
-    request = request_for(batch_size=1, draft_revision="requested-draft")
+    request = request_for(
+        batch_size=1,
+        draft_model_id="draft/model",
+        draft_revision="requested-draft",
+    )
     result = execute(request, _provider(["yes", "no"]))
 
     assert result.metadata.batch_size == 1
     assert result.metadata.dtype == request.dtype
-    assert result.metadata.draft_model_revision == "requested-draft"
+    assert result.metadata.draft_model_revision == ""
 
 
-def test_an_empty_generator_draft_revision_defers_to_the_request(request_for) -> None:
+def test_an_empty_generator_draft_revision_uses_an_immutable_request_pin(request_for) -> None:
     class EmptyDraftGenerator(StubGenerator):
         draft_revision = ""
 
     result = execute(
-        request_for(draft_revision="requested-draft"),
+        request_for(draft_model_id="draft/model", draft_revision="d" * 40),
         lambda _: (EmptyDraftGenerator(["yes", "no"]), "rev0"),
     )
 
-    assert result.metadata.draft_model_revision == "requested-draft"
+    assert result.metadata.draft_model_revision == "d" * 40

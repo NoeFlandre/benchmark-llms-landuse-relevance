@@ -8,6 +8,7 @@ import pytest
 
 from landuse_relevance_bench import application, cli
 from landuse_relevance_bench.adapters import hf_generator, hf_scorer, llama_generator
+from landuse_relevance_bench.adapters import revision as revision_adapter
 from landuse_relevance_bench.adapters.pipeline import RunRequest
 from landuse_relevance_bench.domain.scorers import GENERATIVE_PROMPT, ZEROSHOT_PROMPT
 
@@ -39,29 +40,27 @@ class _FakeLlama:
 def fake_hub(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
     downloads: list[tuple] = []
 
-    class HfApi:
-        def model_info(self, repository):
-            return types.SimpleNamespace(sha="resolved-sha")
-
     def hf_hub_download(repository, filename, revision=None):
         downloads.append((repository, filename, revision))
         return f"/cache/{filename}"
 
     hub = types.SimpleNamespace(
-        HfApi=HfApi,
         hf_hub_download=hf_hub_download,
-        snapshot_download=lambda repository, revision=None: "/cache/snapshots/abc",
+        snapshot_download=lambda repository, revision=None: f"/cache/snapshots/{'a' * 40}",
     )
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
     monkeypatch.setitem(sys.modules, "llama_cpp", types.SimpleNamespace(Llama=_FakeLlama))
+    monkeypatch.setattr(
+        revision_adapter, "hub_commit", lambda _repository, _revision=None: "a" * 40
+    )
     return downloads
 
 
 def test_a_gguf_roster_id_downloads_its_quant_and_offloads_every_layer(fake_hub) -> None:
     generator, revision = llama_generator.provide(_request(GGUF_ID))
 
-    assert revision == "resolved-sha"
-    assert fake_hub == [("unsloth/Qwen3.8-27B-GGUF", "Qwen3.8-27B-UD-IQ2_XXS.gguf", "resolved-sha")]
+    assert revision == "a" * 40
+    assert fake_hub == [("unsloth/Qwen3.8-27B-GGUF", "Qwen3.8-27B-UD-IQ2_XXS.gguf", "a" * 40)]
     assert generator._llama.kwargs["n_gpu_layers"] == -1
     assert generator._llama.kwargs["model_path"] == "/cache/Qwen3.8-27B-UD-IQ2_XXS.gguf"
 
@@ -93,7 +92,7 @@ def test_the_nli_loader_builds_the_zero_shot_pipeline(monkeypatch: pytest.Monkey
         @staticmethod
         def from_pretrained(model_id, **kwargs):
             return types.SimpleNamespace(
-                model_max_length=10**9, config=types.SimpleNamespace(_commit_hash="nli-sha")
+                model_max_length=10**9, config=types.SimpleNamespace(_commit_hash="b" * 40)
             )
 
     def pipeline(task, **kwargs):
@@ -109,7 +108,7 @@ def test_the_nli_loader_builds_the_zero_shot_pipeline(monkeypatch: pytest.Monkey
     scorer = hf_scorer.NliZeroShotScorer.load("m/nli", hf_scorer.ScorerSettings(dtype="float32"))
 
     assert calls["task"] == "zero-shot-classification"
-    assert scorer.revision == "nli-sha"
+    assert scorer.revision == "b" * 40
 
 
 def test_the_gliner2_loader_uses_the_auto_extractor(
@@ -125,4 +124,4 @@ def test_the_gliner2_loader_uses_the_auto_extractor(
 
     scorer = hf_scorer.Gliner2Scorer.load("fastino/x", hf_scorer.ScorerSettings(dtype="float32"))
 
-    assert scorer.revision == "abc"
+    assert scorer.revision == "a" * 40

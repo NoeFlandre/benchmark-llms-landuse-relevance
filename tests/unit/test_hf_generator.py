@@ -163,15 +163,23 @@ def _request(revision: str | None) -> RunRequest:
     )
 
 
-@pytest.mark.parametrize(("requested", "expected"), [("pinned", "pinned"), (None, "resolved")])
-def test_provide_prefers_an_explicit_revision_over_the_resolved_one(
-    monkeypatch, requested: str | None, expected: str
+@pytest.mark.parametrize(
+    ("requested", "loaded", "expected"),
+    [
+        ("main", "a" * 40, "a" * 40),
+        (None, "b" * 40, "b" * 40),
+        ("main", "", ""),
+        ("c" * 40, "", "c" * 40),
+    ],
+)
+def test_provide_records_only_the_immutable_revision_used_by_the_model(
+    monkeypatch, requested: str | None, loaded: str, expected: str
 ) -> None:
     loads: list[str | None] = []
 
     def fake_load(model_id: str, settings: GeneratorSettings, revision: str | None = None) -> Any:
         loads.append(revision)
-        return _generator(commit="resolved")
+        return _generator(commit=loaded)
 
     monkeypatch.setattr(TransformersGenerator, "load", staticmethod(fake_load))
     _, revision = hf_generator.provide(_request(requested))

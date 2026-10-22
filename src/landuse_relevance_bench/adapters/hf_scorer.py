@@ -18,7 +18,7 @@ from typing import Any
 from landuse_relevance_bench.adapters.hf_scorer_prompt import reranker_input
 from landuse_relevance_bench.adapters.optional_import import require
 from landuse_relevance_bench.adapters.pipeline import SCORING_SEQUENCE_LENGTH, RunRequest
-from landuse_relevance_bench.adapters.revision import loaded_revision
+from landuse_relevance_bench.adapters.revision import is_immutable_revision, loaded_revision
 from landuse_relevance_bench.domain.engine import LabelScorer, LabelScores, ScoringInput
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.scorers import (
@@ -162,7 +162,8 @@ class _TransformersScorer(_Scorer, _CudaMeasurement):
 
     @property
     def revision(self) -> str:
-        return loaded_revision(self._model)
+        revision = loaded_revision(self._model)
+        return revision.lower() if is_immutable_revision(revision) else ""
 
     def _batch(self, *texts: Sequence[str], **options: Any) -> dict[str, Any]:
         batch = self._tokenizer(
@@ -345,7 +346,9 @@ class LayaScorer(_PipelineScorer):
         )
         device = "cuda" if torch.cuda.is_available() else "cpu"
         agent = _load_laya().load(local_path, device=device)
-        resolved_revision = revision or Path(local_path).name
+        resolved_revision = Path(local_path).name
+        if not is_immutable_revision(resolved_revision):
+            resolved_revision = ""
         del settings  # Laya's SDK selects its own dtype, recorded as runtime_dtype
         return cls(agent, resolved_revision)
 
@@ -439,7 +442,12 @@ class D1Scorer(_PipelineScorer):
             device_map=settings.device_map,
         )
         model.eval()
-        return cls(model, revision or loaded_revision(model))
+        resolved_revision = loaded_revision(model)
+        if not is_immutable_revision(resolved_revision):
+            resolved_revision = Path(local_snapshot).name
+        if not is_immutable_revision(resolved_revision):
+            resolved_revision = ""
+        return cls(model, resolved_revision.lower())
 
     @property
     def runtime_dtype(self) -> str:
@@ -560,7 +568,7 @@ class NliZeroShotScorer(_PipelineScorer):
             device=_torch_device(),
         )
         resolved = loaded_revision(model)
-        return cls(pipeline, revision or resolved)
+        return cls(pipeline, resolved.lower() if is_immutable_revision(resolved) else "")
 
     def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         hypothesis = batch_hypothesis(inputs)
@@ -614,7 +622,7 @@ class GliClassScorer(_PipelineScorer):
             progress_bar=False,
         )
         resolved = loaded_revision(model)
-        return cls(pipeline, pinned_revision or resolved)
+        return cls(pipeline, resolved.lower() if is_immutable_revision(resolved) else "")
 
     def _score_nonempty(self, inputs: Sequence[ScoringInput]) -> list[LabelScores]:
         hypothesis = batch_hypothesis(inputs)
@@ -729,7 +737,11 @@ class Gliner2Scorer(_PipelineScorer):
             local_path, map_location=_torch_device().split(":")[0]
         )
         model.eval()
-        return cls(model, revision or Path(local_path).name)
+        resolved_revision = Path(local_path).name
+        return cls(
+            model,
+            resolved_revision.lower() if is_immutable_revision(resolved_revision) else "",
+        )
 
     @property
     def runtime_dtype(self) -> str:
@@ -925,4 +937,7 @@ def provide_scorer(request: RunRequest) -> tuple[LabelScorer, str]:
         trust_remote_code=scorer_for(request.model_id).trust_remote_code,
     )
     scorer = scorer_cls.load(repository_of(request.model_id), settings, revision=request.revision)
-    return scorer, request.revision or scorer.revision
+    revision = scorer.revision
+    if not is_immutable_revision(revision):
+        revision = request.revision if is_immutable_revision(request.revision) else ""
+    return scorer, revision.lower() if revision else ""
