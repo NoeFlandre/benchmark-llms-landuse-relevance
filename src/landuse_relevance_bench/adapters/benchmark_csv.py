@@ -2,8 +2,11 @@
 
 import csv
 from collections.abc import Sequence
+from io import StringIO
 from pathlib import Path
+from typing import TextIO
 
+from landuse_relevance_bench.adapters.hashing import sha256_of_bytes
 from landuse_relevance_bench.domain.dataset import BenchmarkItem, InvalidRowError, build_item
 
 REQUIRED_COLUMNS = ("sentence", "label", "source_item_id", "language")
@@ -22,11 +25,44 @@ def load_benchmark(
 ) -> tuple[BenchmarkItem, ...]:
     """Read every row of ``path`` into a validated, uniquely identified item."""
     with path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        _check_columns(path, reader.fieldnames)
-        items = tuple(
-            _build(path, row, line, expected_language) for line, row in enumerate(reader, start=2)
+        return _load_handle(
+            path,
+            handle,
+            expected_language=expected_language,
+            expected_source_item_ids=expected_source_item_ids,
         )
+
+
+def load_benchmark_snapshot(
+    path: Path,
+    *,
+    expected_language: str | None = None,
+    expected_source_item_ids: Sequence[str] | None = None,
+) -> tuple[tuple[BenchmarkItem, ...], str]:
+    """Parse and hash the same bytes, even if ``path`` changes after this call."""
+    snapshot = path.read_bytes()
+    with StringIO(snapshot.decode("utf-8"), newline="") as handle:
+        items = _load_handle(
+            path,
+            handle,
+            expected_language=expected_language,
+            expected_source_item_ids=expected_source_item_ids,
+        )
+    return items, sha256_of_bytes(snapshot)
+
+
+def _load_handle(
+    path: Path,
+    handle: TextIO,
+    *,
+    expected_language: str | None,
+    expected_source_item_ids: Sequence[str] | None,
+) -> tuple[BenchmarkItem, ...]:
+    reader = csv.DictReader(handle)
+    _check_columns(path, reader.fieldnames)
+    items = tuple(
+        _build(path, row, line, expected_language) for line, row in enumerate(reader, start=2)
+    )
     if not items:
         raise BenchmarkFileError(f"benchmark {path} has no rows")
     _check_unique(path, items)

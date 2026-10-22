@@ -231,7 +231,7 @@ def test_ultra_loader_pins_model_and_tokenizer_to_the_same_commit(
     monkeypatch.setitem(sys.modules, "transformers", transformers)
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(float16="float16"))
     monkeypatch.setattr(hf_scorer, "_torch_device", lambda: "cpu")
-    monkeypatch.setattr(hf_scorer, "loaded_revision", lambda _model: "resolved-revision")
+    monkeypatch.setattr(hf_scorer, "loaded_revision", lambda _model: GLICLASS_ULTRA_REVISION)
 
     scorer = GliClassUltraScorer.load(GLICLASS_ULTRA_ID, ScorerSettings(dtype="float16"))
 

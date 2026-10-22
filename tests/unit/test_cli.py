@@ -21,6 +21,12 @@ from landuse_relevance_bench.domain.scorers import scorer_for
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _immutable_fake_model_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unit CLI runs use one stable commit so checkpoint-resume tests stay offline."""
+    monkeypatch.setattr(application, "resolve_revision", lambda *_args: "a" * 40)
+
+
 def test_version_option_prints_the_package_version() -> None:
     import landuse_relevance_bench
 
@@ -288,7 +294,7 @@ class AlwaysYes:
 
 
 def _fake_provider(_: RunRequest) -> tuple[AlwaysYes, str]:
-    return AlwaysYes(), "fakerev"
+    return AlwaysYes(), "a" * 40
 
 
 def _translation_root(tmp_path: Path, benchmark_path: Path) -> Path:
@@ -398,7 +404,7 @@ def test_run_reuses_one_generator_across_languages(
 
     def recording_provider(request: RunRequest) -> tuple[AlwaysYes, str]:
         provider_languages.append(request.language)
-        return AlwaysYes(), "fakerev"
+        return AlwaysYes(), "a" * 40
 
     monkeypatch.setattr(providers, "generator_provider", lambda: recording_provider)
     result = runner.invoke(

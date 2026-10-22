@@ -19,3 +19,8 @@ def sha256_of_file(path: Path) -> str:
         while chunk := handle.read(_CHUNK):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def sha256_of_bytes(value: bytes) -> str:
+    """Hash an in-memory input snapshot without reopening its source path."""
+    return hashlib.sha256(value).hexdigest()

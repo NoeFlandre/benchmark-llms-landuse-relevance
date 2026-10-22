@@ -1,5 +1,6 @@
 """Usage-error messages, planning lines and checkpoint handling of the CLI use cases."""
 
+import hashlib
 import json
 import re
 from dataclasses import replace
@@ -56,6 +57,14 @@ THIRTEEN = _predictions(
 def _no_git_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     """The source commit is looked up through git; keep every test independent of the checkout."""
     monkeypatch.setattr(application, "source_commit", lambda: "")
+
+    def resolve(model_id: str, *candidates: str | None) -> str:
+        requested = next((candidate for candidate in candidates if candidate), "main")
+        if re.fullmatch(r"[0-9a-f]{40}", requested, re.IGNORECASE):
+            return requested
+        return hashlib.sha256(f"{model_id}:{requested}".encode()).hexdigest()[:40]
+
+    monkeypatch.setattr(application, "resolve_revision", resolve)
 
 
 def _request(tmp_path: Path, model: str = "m", language: str = "en") -> RunRequest:
@@ -206,7 +215,7 @@ def test_run_pair_rejects_incomplete_versioned_identity(
     saved_metadata = SimpleNamespace(
         name=request.name,
         language=request.language,
-        experiment_identity={"schema_version": 1},
+        experiment_identity={"schema_version": 2},
     )
     monkeypatch.setattr(
         application, "read_run", lambda _path: SimpleNamespace(metadata=saved_metadata)
@@ -243,8 +252,129 @@ def test_run_pair_reports_each_changed_identity_field(
 
     message = str(error.value)
     assert "experiment identity differs in max_new_tokens, requested_revision" in message
+    assert "resolved_model_revision" in message
     assert "refusing to reuse or overwrite the stored result" in message
     assert stored_path.read_bytes() == original_file
+
+
+def test_run_pair_rejects_a_mutable_model_ref_that_resolved_to_a_new_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = replace(_request(tmp_path), revision="main")
+    stored_path = _store_checkpoint(tmp_path)
+    original_file = stored_path.read_bytes()
+    saved_identity = application._requested_experiment_identity(request)
+    metadata = SimpleNamespace(
+        name=request.name,
+        language=request.language,
+        experiment_identity=saved_identity,
+    )
+    monkeypatch.setattr(application, "read_run", lambda _path: SimpleNamespace(metadata=metadata))
+    monkeypatch.setattr(application, "resolve_revision", lambda *_args: "b" * 40)
+
+    with pytest.raises(typer.BadParameter, match="resolved_model_revision"):
+        application.run_pair(
+            request, lambda: pytest.fail("moved model ref must not resume"), lambda _r: ""
+        )
+
+    assert stored_path.read_bytes() == original_file
+
+
+def test_run_pair_rejects_a_mutable_draft_ref_that_resolved_to_a_new_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = replace(
+        _request(tmp_path),
+        revision="a" * 40,
+        draft_model_id="draft/model",
+        draft_revision="main",
+    )
+    stored_path = _store_checkpoint(tmp_path)
+    original_file = stored_path.read_bytes()
+    saved_identity = application._requested_experiment_identity(request)
+    metadata = SimpleNamespace(
+        name=request.name,
+        language=request.language,
+        experiment_identity=saved_identity,
+    )
+    monkeypatch.setattr(application, "read_run", lambda _path: SimpleNamespace(metadata=metadata))
+
+    def resolve(model_id: str, *candidates: str | None) -> str:
+        return "d" * 40 if model_id == "draft/model" else "a" * 40
+
+    monkeypatch.setattr(application, "resolve_revision", resolve)
+
+    with pytest.raises(typer.BadParameter, match="resolved_draft_revision"):
+        application.run_pair(
+            request, lambda: pytest.fail("moved draft ref must not resume"), lambda _r: ""
+        )
+
+    assert stored_path.read_bytes() == original_file
+
+
+@pytest.mark.parametrize("unresolved_ref", ["target", "draft"])
+def test_run_pair_refuses_reuse_when_a_model_ref_cannot_be_resolved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unresolved_ref: str,
+) -> None:
+    request = _request(tmp_path)
+    if unresolved_ref == "target":
+        request = replace(request, revision="main")
+        unresolved_repository = "m"
+        message = "immutable revision for model m"
+    else:
+        request = replace(
+            request,
+            revision="a" * 40,
+            draft_model_id="draft/model",
+            draft_revision="main",
+        )
+        unresolved_repository = "draft/model"
+        message = "immutable revision for draft model draft/model"
+    stored_path = _store_checkpoint(tmp_path)
+    original_file = stored_path.read_bytes()
+    metadata = SimpleNamespace(
+        name=request.name,
+        language=request.language,
+        experiment_identity=application._requested_experiment_identity(request),
+    )
+    monkeypatch.setattr(application, "read_run", lambda _path: SimpleNamespace(metadata=metadata))
+
+    calls: list[tuple[str, tuple[str | None, ...]]] = []
+
+    def resolve(repository: str, *candidates: str | None) -> str:
+        calls.append((repository, candidates))
+        return "" if repository == unresolved_repository else "a" * 40
+
+    monkeypatch.setattr(application, "resolve_revision", resolve)
+
+    with pytest.raises(typer.BadParameter, match=re.escape(message)) as error:
+        application.run_pair(
+            request, lambda: pytest.fail("unresolved mutable ref must not resume"), lambda _r: ""
+        )
+
+    expected_error = f"could not resolve an {message}; refusing to reuse the stored result"
+    assert str(error.value) == expected_error
+    if unresolved_ref == "draft":
+        assert ("draft/model", ("main",)) in calls
+    assert stored_path.read_bytes() == original_file
+
+
+def test_requested_identity_normalizes_resolved_commit_ids(
+    tmp_path: Path,
+) -> None:
+    request = replace(
+        _request(tmp_path),
+        revision="A" * 40,
+        draft_model_id="draft/model",
+        draft_revision="B" * 40,
+    )
+
+    identity = application._requested_experiment_identity(request)
+
+    assert identity["resolved_model_revision"] == "a" * 40
+    assert identity["resolved_draft_revision"] == "b" * 40
 
 
 def test_run_pair_preserves_input_error_when_identity_cannot_be_read(
@@ -256,7 +386,7 @@ def test_run_pair_preserves_input_error_when_identity_cannot_be_read(
     metadata = SimpleNamespace(
         name=request.name,
         language=request.language,
-        experiment_identity={"schema_version": 1},
+        experiment_identity={"schema_version": 2},
     )
     monkeypatch.setattr(application, "read_run", lambda _path: SimpleNamespace(metadata=metadata))
 

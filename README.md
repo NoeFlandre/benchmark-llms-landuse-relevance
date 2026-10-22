@@ -120,8 +120,9 @@ The published benchmark uses a generation budget of 4096 tokens. This gives the 
 enough room to reach their yes/no verdict. The score then does not test the length of
 the output.
 
-Each result file pins the model revision, the prompt sha256, the benchmark sha256, the
-decoding settings, the seed, and the source commit.
+Each result file records immutable model and draft commits, the prompt sha256, the exact
+benchmark CSV bytes parsed for inference, the decoding settings, the seed, and the source
+commit.
 
 ## Data
 
@@ -244,12 +245,12 @@ usagepolicycheck -t
  scripts/g5k_submit.sh
 ```
 
-The node script saves the result of each model as a checkpoint when the model is
-complete. With the default skip behavior, it reuses a result only when the prompt, dataset
-and run settings match. If they differ, or an older result lacks experiment identity
-metadata, the command stops before loading the model and leaves the stored result
-untouched. Therefore, you can resume a job that exceeded its walltime without reusing
-results from another experiment. Refer to [docs/grid5000.md](docs/grid5000.md).
+The node script saves each completed model result as a checkpoint. With the default skip
+behavior, it reuses a result only when the prompt, dataset, settings, and resolved model
+and draft commits match. It resolves mutable revision names before comparing them. If a
+revision cannot be resolved, the command stops before loading the model and leaves the
+stored result untouched. Older results without current experiment identity metadata also
+stop before model loading. Refer to [docs/grid5000.md](docs/grid5000.md).
 
 ## Development
 

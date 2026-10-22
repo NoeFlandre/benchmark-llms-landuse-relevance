@@ -30,6 +30,7 @@ scenarios("features/benchmark.feature")
 
 GOLD_MODEL = "stub/gold"
 SECOND_MODEL = "stub/second"
+STUB_REVISION = "a" * 40
 
 
 class OracleGenerator:
@@ -114,7 +115,7 @@ def _benchmark_models(models, benchmark: Path, prompt: Path, tmp_path: Path):
                 output_dir=results_dir,
                 batch_size=8,
             ),
-            lambda _request, gen=generator: (gen, "stubrev"),
+            lambda _request, gen=generator: (gen, STUB_REVISION),
         )
         for model_id, generator in models.items()
     }
@@ -188,7 +189,8 @@ def _digests(runs, benchmark: Path, prompt: Path) -> None:
 @then("the stored result names the model revision that was used")
 def _revision(runs) -> None:
     assert (
-        read_run(runs["dir"] / run_filename(GOLD_MODEL, "en")).metadata.model_revision == "stubrev"
+        read_run(runs["dir"] / run_filename(GOLD_MODEL, "en")).metadata.model_revision
+        == STUB_REVISION
     )
 
 
@@ -227,7 +229,7 @@ def _multilingual_runs(real_prompt_path: Path, tmp_path: Path) -> dict[str, Any]
                 output_dir=results_dir,
                 batch_size=32,
             ),
-            lambda _request, current_generator=generator: (current_generator, "stubrev"),
+            lambda _request, current_generator=generator: (current_generator, STUB_REVISION),
         )
         runs.append(result)
     return {"dir": results_dir, "runs": runs}

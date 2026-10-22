@@ -15,6 +15,8 @@ from landuse_relevance_bench.domain.engine import ScoringInput
 from landuse_relevance_bench.domain.labels import Label
 from landuse_relevance_bench.domain.scorers import SCORER_ROSTER
 
+COMMIT = "a" * 40
+
 
 def _torch() -> Any:
     return pytest.importorskip("torch")
@@ -93,6 +95,7 @@ def test_transformers_import_and_loader_helpers_are_lazy_and_revision_pinned(mon
     torch = _torch()
     tokenizer = Tokenizer()
     model = Model()
+    model.config._commit_hash = COMMIT
     calls: list[tuple[str, dict[str, Any]]] = []
 
     class AutoTokenizer:
@@ -135,7 +138,7 @@ def test_transformers_import_and_loader_helpers_are_lazy_and_revision_pinned(mon
         "owner/model", hf_scorer.ScorerSettings(dtype="float32"), revision="rev"
     )
     assert type(loaded) is hf_scorer.RerankerScorer
-    assert loaded.revision == "loaded-revision"
+    assert loaded.revision == COMMIT
 
 
 def test_transformers_scorer_adapters_score_and_handle_empty_batches() -> None:
@@ -147,6 +150,7 @@ def test_transformers_scorer_adapters_score_and_handle_empty_batches() -> None:
     logits[:, -1, 10] = 8
     logits[:, -1, 11] = 1
     model = Model(logits)
+    model.config._commit_hash = COMMIT
 
     reranker = hf_scorer.RerankerScorer(tokenizer, model)
     mxbai = hf_scorer.MxbaiRerankerScorer(tokenizer, model)
@@ -154,7 +158,7 @@ def test_transformers_scorer_adapters_score_and_handle_empty_batches() -> None:
     assert mxbai.score([]) == []
     assert reranker.score(_inputs("forest", "council"))[0].verdict is Label.YES
     assert mxbai.score(_inputs("forest", "council"))[0].verdict is Label.YES
-    assert reranker.revision == "loaded-revision"
+    assert reranker.revision == COMMIT
 
     single = Model(torch.tensor([[2.0], [0.5]]))
     binary = Model(torch.tensor([[1.0, 3.0], [4.0, 1.0]]))
@@ -293,7 +297,7 @@ def test_scorer_selection_and_provider_reject_unknown_models(monkeypatch) -> Non
     original_selector = module.scorer_class_for
 
     class Loaded:
-        revision = "resolved-rev"
+        revision = "a" * 40
 
         @classmethod
         def load(
@@ -316,8 +320,8 @@ def test_scorer_selection_and_provider_reject_unknown_models(monkeypatch) -> Non
     )
     scorer, revision = module.provide_scorer(request)
     assert type(scorer) is Loaded
-    assert scorer.revision == "resolved-rev"
-    assert revision == "requested-rev"
+    assert scorer.revision == "a" * 40
+    assert revision == "a" * 40
     monkeypatch.setattr(module, "scorer_class_for", original_selector)
     with pytest.raises(ValueError, match="no scoring adapter"):
         module.scorer_class_for("unknown/model")
@@ -372,6 +376,7 @@ def test_all_optional_scorer_loaders_are_mockable_without_network(monkeypatch) -
     monkeypatch.setitem(sys.modules, "torch", torch)
     tokenizer = Tokenizer()
     model = Model()
+    model.config._commit_hash = COMMIT
     auto_calls: list[tuple[str, dict[str, Any]]] = []
 
     class AutoTokenizer:
@@ -385,7 +390,7 @@ def test_all_optional_scorer_loaders_are_mockable_without_network(monkeypatch) -
         def from_pretrained(model_id: str, **kwargs: Any) -> Model:
             auto_calls.append(("model", {"model_id": model_id, **kwargs}))
             loaded_model = Model()
-            loaded_model.config._commit_hash = kwargs.get("revision")
+            loaded_model.config._commit_hash = COMMIT
             return loaded_model
 
     class Pipeline:
@@ -409,9 +414,9 @@ def test_all_optional_scorer_loaders_are_mockable_without_network(monkeypatch) -
     gte = hf_scorer.GteScorer.load("owner/gte", settings, revision="gte-rev")
     masked = hf_scorer.MaskedTokenScorer.load("owner/masked", settings, revision="mask-rev")
     nli = hf_scorer.NliZeroShotScorer.load("owner/nli", settings, revision="nli-rev")
-    assert gte.revision == "gte-rev"
-    assert masked.revision == "mask-rev"
-    assert nli.revision == "nli-rev"
+    assert gte.revision == COMMIT
+    assert masked.revision == COMMIT
+    assert nli.revision == COMMIT
     assert tokenizer.model_max_length == hf_scorer.ZEROSHOT_SEQUENCE_LENGTH
 
     gliclass = ModuleType("gliclass")
@@ -423,10 +428,12 @@ def test_all_optional_scorer_loaders_are_mockable_without_network(monkeypatch) -
     )
     monkeypatch.setitem(sys.modules, "gliclass", gliclass)
     gli = hf_scorer.GliClassScorer.load("owner/gli", settings, revision="gli-rev")
-    assert gli.revision == "gli-rev"
+    assert gli.revision == COMMIT
 
     hub = ModuleType("huggingface_hub")
-    hub.snapshot_download = lambda model_id, **kwargs: f"/cache/{model_id.split('/')[-1]}"
+    hub.snapshot_download = lambda model_id, **kwargs: (
+        f"/cache/{model_id.split('/')[-1]}/snapshots/{COMMIT}"
+    )
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
     auto_extractor = type(
         "AutoExtractor",
@@ -438,7 +445,7 @@ def test_all_optional_scorer_loaders_are_mockable_without_network(monkeypatch) -
     monkeypatch.setitem(sys.modules, "gliner2", gliner_module)
     model.evaluated = False
     gliner = hf_scorer.Gliner2Scorer.load("owner/gliner", settings, revision="gli-rev")
-    assert gliner.revision == "gli-rev"
+    assert gliner.revision == COMMIT
     assert model.evaluated  # Fresh flag: the GLiNER loader must put the model in eval mode.
 
     laya_agent = SimpleNamespace(dtype="torch.float16")
@@ -448,7 +455,7 @@ def test_all_optional_scorer_loaders_are_mockable_without_network(monkeypatch) -
         lambda: SimpleNamespace(load=lambda path, **kwargs: laya_agent),
     )
     laya = hf_scorer.LayaScorer.load("owner/laya", settings)
-    assert laya.revision == "laya"
+    assert laya.revision == COMMIT
     assert laya.runtime_dtype == "float16"
     # Default settings never run a checkpoint's remote code, whichever loader asks.
     assert not any(call[1].get("trust_remote_code") for call in auto_calls)

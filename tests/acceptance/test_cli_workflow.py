@@ -16,6 +16,7 @@ from landuse_relevance_bench.adapters.benchmark_csv import load_benchmark
 from landuse_relevance_bench.adapters.results_store import write_run
 
 scenarios("features/cli_workflow.feature")
+MODEL_REVISION = "a" * 40
 
 
 @dataclass(frozen=True)
@@ -48,9 +49,10 @@ def _cli_harness(monkeypatch, real_benchmark_path: Path, real_prompt_path: Path,
 
     def provide(request):
         calls.append(request.name)
-        return OracleGenerator(labels), "stub-revision"
+        return OracleGenerator(labels), MODEL_REVISION
 
     monkeypatch.setattr(providers, "generator_provider", lambda: provide)
+    monkeypatch.setattr(application, "resolve_revision", lambda *_args: MODEL_REVISION)
     monkeypatch.setattr(cli, "model_ids", lambda: ("stub/first", "stub/second"))
     monkeypatch.setattr(application, "model_ids", lambda: ("stub/first", "stub/second"))
     return CliHarness(

@@ -14,6 +14,7 @@ from landuse_relevance_bench.adapters.benchmark_csv import BenchmarkFileError
 from landuse_relevance_bench.adapters.hashing import sha256_of_file, sha256_of_text
 from landuse_relevance_bench.adapters.paths import default_paths
 from landuse_relevance_bench.adapters.pipeline import (
+    EXPERIMENT_IDENTITY_SCHEMA_VERSION,
     GeneratorProvider,
     RunRequest,
     ScorerProvider,
@@ -31,6 +32,7 @@ from landuse_relevance_bench.adapters.results_store import (
     run_filename,
     write_reports,
 )
+from landuse_relevance_bench.adapters.revision import is_immutable_revision, resolve_revision
 from landuse_relevance_bench.adapters.translations import (
     TranslationDataError,
     TranslationManifest,
@@ -46,6 +48,7 @@ from landuse_relevance_bench.domain.selection import (
     select_run_names,
 )
 from landuse_relevance_bench.domain.sharding import model_language_pairs, shard_pairs
+from landuse_relevance_bench.domain.variants import repository_of
 
 _DEFAULTS = default_paths()
 DEFAULT_DATA_ROOT = _DEFAULTS.data_root
@@ -75,7 +78,7 @@ def _checkpoint_result(
     if (
         not isinstance(identity, Mapping)
         or type(identity.get("schema_version")) is not int
-        or identity.get("schema_version") != 1
+        or identity.get("schema_version") != EXPERIMENT_IDENTITY_SCHEMA_VERSION
     ):
         return "legacy", result
     return "complete", result
@@ -87,12 +90,29 @@ def _checkpoint_state(path: Path, model: str, language: str) -> CheckpointState:
 
 
 def _requested_experiment_identity(request: RunRequest) -> dict[str, object]:
-    """Hash the inputs and settings the current request would use."""
+    """Hash current inputs and resolve model refs before checking a saved result."""
     prompt = load_prompt(request.prompt_path)
+    model_repository = repository_of(request.model_id)
+    resolved_model_revision = resolve_revision(model_repository, request.revision)
+    if not is_immutable_revision(resolved_model_revision):
+        raise ValueError(
+            f"could not resolve an immutable revision for model {model_repository}; "
+            "refusing to reuse the stored result"
+        )
+    resolved_draft_revision = ""
+    if request.draft_model_id:
+        resolved_draft_revision = resolve_revision(request.draft_model_id, request.draft_revision)
+        if not is_immutable_revision(resolved_draft_revision):
+            raise ValueError(
+                "could not resolve an immutable revision for draft model "
+                f"{request.draft_model_id}; refusing to reuse the stored result"
+            )
     return experiment_identity_for_request(
         request,
         prompt_sha256=sha256_of_text(prompt),
         benchmark_sha256=sha256_of_file(request.benchmark_path),
+        resolved_model_revision=resolved_model_revision.lower(),
+        resolved_draft_revision=resolved_draft_revision.lower(),
     )
 
 
