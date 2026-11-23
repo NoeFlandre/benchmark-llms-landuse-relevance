@@ -833,7 +833,9 @@ def test_publish_pushes_the_stored_runs(
     assert (results_dir / "scoring_summary.csv").exists()
     assert (results_dir / "data" / "train.csv").exists()
     card = (results_dir / "README.md").read_text(encoding="utf-8")
-    assert "some/model" in card and "other/model" in card
+    assert "# Land-use relevance benchmark" in card
+    aggregates = (results_dir / "aggregates.csv").read_text(encoding="utf-8")
+    assert "some/model" in aggregates and "other/model" in aggregates
 
 
 def test_publish_filters_language_artifacts_and_viewer_rows(
@@ -890,8 +892,7 @@ def test_publish_filters_language_artifacts_and_viewer_rows(
     )
 
     assert result.exit_code == 0, result.stdout
-    assert "other/model" in captured["card"]
-    assert "some/model" not in captured["card"]
+    assert "- **Languages:** 1" in captured["card"]
     viewer_rows = list(csv.DictReader(captured["viewer"].splitlines()))
     assert viewer_rows and {row["language"] for row in viewer_rows} == {"fr"}
     assert "fr/other__model.json" in captured["upload"]["allow_patterns"]
@@ -1015,7 +1016,7 @@ def test_publish_dry_run_previews_card_without_writing_or_uploading(
 
     assert result.exit_code == 0, result.stdout
     assert "dry-run: would publish 1 result(s)" in result.stdout
-    assert "some/model" in result.stdout
+    assert "# Land-use relevance benchmark" in result.stdout
     assert not (results_dir / "README.md").exists()
 
 

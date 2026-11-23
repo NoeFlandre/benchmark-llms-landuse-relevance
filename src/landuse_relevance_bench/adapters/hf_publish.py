@@ -16,6 +16,11 @@ from landuse_relevance_bench.adapters.publishing.card import (
 )
 from landuse_relevance_bench.adapters.publishing.card_agreement import DSPARK_COLUMNS
 from landuse_relevance_bench.adapters.publishing.card_overview import CARD_COLUMNS
+from landuse_relevance_bench.adapters.publishing.card_pareto import (
+    FIGURE_PATH,
+    model_points,
+    write_pareto_plot,
+)
 from landuse_relevance_bench.adapters.publishing.card_scoring import (
     SCORING_SUMMARY_CARD_COLUMNS,
 )
@@ -25,6 +30,7 @@ from landuse_relevance_bench.adapters.publishing.card_speed import (
 )
 from landuse_relevance_bench.adapters.publishing.viewer import write_viewer_dataset
 from landuse_relevance_bench.adapters.results_store import ARCHIVE_COMPONENT, read_runs
+from landuse_relevance_bench.domain.pareto import plotted_points
 from landuse_relevance_bench.domain.records import RunResult
 
 # Public names kept importable from here for one release after the card moved into
@@ -96,6 +102,7 @@ def publish_results(
         extra_scorer_prompt_texts=extra_scorer_prompt_texts,
         timing_results=timing_results,
         viewer_file=viewer_file,
+        repo_id=repo_id,
     )
     (results_dir / "README.md").write_text(
         dataset_card(
@@ -106,6 +113,9 @@ def publish_results(
         ),
         encoding="utf-8",
     )
+    plotted = plotted_points(model_points(results), EXPECTED_FULL_SWEEP_LANGUAGE_COUNT)
+    if plotted:
+        write_pareto_plot(plotted, results_dir / FIGURE_PATH)
     supplement_path = results_dir / "docs" / "results-and-methodology.md"
     supplement_path.parent.mkdir(parents=True, exist_ok=True)
     supplement_path.write_text(

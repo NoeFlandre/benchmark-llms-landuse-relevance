@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Publishing: the dataset card is now a short public page. It shows a Pareto plot of macro balanced accuracy against total parameters (`figures/pareto-frontier.png`) and the frontier models; the full model table stays in `aggregates.csv`. `matplotlib` joins the `publish` extra.
 - Checkpoint resume: save the prompt hash, the digest of the exact benchmark CSV snapshot
   used for inference, run settings, and immutable model and draft commits. Resolve mutable
   refs before reuse, and refuse reuse when a commit cannot be established. Reject legacy

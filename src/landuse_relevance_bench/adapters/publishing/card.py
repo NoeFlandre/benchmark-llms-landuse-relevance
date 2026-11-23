@@ -18,6 +18,7 @@ from landuse_relevance_bench.adapters.publishing.card_overview import (
     package_version_section,
     scale_line,
 )
+from landuse_relevance_bench.adapters.publishing.card_pareto import FIGURE_PATH, model_points
 from landuse_relevance_bench.adapters.publishing.card_scoring import (
     scoring_prompt_blocks,
     scoring_section,
@@ -32,6 +33,7 @@ from landuse_relevance_bench.adapters.results_store import (
     scoring_summary_rows,
 )
 from landuse_relevance_bench.domain.card_invariants import validate_for_card
+from landuse_relevance_bench.domain.pareto import ModelPoint, pareto_frontier, plotted_points
 from landuse_relevance_bench.domain.records import RunResult
 from landuse_relevance_bench.domain.scorers import (
     D1_MODEL_CARD_LANGUAGE_COUNT,
@@ -49,6 +51,7 @@ class CardOptions:
     extra_scorer_prompt_texts: Sequence[str] = ()
     timing_results: Sequence[RunResult] = ()
     viewer_file: str = ""
+    repo_id: str = ""
 
 
 def methodology_card(
@@ -126,109 +129,182 @@ def dataset_card(
     prompt_text: str,
     options: CardOptions | None = None,
 ) -> str:
-    """Build the concise dataset page from the same rows written to aggregates.csv."""
+    """Build the public dataset page from the same runs that write aggregates.csv."""
     section_options = CardOptions() if options is None else options
     validate_for_card(results, prompt_text)
-    rows = aggregate_rows(results)
-    rows_by_score = sorted(
-        rows,
-        key=lambda row: (-row["balanced_accuracy_macro"], row["model_id"]),
+    languages = sorted({result.metadata.language for result in results})
+    return render_dataset_card(
+        model_points(results),
+        languages=languages,
+        benchmark_name=benchmark_name,
+        prompt_text=prompt_text,
+        options=section_options,
     )
-    model_count = len(rows_by_score)
-    generative_count = len(
-        {result.metadata.name for result in results if result.metadata.is_generative}
+
+
+def render_dataset_card(
+    points: Sequence[ModelPoint],
+    *,
+    languages: Sequence[str],
+    benchmark_name: str,
+    prompt_text: str,
+    options: CardOptions,
+) -> str:
+    """Compose the public card from per-model points. The figure is written separately."""
+    plotted = plotted_points(points, EXPECTED_FULL_SWEEP_LANGUAGE_COUNT)
+    items = _items_per_language(points)
+    language_lines = "".join(f"- {language}\n" for language in languages)
+    viewer_path = Path(options.viewer_file or "data/train.csv").as_posix()
+    usage = (
+        f"""## Usage
+
+```python
+from datasets import load_dataset
+
+ds = load_dataset("{options.repo_id}", split="train")
+english = ds.filter(lambda row: row["language"] == "en")
+```
+
+"""
+        if options.repo_id
+        else ""
     )
-    scoring_count = model_count - generative_count
-    full_language_models = sum(
-        int(row["language_count"]) == EXPECTED_FULL_SWEEP_LANGUAGE_COUNT for row in rows
-    )
-    table_lines = [
-        (
-            "| Model | Languages | Native macro balanced accuracy | Native macro F1 | "
-            "Native macro MCC | Unparsed macro rate |"
-        ),
-        "|---|---:|---:|---:|---:|---:|",
-    ]
-    table_lines.extend(
-        f"| `{row['model_id']}` | {row['language_count']}/"
-        f"{EXPECTED_FULL_SWEEP_LANGUAGE_COUNT} | "
-        f"{format_card_float(float(row['balanced_accuracy_macro']))} | "
-        f"{format_card_float(float(row['f1_macro']))} | "
-        f"{format_card_float(float(row['matthews_corrcoef_macro']))} | "
-        f"{format_card_float(float(row['unparsed_rate_macro']))} |"
-        for row in rows_by_score
-    )
-    coverage_notes = _coverage_notes(rows_by_score)
-    coverage = "".join(f"\n\n{note}" for note in coverage_notes)
-    viewer_path = Path(section_options.viewer_file or "data/train.csv").as_posix()
-    package_versions = package_version_section(results)
     return f"""---
 license: mit
+task_categories:
+- text-classification
+language:
+{language_lines}pretty_name: Land-use relevance benchmark
+size_categories:
+- 10K<n<100K
+tags:
+- remote-sensing
+- land-use
+- land-cover
+- multilingual
 configs:
 - config_name: default
   data_files:
   - split: train
     path: {viewer_path}
-task_categories:
-- text-classification
-tags:
-- land-use
-- land-cover
-- remote-sensing
-- llm-benchmark
 ---
 
 # Land-use relevance benchmark
 
-`{benchmark_name}` contains 25,500 human-labeled sentences in 85 languages, with 300
-aligned sentences per language. Each label is `yes` or `no` for whether the sentence
-describes land use, land cover, or geographic environment with a remote-sensing signal.
+Can a language model tell when a sentence describes something a satellite can see?
 
-[Evaluation code](https://github.com/NoeFlandre/benchmark-llms-landuse-relevance) ·
-[Full prompt, methods, pins, and runtime notes](docs/results-and-methodology.md){package_versions}
+[Code](https://github.com/NoeFlandre/benchmark-llms-landuse-relevance) ·
+[Methods and provenance](docs/results-and-methodology.md)
 
-## Results
+Each sentence describes a place. It is labeled `yes` if it has a land-use,
+land-cover, or geographic-environment signal, such as vegetation, water,
+terrain, buildings, roads, mining, or managed land. It is labeled `no` if it
+is only about history, administration, people, or events.
 
-The published snapshot contains {model_count} models: {generative_count} generative and
-{scoring_count} scoring. It has {len(results):,} completed model-language runs.
-{full_language_models} models have results for all
-{EXPECTED_FULL_SWEEP_LANGUAGE_COUNT} benchmark languages.{coverage}
+- **Rows:** {len(languages) * items:,} ({items} per language)
+- **Languages:** {len(languages)}
+- **Columns:** `sentence`, `label`, `language`, `source_item_id`, and source
+  and location metadata. `source_item_id` links the translations of one source
+  sentence.
+- **Benchmark version:** `{benchmark_name}`
 
-The table reports native macro metrics from `aggregates.csv`. Each metric is averaged
-over languages, not over all sentences pooled together. The 25,500 language entries
-translate the same 300 source sentences, so they are not 25,500 independent source
-examples. Unparsed rate is the macro-average fraction of outputs that could not be
-parsed. Rows are sorted by native macro balanced accuracy. No threshold was tuned on
-gold labels for these native results. `scoring_summary.csv` and `threshold_sweep.csv`
-report thresholds selected on this benchmark as upper-bound comparisons; they do not
-change the fixed native verdicts.
+{usage}{_results_section(plotted, len(languages))}
+
+## Evaluation
+
+- Generative models read one English prompt, with the sentence in place of
+  `{{}}`, and answer `yes` or `no`. The verdict is the last standalone `yes` or
+  `no` in the output. An output without one counts as an error.
+- Scoring models use one fixed decision rule each. No threshold was tuned on
+  the labels for these results.
+- Metrics are computed per language, then averaged over languages: balanced
+  accuracy, F1, Matthews correlation coefficient (MCC), and unparsed rate.
 
 <details>
-<summary>Native results for all {model_count} models</summary>
+<summary>Prompt</summary>
 
-{chr(10).join(table_lines)}
+```text
+{prompt_text.rstrip()}
+```
 
 </details>
 
 ## Files
 
-- [`aggregates.csv`](aggregates.csv) contains native model-level macro metrics,
-  including macro MCC.
-- [`leaderboard.csv`](leaderboard.csv) contains per-language metrics, confidence
-  intervals, paired tests, runtime metadata, and model revisions.
+- [`aggregates.csv`](aggregates.csv): macro metrics for each model.
+- [`leaderboard.csv`](leaderboard.csv): per-language metrics, 95% intervals, and
+  model revisions.
 - [`scoring_summary.csv`](scoring_summary.csv) and
-  [`threshold_sweep.csv`](threshold_sweep.csv) contain separately reported threshold
-  sweeps. Their thresholds are selected on this benchmark, so treat them as an upper
-  bound rather than held-out performance.
-- [`SNAPSHOT_STATUS.md`](SNAPSHOT_STATUS.md) records model and language completion counts.
-- [Supplementary methods and provenance](docs/results-and-methodology.md) preserves
-  historical appendix material, model protocols, fixed decision rules, and precision
-  caveats.
+  [`threshold_sweep.csv`](threshold_sweep.csv): thresholds chosen on these
+  labels. Read them as upper bounds, not held-out results.
+- [`docs/results-and-methodology.md`](docs/results-and-methodology.md): protocols,
+  decision rules, and runtime details.
 
-## License and citation
+## Citation
 
-The dataset card metadata declares the MIT license. Cite this dataset and the [evaluation code](https://github.com/NoeFlandre/benchmark-llms-landuse-relevance).
+```bibtex
+@software{{flandre_landuse_relevance_2026,
+  author = {{Flandre, Noe}},
+  title = {{Benchmarking Small Language Models on Land-Use Relevance}},
+  year = {{2026}},
+  url = {{https://github.com/NoeFlandre/benchmark-llms-landuse-relevance}}
+}}
+```
+
+## License
+
+MIT.
 """
+
+
+def _results_section(plotted: Sequence[ModelPoint], language_count: int) -> str:
+    """The figure and frontier table, or a plain note when no model covers every language."""
+    if not plotted:
+        return (
+            "## Results\n\nNo model has results in every language yet, so there is no "
+            "frontier to plot. All metrics are in [`aggregates.csv`](aggregates.csv)."
+        )
+    frontier_table = "\n".join(
+        (
+            "| Model | Type | Parameters | Balanced accuracy |",
+            "|---|---|---:|---:|",
+            *(
+                f"| `{point.model_id}` | {'generative' if point.generative else 'scoring'} | "
+                f"{_parameter_label(point.parameters)} | {point.balanced_accuracy:.3f} |"
+                for point in pareto_frontier(plotted)
+            ),
+        )
+    )
+    return f"""## Results
+
+Each point is a model. Balanced accuracy is averaged over languages. Model
+size is the total parameter count, on a log scale. The line joins the Pareto
+frontier: a model is on it when no smaller model is at least as accurate.
+
+![Balanced accuracy against model size]({FIGURE_PATH})
+
+{len(plotted)} checkpoints evaluated on all {language_count} languages are
+plotted. Runtime variants and models with partial language coverage are left
+out. Chance level is 0.5.
+
+{frontier_table}
+
+All metrics are in [`aggregates.csv`](aggregates.csv)."""
+
+
+def _items_per_language(points: Sequence[ModelPoint]) -> int:
+    """The source items each language holds, read from every model with results."""
+    counts = {
+        point.n_items_total // point.language_count for point in points if point.language_count
+    }
+    if len(counts) > 1:
+        raise ValueError(f"models disagree on items per language: {sorted(counts)}")
+    return counts.pop() if counts else 0
+
+
+def _parameter_label(parameters: int | None) -> str:
+    billions = (parameters or 0) / 1e9
+    return f"{billions:.2f}B" if billions < 1 else f"{billions:.1f}B"
 
 
 def methodology_supplement(

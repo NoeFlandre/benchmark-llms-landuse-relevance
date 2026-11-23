@@ -59,10 +59,13 @@ supported-language runs. This is observed model behavior. Refer to
 [ADR-0011](adr/0011-sglang-throughput-mode.md) for the hardware and mode details and for
 the LFM2 continuous-batching limitation.
 
-The dataset card is a deterministic model-level aggregate table. It has one row for each
-model. `language_count` shows how many language checkpoints gave data to the row. The
-command `lrb publish` finds the result JSON files recursively. It recomputes every
-aggregate from their predictions.
+The dataset card is a short public page. It shows the benchmark, the frontier of models
+on balanced accuracy against total parameters, and the prompt. The Pareto plot is
+`figures/pareto-frontier.png`. It plots every checkpoint that has results in all 85
+languages, and the card lists the models on its frontier. The full model table is
+`aggregates.csv`, where `language_count` shows how many language checkpoints gave data to
+each row. The command `lrb publish` finds the result JSON files recursively. It recomputes
+every aggregate from their predictions.
 
 The card also shows what the benchmark measured: the prompt (verbatim), the label set,
 the token budget, the decoding, the dtype, the batch size, and the seed. The option

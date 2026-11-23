@@ -56,6 +56,8 @@ speculative = [
 ]
 publish = [
     "huggingface-hub>=0.35",
+    # Draws the Pareto plot that the dataset card links to.
+    "matplotlib>=3.9",
 ]
 
 [project.scripts]

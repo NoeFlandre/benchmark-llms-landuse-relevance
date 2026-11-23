@@ -129,10 +129,7 @@ def test_the_card_has_one_aggregate_row_per_model_and_language_count() -> None:
     assert "benchmark.csv" in card
 
 
-def test_published_summary_keeps_macro_mcc_and_links_the_methods_supplement() -> None:
-    from landuse_relevance_bench.adapters.publishing.card_format import format_card_float
-    from landuse_relevance_bench.adapters.results_store import aggregate_rows
-
+def test_card_links_the_methods_supplement_and_declares_the_dataset_metadata() -> None:
     results = [_result("gen/one"), _scored("knowledgator/gliclass-multilang-ultra")]
     card = published_dataset_card(
         results,
@@ -140,26 +137,60 @@ def test_published_summary_keeps_macro_mcc_and_links_the_methods_supplement() ->
         prompt_text=PROMPT,
         options=CardOptions(scorer_prompt_text=SCORER_PROMPT),
     )
-    ultra = next(row for row in aggregate_rows(results) if row["model_id"].endswith("-ultra"))
 
-    assert "| Model | Languages |" in card
-    assert "Native macro MCC |" in card
-    assert "| `knowledgator/gliclass-multilang-ultra` | 1/85 |" in card
-    ultra_row = next(
-        line for line in card.splitlines() if "knowledgator/gliclass-multilang-ultra" in line
-    )
-    assert format_card_float(ultra["matthews_corrcoef_macro"]) in ultra_row
+    assert "No model has results in every language yet" in card
     assert "docs/results-and-methodology.md" in card
-    assert "No threshold was tuned on gold labels for these native results." in " ".join(
-        card.split()
-    )
+    assert "No threshold was tuned on the labels for these results." in " ".join(card.split())
     frontmatter = card.split("---\n", 2)[1]
     assert "license: mit" in frontmatter
     assert "config_name: default" in frontmatter
     assert "split: train" in frontmatter
     assert "path: data/train.csv" in frontmatter
     assert "task_categories:\n- text-classification" in frontmatter
-    assert "tags:\n- land-use\n- land-cover\n- remote-sensing\n- llm-benchmark" in frontmatter
+    assert "tags:\n- remote-sensing\n- land-use" in frontmatter
+
+
+ALL_LANGUAGES = tuple(f"l{index:02d}" for index in range(85))
+FULL_OUTCOMES = (
+    (Label.YES, Label.YES),
+    (Label.YES, Label.YES),
+    (Label.NO, Label.NO),
+    (Label.NO, Label.NO),
+)
+CHANCE_OUTCOMES = (
+    (Label.YES, Label.NO),
+    (Label.YES, Label.NO),
+    (Label.NO, Label.NO),
+    (Label.NO, Label.NO),
+)
+
+
+def _in_every_language(model_id: str, outcomes: tuple[tuple[Label, Label], ...]) -> list:
+    base = _result_with_outcomes(model_id, outcomes)
+    return [
+        replace(base, metadata=replace(base.metadata, language=language))
+        for language in ALL_LANGUAGES
+    ]
+
+
+def test_card_plots_the_frontier_of_models_that_cover_every_language(tmp_path: Path) -> None:
+    results = [
+        *_in_every_language("LiquidAI/LFM2.5-350M", CHANCE_OUTCOMES),
+        *_in_every_language("Qwen/Qwen3-0.6B", FULL_OUTCOMES),
+        *_in_every_language("LiquidAI/LFM2.5-1.2B-Instruct", FULL_OUTCOMES),
+    ]
+    publish_results("me/bench", tmp_path, results, api=FakeApi(), prompt_text=PROMPT)
+
+    card = (tmp_path / "README.md").read_text(encoding="utf-8")
+    figure = (tmp_path / "figures" / "pareto-frontier.png").read_bytes()
+    assert figure.startswith(b"\x89PNG\r\n\x1a\n")
+    assert "![Balanced accuracy against model size](figures/pareto-frontier.png)" in card
+    assert "- **Languages:** 85" in card
+    assert "- **Rows:** 340 (4 per language)" in card
+    assert "| `Qwen/Qwen3-0.6B` | generative | 0.60B | 1.000 |" in card
+    assert "| `LiquidAI/LFM2.5-350M` | generative | 0.35B | 0.500 |" in card
+    assert "`LiquidAI/LFM2.5-1.2B-Instruct`" not in card
+    assert "No model has results in every language yet" not in card
 
 
 def test_publication_uploads_historical_supplement_and_adds_ultra_provenance(
@@ -187,7 +218,7 @@ def test_publication_uploads_historical_supplement_and_adds_ultra_provenance(
     card = (tmp_path / "README.md").read_text(encoding="utf-8")
     supplement = (tmp_path / "docs" / "results-and-methodology.md").read_text(encoding="utf-8")
 
-    assert "Native macro MCC" in card
+    assert "docs/results-and-methodology.md" in card
     assert "d1-3B precision caveat" in supplement
     assert "The original full-precision per-item probabilities were not stored" in supplement
     assert "| knowledgator/gliclass-multilang-mini | 85 | 0.1987" in supplement
@@ -489,7 +520,7 @@ def test_publishing_creates_the_dataset_repository_then_uploads_the_folder(
 
 def test_publishing_writes_the_card_into_the_uploaded_folder(tmp_path: Path) -> None:
     publish_results("me/bench", tmp_path, [_result()], api=FakeApi(), prompt_text=PROMPT)
-    assert "LiquidAI/LFM2.5-350M" in (tmp_path / "README.md").read_text(encoding="utf-8")
+    assert "# Land-use relevance benchmark" in (tmp_path / "README.md").read_text(encoding="utf-8")
 
 
 def test_publishing_nothing_is_refused(tmp_path: Path) -> None:
